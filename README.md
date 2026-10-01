@@ -33,6 +33,16 @@ No agent, no Python and no Ansible are needed on hosts.
 | `/sys/class/dmi/id/*` | kernel | optional | chassis type and vendor when systemd tools are missing |
 | `/run/systemd/container`, `/proc/1/environ` | base system | optional | recognises containers when `systemd-detect-virt` is missing |
 | `pveversion` | Proxmox VE | optional | recognises Proxmox nodes |
+| `dmidecode` (as root) | dmidecode | optional | machine make/model/serial, board, BIOS, CPUs, each DIMM (slot, size, speed, part, serial), PCIe slots |
+| `smartctl` (as root) | smartmontools | optional | drive model, serial, firmware, health (SATA, SAS and NVMe) |
+| `lspci` | pciutils | optional | add-in cards (GPU, HBA, NIC) and which slot they're in |
+| `/sys/class/net`, `/dev/disk/by-id` | kernel, udev | optional | NIC link speeds and PCI addresses; ZFS member disks |
+| `ipmitool` (as root) | ipmitool | optional | BMC/IPMI address and MAC |
+| `zpool` | OpenZFS | optional | pools and their member drives |
+| `pvesh` (as root) | Proxmox VE | optional | guests on a Proxmox node |
+
+Root-only tools run through passwordless sudo (the `bastet` user has it). When gathering the computer you run Bastet
+from, gather asks for your sudo password once. Without root, those facts are skipped and gather says so.
 
 The first gather can set up a `bastet` user on each host, from your own SSH login (it asks first). That user has
 key login only (no password) and passwordless sudo. Setting it up needs `useradd`, `usermod`, `install`, `getent`

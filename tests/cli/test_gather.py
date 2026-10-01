@@ -193,3 +193,60 @@ def test_unexpected_error_on_one_host_does_not_stop_others(runner, laptop, monke
     assert result.exit_code == 0, result.output
     assert "something odd" in result.output
     assert "os: Arch Linux" in (laptop / "hosts" / "hp-13.md").read_text()
+
+
+from gather_fixtures import SERVER  # noqa: E402
+
+
+@pytest.fixture
+def server(inventory, monkeypatch):
+    monkeypatch.setattr(gather_mod, "scan_keys", lambda address, recorded=None: KEYS)
+
+    def runner(target):
+        if target.user == "bastet":
+            class Refuse:
+                name = "bastet@x"
+
+                def run(self, script, *, timeout=120):
+                    raise AuthFailed("login refused")
+            return Refuse()
+        return FakeRunner(SERVER, f"{target.user}@{target.address}")
+
+    monkeypatch.setattr(gather_mod, "ssh_runner", runner)
+    return inventory
+
+
+def test_gather_server_creates_hardware_files(runner, server):
+    result = runner.invoke(app, ["gather", "pve1", "-y", "--accept-new-hostkey"])
+    assert result.exit_code == 0, result.output
+    hw = sorted(p.name for p in (server / "hardware").glob("*.md"))
+    assert "Supermicro SYS-5019C-MR S123456X.md" in hw and len(hw) == 5
+    host = (server / "hosts" / "pve1.md").read_text()
+    assert "pools:\n  - name: tank\n    state: ONLINE\n" in host
+    assert "git1" in result.output and "media" in result.output and "not in the inventory" in result.output
+    files = git(server, "show", "--name-only", "--format=", "HEAD").split()
+    assert "hosts/pve1.md" in files and any(f.startswith("hardware/") for f in files)
+
+
+def test_root_skipped_note(runner, server, monkeypatch):
+    monkeypatch.setattr(gather_mod, "ssh_runner", lambda target: FakeRunner(
+        dict(SERVER, privilege="none", dmidecode=(126, ""), smart=(126, ""), ipmi=(126, ""), pve_guests=(126, "")), "x"))
+    result = runner.invoke(app, ["gather", "pve1", "-y", "--accept-new-hostkey"])
+    assert result.exit_code == 0, result.output
+    assert "root-only" in result.output
+
+
+def test_local_sudo_validated_once_and_hardware_written(runner, laptop, monkeypatch):
+    calls = []
+    monkeypatch.setattr(gather_mod, "sudo_validate", lambda: calls.append(1) or True)
+    result = runner.invoke(app, ["gather", "hp-13"], input="y\n")
+    assert result.exit_code == 0, result.output
+    assert calls == [1]
+    assert (laptop / "hardware" / "HP Spectre x360 Convertible 13-ae0xx 5CD1234XYZ.md").exists()
+
+
+def test_yes_skips_sudo_prompt(runner, laptop, monkeypatch):
+    calls = []
+    monkeypatch.setattr(gather_mod, "sudo_validate", lambda: calls.append(1) or True)
+    runner.invoke(app, ["gather", "hp-13", "-y"])
+    assert calls == []

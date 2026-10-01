@@ -21,3 +21,4 @@ fields:
   storage: fact
   interfaces: fact
   gateway: fact
+  pools: fact
