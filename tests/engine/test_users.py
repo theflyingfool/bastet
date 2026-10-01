@@ -83,3 +83,8 @@ def test_group():
     assert [(c.field, c.before, c.after) for c in g.compare(present)] == [("members", "nick", "jellyfin, nick")]
     assert Group(name="media").compare(present) == []
     assert Group(name="svc", system=True).fix([], {"exists": False}) == ["groupadd -r svc"]
+
+
+def test_useradd_looked_up_as_root():
+    """/usr/sbin isn't on a normal user's PATH; sudo's secure_path has it."""
+    assert {r.name: r.root for r in User(name="nick").reads()}["tools"] is True

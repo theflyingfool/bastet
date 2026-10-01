@@ -71,7 +71,7 @@ class User(Resource):
             Read("passwd", f"getent passwd {n} || true"),
             Read("groups", f"printf '%s|%s' \"$(id -gn {n} 2>/dev/null)\" \"$(id -Gn {n} 2>/dev/null)\""),
             Read("shadow", f"getent shadow {n} || true", root=True),
-            Read("tools", "command -v useradd || true"),
+            Read("tools", "command -v useradd || true", root=True),
         )
 
     def current(self, results):
