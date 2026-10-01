@@ -108,6 +108,10 @@ class Resource(ABC):
     def fix_group(cls, members: list[tuple["Resource", list[FieldChange], dict[str, object]]]) -> list[str]:
         raise NotImplementedError
 
+    def report_only(self) -> bool:
+        """Findings to report, never to fix (pending manual updates, packages nothing accounts for)."""
+        return False
+
     def touches(self) -> str | None:
         """Path this resource edits, so a later edit of the same file in one run re-reads it first."""
         return None

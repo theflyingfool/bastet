@@ -121,7 +121,10 @@ def _assess(item: Item, results: dict) -> None:
     except ReadError as e:
         item.status, item.error = "failed", f"couldn't read: {e}"
         return
-    item.status = "would-change" if item.changes else "compliant"
+    if not item.changes:
+        item.status = "compliant"
+    else:
+        item.status = "attention" if item.resource.report_only() else "would-change"
     if item.changes and not item.resource.secret:
         item.diff = item.resource.diff_text(item.current)
 

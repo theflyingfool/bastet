@@ -381,3 +381,252 @@ class Repository(Resource):
     def diff_text(self, current):
         texts = [part.diff_text(state) for part, state in self._threaded(current) if part.compare(state)]
         return "\n".join(t for t in texts if t) or None
+
+
+def _per_manager(cases: dict[str, str]) -> str:
+    body = " ".join(f"{m}) {cmd};;" for m, cmd in cases.items())
+    return f"case \"$({DETECT})\" in {body} esac"
+
+
+PENDING = _per_manager({
+    "apt-get": "apt-get -o DPkg::Lock::Timeout=120 update -q >/dev/null 2>&1; apt list --upgradable 2>/dev/null",
+    "pacman": "command -v checkupdates >/dev/null || exit 127; checkupdates 2>/dev/null; true",
+    "dnf": "dnf check-update -q --refresh 2>/dev/null; true",
+    "zypper": "zypper --non-interactive --quiet refresh >/dev/null 2>&1; zypper --non-interactive --quiet list-updates 2>/dev/null; true",
+    "apk": "apk update -q >/dev/null 2>&1; apk version -l '<' 2>/dev/null; true",
+})
+SECURITY = _per_manager({
+    "dnf": "dnf updateinfo list --security -q 2>/dev/null; true",
+    "zypper": "zypper --non-interactive --quiet list-patches --category security 2>/dev/null; true",
+})
+_NEVRA = re.compile(r"^(.+)-[^-]+-[^-]+$")
+_APK_NAME = re.compile(r"^(.+?)-\d[^-]*-r\d+$")
+
+
+def _manager(results) -> str:
+    m = results["manager"]
+    if not m.ok or not m.output.strip():
+        raise Unsupported("no supported package manager (apt, pacman, dnf, zypper, apk)")
+    return m.output.strip()
+
+
+def _pending(manager: str, text: str) -> tuple[list[str], list[str]]:
+    names, security = [], []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if manager == "apt-get":
+            if "/" not in line or line.startswith("Listing"):
+                continue
+            name, rest = line.split("/", 1)
+            names.append(name)
+            if "-security" in rest.split()[0]:
+                security.append(name)
+        elif manager == "pacman":
+            names.append(line.split()[0])
+        elif manager == "dnf":
+            first = line.split()[0]
+            if "." in first and len(line.split()) >= 3 and not line.startswith(("Last metadata", "Obsoleting")):
+                names.append(first.rsplit(".", 1)[0])
+        elif manager == "zypper":
+            cols = [c.strip() for c in line.split("|")]
+            if len(cols) >= 3 and cols[0] == "v":
+                names.append(cols[2])
+        elif manager == "apk":
+            m = _APK_NAME.match(line.split()[0])
+            if m:
+                names.append(m.group(1))
+    return names, security
+
+
+def _dnf_security(text: str) -> list[str]:
+    out = []
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) >= 3:
+            m = _NEVRA.match(parts[-1].rsplit(".", 1)[0])
+            if m:
+                out.append(m.group(1))
+    return out
+
+
+@dataclass(frozen=True, kw_only=True)
+class Updates(Resource):
+    family: ClassVar[str] = "Packages"
+    policy: str = "manual"
+    exclude: tuple[str, ...] = ()
+    apply_updates: bool = False
+    dpkg_options: tuple[str, ...] = DPKG_DEFAULT
+
+    def __post_init__(self):
+        if self.policy not in ("manual", "auto", "security"):
+            raise ValueError(f"updates policy must be manual, auto or security, not {self.policy!r}")
+
+    @property
+    def identity(self) -> str:
+        return "updates"
+
+    @property
+    def label(self) -> str:
+        return "updates"
+
+    def report_only(self) -> bool:
+        return self.policy == "manual" and not self.apply_updates
+
+    def desired(self):
+        return {"policy": self.policy, "exclude": self.exclude}
+
+    def reads(self):
+        return (Read("manager", DETECT), Read("pending", PENDING, root=True), Read("security", SECURITY, root=True))
+
+    def current(self, results):
+        manager = _manager(results)
+        if self.policy == "security" and manager in ("pacman", "apk"):
+            raise Unsupported(f"{manager} has no separate security updates; use updates: auto or manual")
+        if manager == "pacman" and results["pending"].missing:
+            raise Unsupported("checking for updates on Arch needs checkupdates (install pacman-contrib)")
+        names, security = _pending(manager, results["pending"].output)
+        if manager in ("dnf",):
+            security = _dnf_security(results["security"].output)
+        elif manager == "zypper":
+            security = ["(patches)"] if any("|" in line and "security" in line for line in results["security"].output.splitlines()) else []
+        keep = lambda xs: tuple(sorted({x for x in xs if x not in self.exclude}))  # noqa: E731
+        return {"manager": manager, "pending": keep(names), "security": keep(security)}
+
+    def _target(self, current) -> tuple[str, ...]:
+        return current["security"] if self.policy == "security" else current["pending"]
+
+    def compare(self, current):
+        target = self._target(current)
+        return [FieldChange("updates", f"{len(target)} pending", "up to date")] if target else []
+
+    def diff_text(self, current):
+        names = list(current["pending"])
+        return "\n".join(names[:40] + ([f"… {len(names) - 40} more"] if len(names) > 40 else [])) or None
+
+    def fix(self, changes, current):
+        manager = current["manager"]
+        names = " ".join(_q(n) for n in self._target(current))
+        apt = f"DEBIAN_FRONTEND=noninteractive {APT}" + "".join(f" -o Dpkg::Options::={o}" for o in self.dpkg_options)
+        security = self.policy == "security"
+        if manager == "apt-get":
+            if security or self.exclude:
+                return [f"{apt} install --only-upgrade -y -q -- {names}"]
+            return [f"{apt} full-upgrade -y -q"]
+        if manager == "pacman":
+            return ["pacman -Syu --noconfirm" + (f" --ignore {','.join(self.exclude)}" if self.exclude else "")]
+        if manager == "dnf":
+            return ["dnf upgrade -y -q" + (" --security" if security else "") + "".join(f" --exclude={_q(x)}" for x in self.exclude)]
+        if manager == "zypper":
+            if security:
+                return ["zypper --non-interactive patch --category security"]
+            return [f"zypper --non-interactive update -- {names}" if self.exclude else "zypper --non-interactive update"]
+        return [f"apk upgrade -q {names}" if self.exclude else "apk upgrade -q"]
+
+
+REBOOT = ("[ -e /run/reboot-required ] && echo debian; "
+          "if command -v needs-restarting >/dev/null 2>&1; then needs-restarting -r >/dev/null 2>&1 || echo dnf; fi; "
+          "if [ -d /usr/lib/modules ] && [ -n \"$(ls /usr/lib/modules 2>/dev/null)\" ] && "
+          "[ ! -d \"/usr/lib/modules/$(uname -r)\" ]; then echo kernel; fi; true")
+
+
+@dataclass(frozen=True, kw_only=True)
+class Reboot(Resource):
+    family: ClassVar[str] = "System"
+    root: bool = False
+
+    @property
+    def identity(self) -> str:
+        return "reboot"
+
+    @property
+    def label(self) -> str:
+        return "reboot"
+
+    def report_only(self) -> bool:
+        return True
+
+    def desired(self):
+        return {}
+
+    def reads(self):
+        return (Read("reboot", REBOOT),)
+
+    def current(self, results):
+        why = sorted({w for w in results["reboot"].output.split() if w})
+        return {"needed": bool(why), "why": ", ".join(why)}
+
+    def compare(self, current):
+        return [FieldChange("reboot", f"needed ({current['why']})", "not needed")] if current["needed"] else []
+
+    def fix(self, changes, current):
+        return []
+
+
+EXPLICIT = _per_manager({
+    "pacman": "pacman -Qqe",
+    "apt-get": "apt-mark showmanual",
+    "dnf": "dnf repoquery --userinstalled -q --qf '%{name}\\n'",
+    "apk": "cat /etc/apk/world",
+    "zypper": "exit 3",
+})
+SYSTEM = _per_manager({
+    "pacman": "echo base; echo base-devel",
+    "apt-get": "dpkg-query -W -f='${Package} ${Priority}\\n'",
+    "dnf": "true",
+    "apk": "echo alpine-base",
+    "zypper": "true",
+})
+_WORLD = re.compile(r"[<>=~].*$")
+
+
+@dataclass(frozen=True, kw_only=True)
+class Unaccounted(Resource):
+    """Packages installed on purpose that no role, system set or allowed list accounts for. Reported, never removed."""
+
+    family: ClassVar[str] = "Packages"
+    tracked: tuple[str, ...] = ()
+    allowed: tuple[str, ...] = ()
+    root: bool = False
+
+    @property
+    def identity(self) -> str:
+        return "unaccounted"
+
+    @property
+    def label(self) -> str:
+        return "unaccounted packages"
+
+    def report_only(self) -> bool:
+        return True
+
+    def desired(self):
+        return {"tracked": self.tracked, "allowed": self.allowed}
+
+    def reads(self):
+        return (Read("manager", DETECT), Read("explicit", EXPLICIT), Read("system", SYSTEM))
+
+    def current(self, results):
+        manager = _manager(results)
+        if manager == "zypper":
+            raise Unsupported("zypper doesn't record which packages were installed on purpose")
+        explicit = {_WORLD.sub("", line.strip()) for line in results["explicit"].output.splitlines() if line.strip()}
+        if manager == "apt-get":
+            system = {p.split()[0] for p in results["system"].output.splitlines()
+                      if len(p.split()) > 1 and p.split()[1] in ("required", "important", "standard")}
+        else:
+            system = {line.strip() for line in results["system"].output.splitlines() if line.strip()}
+        left = explicit - system - set(self.tracked) - set(self.allowed)
+        return {"unaccounted": tuple(sorted(left))}
+
+    def compare(self, current):
+        n = len(current["unaccounted"])
+        return [FieldChange("unaccounted", f"{n} packages", "none")] if n else []
+
+    def diff_text(self, current):
+        names = list(current["unaccounted"])
+        return "\n".join(names[:60] + ([f"… {len(names) - 60} more"] if len(names) > 60 else [])) or None
+
+    def fix(self, changes, current):
+        return []

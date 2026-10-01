@@ -56,3 +56,11 @@ def test_composite_content_change_text():
         "/etc/apt/sources.list.d/b.sources: (absent) → create"
     assert change_text(FieldChange("/etc/pacman.conf:content", "current", "desired"), secret=False) == \
         "/etc/pacman.conf: differs → update"
+
+
+def test_attention_marked_and_counted():
+    run = HostRun("media01", False, [item("/x", "attention", [FieldChange("unaccounted", "2 packages", "none")], diff="htop\nsteam"),
+                                     item("/y", "compliant")])
+    text = render_host(run, full=False)
+    assert "    unaccounted: 2 packages → none ⚠\n      htop\n      steam\n" in text
+    assert text.rstrip().endswith("media01: 0 to change · 1 compliant · 0 failed · 1 need attention")

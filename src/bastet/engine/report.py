@@ -18,7 +18,7 @@ def _item_lines(item: Item) -> list[str]:
     if item.status == "compliant":
         return [f"  {label}  ✓ compliant"]
     lines = [f"  {label}"]
-    tick = " ✓" if item.status == "changed" else ""
+    tick = " ✓" if item.status == "changed" else (" ⚠" if item.status == "attention" else "")
     lines += [f"    {change_text(c, secret=item.resource.secret)}{tick}" for c in item.changes]
     if item.status == "failed":
         for n, line in enumerate((item.error or "failed").splitlines()):
@@ -38,6 +38,8 @@ def summary(run: HostRun) -> str:
         f"{run.count('compliant')} compliant",
         f"{run.count('failed')} failed",
     ]
+    if run.count("attention"):
+        parts.append(f"{run.count('attention')} need attention")
     if run.count("skipped"):
         parts.append(f"{run.count('skipped')} skipped")
     return f"{run.host}: " + " · ".join(parts)
