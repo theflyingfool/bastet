@@ -90,18 +90,20 @@ def _port_names(ports: object) -> list[str]:
     return [str(p["name"]) for p in ports if isinstance(p, dict) and p.get("name")] if isinstance(ports, list) else []
 
 
-def _roles_card(inv: Inventory, doc: Document, types: dict[str, HostType]) -> list[str] | None:
+def _roles(inv: Inventory, doc: Document, types: dict[str, HostType]) -> tuple[list[str] | None, str]:
+    """The Roles card and the read-only resolved-roles table for a host summary."""
     from bastet.roles.contract import load_roles  # lazy: roles builds on core
+    from bastet.roles.pages import resolved_table
     from bastet.roles.resolve import resolve
 
     try:
         applied = resolve(inv, doc, types, load_roles())
     except BastetError as exc:
-        return _card("Roles", "⚠", exc.message)
+        return _card("Roles", "⚠", exc.message), ""
     if not applied:
-        return None
+        return None, ""
     parts = [f"[[{a.role.name} role|{a.role.name}]] ({', '.join(sorted({s.label for s in a.sources}))})" for a in applied]
-    return _card("Roles", len(applied), ", ".join(parts))
+    return _card("Roles", len(applied), ", ".join(parts)), resolved_table(applied)
 
 
 def host_summary(
@@ -151,7 +153,7 @@ def host_summary(
     guests = _guests(inv, doc.name)
     if guests or (host_type and host_type.name == "proxmox-node"):
         cards.append(_card("Guests", len(guests), ", ".join(f"[[{g.name}]]" for g in guests) or None))
-    card = _roles_card(inv, doc, types)
+    card, roles_table = _roles(inv, doc, types)
     if card is not None:
         cards.append(card)
     body = _grid(cards)
@@ -160,6 +162,8 @@ def host_summary(
         body += "\n> [!danger] Drift: Proxmox disagrees with this file\n" + "".join(f"> - {_cell(d)}\n" for d in drift)
     if warnings:
         body += "\n> [!warning] Needs attention\n" + "".join(f"> - {_cell(w)}\n" for w in warnings)
+    if roles_table:
+        body += "\n" + roles_table
     front = {"summary_of": make_link(doc.name), "warnings": list(warnings)}
     if drift:
         front["drift"] = drift
