@@ -252,3 +252,42 @@ def parse_pve_guests(text: str) -> list[dict]:
         return []
     keys = ("vmid", "name", "type", "node", "status")
     return [{k: g.get(k) for k in keys} for g in data if isinstance(g, dict) and g.get("vmid") is not None]
+
+
+def has_ipmi(records: list[dict]) -> bool:
+    """SMBIOS type 38: the board has an IPMI BMC."""
+    return any(r["type"] == 38 for r in records)
+
+
+def pci_id(field: str | None) -> str | None:
+    """The trailing [xxxx] id of an lspci -nn name, e.g. 'ASRock Incorporation [1849]' -> '1849'."""
+    m = re.search(r"\[([0-9a-f]{4})\]\s*$", field or "")
+    return m.group(1) if m else None
+
+
+_VENDOR_ALIASES = {"hp": "hewlettpackard", "hpe": "hewlettpackard", "ibm": "internationalbusinessmachines"}
+
+
+def _norm(name: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", name.lower())
+
+
+def board_subsystem_id(devices: list[dict], makers: list[str | None]) -> str | None:
+    """The PCI subsystem vendor id the board maker stamps on its onboard devices, matched by name
+    (e.g. board 'ASRockRack' <-> 'ASRock Incorporation [1849]'); None when nothing matches."""
+    wanted = []
+    for maker in makers:
+        if maker:
+            n = _norm(maker)
+            wanted.append(_VENDOR_ALIASES.get(n, n))
+    for dev in devices:
+        sv = dev.get("SVendor") or ""
+        svid = pci_id(sv)
+        name = _norm(re.sub(r"\s*\[[0-9a-f]{4}\]\s*$", "", sv))
+        if not svid or not name:
+            continue
+        for w in wanted:
+            short = min(len(w), len(name), 6)
+            if short >= 2 and (w.startswith(name[:short]) or name.startswith(w[:short])):
+                return svid
+    return None

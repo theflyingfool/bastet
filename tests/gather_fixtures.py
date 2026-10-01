@@ -291,3 +291,68 @@ errors: No known data errors
         {"id": "qemu/105", "vmid": 105, "name": "media", "type": "qemu", "node": "pve1", "status": "stopped"},
     ]),
 }
+
+
+# A board whose SMBIOS slot table is useless (root-port addresses, no PhySlot): add-in cards are told apart by
+# their PCI subsystem vendor, which differs from the board's own (ASRock here).
+RACK = dict(SERVER, **{
+    "hostnamectl": json.dumps({"Hostname": "sanrio", "Chassis": "desktop", "HardwareVendor": "ASRockRack",
+                               "HardwareModel": "1U4LW-X470"}),
+    "hostname": "sanrio",
+    "dmidecode": """Handle 0x0001, DMI type 1, 27 bytes
+System Information
+\tManufacturer: ASRockRack
+\tProduct Name: 1U4LW-X470
+\tSerial Number: 218000000000001
+
+Handle 0x0002, DMI type 2, 15 bytes
+Base Board Information
+\tManufacturer: ASRockRack
+\tProduct Name: X470D4U
+\tSerial Number: 218000000000001
+
+Handle 0x0030, DMI type 9, 17 bytes
+System Slot Information
+\tDesignation: J6B2
+\tCurrent Usage: In Use
+\tID: 0
+\tBus Address: 0000:00:01.0
+
+Handle 0x0031, DMI type 38, 18 bytes
+IPMI Device Information
+\tInterface Type: KCS (Keyboard Control Style)
+\tBase Address: 0x0000000000000CA2 (I/O)
+""",
+    "lspci": (
+        "Slot:\t0000:00:01.0\nClass:\tPCI bridge [0604]\nVendor:\tAdvanced Micro Devices, Inc. [AMD] [1022]\nDevice:\tFamily 17h PCIe Port [1453]\nSVendor:\tAdvanced Micro Devices, Inc. [AMD] [1022]\nSDevice:\tDevice [1453]\nDriver:\tpcieport\n\n"
+        "Slot:\t0000:00:02.0\nClass:\tPCI bridge [0604]\nVendor:\tAdvanced Micro Devices, Inc. [AMD] [1022]\nDevice:\tFamily 17h PCIe Port [1453]\nSVendor:\tAdvanced Micro Devices, Inc. [AMD] [1022]\nSDevice:\tDevice [1453]\nDriver:\tpcieport\n\n"
+        "Slot:\t0000:00:03.0\nClass:\tPCI bridge [0604]\nVendor:\tAdvanced Micro Devices, Inc. [AMD] [1022]\nDevice:\tFamily 17h PCIe Port [1453]\nSVendor:\tAdvanced Micro Devices, Inc. [AMD] [1022]\nSDevice:\tDevice [1453]\nDriver:\tpcieport\n\n"
+        "Slot:\t0000:00:04.0\nClass:\tPCI bridge [0604]\nVendor:\tAdvanced Micro Devices, Inc. [AMD] [1022]\nDevice:\tFamily 17h PCIe Port [1453]\nSVendor:\tAdvanced Micro Devices, Inc. [AMD] [1022]\nSDevice:\tDevice [1453]\nDriver:\tpcieport\n\n"
+        "Slot:\t0000:00:05.0\nClass:\tPCI bridge [0604]\nVendor:\tAdvanced Micro Devices, Inc. [AMD] [1022]\nDevice:\tFamily 17h PCIe Port [1453]\nSVendor:\tAdvanced Micro Devices, Inc. [AMD] [1022]\nSDevice:\tDevice [1453]\nDriver:\tpcieport\n\n"
+        "Slot:\t0000:00:06.0\nClass:\tPCI bridge [0604]\nVendor:\tAdvanced Micro Devices, Inc. [AMD] [1022]\nDevice:\tFamily 17h PCIe Port [1453]\nSVendor:\tAdvanced Micro Devices, Inc. [AMD] [1022]\nSDevice:\tDevice [1453]\nDriver:\tpcieport\n\n"
+        "Slot:\t0000:00:07.0\nClass:\tPCI bridge [0604]\nVendor:\tAdvanced Micro Devices, Inc. [AMD] [1022]\nDevice:\tFamily 17h PCIe Port [1453]\nSVendor:\tAdvanced Micro Devices, Inc. [AMD] [1022]\nSDevice:\tDevice [1453]\nDriver:\tpcieport\n\n"
+        "Slot:\t0000:00:08.0\nClass:\tPCI bridge [0604]\nVendor:\tAdvanced Micro Devices, Inc. [AMD] [1022]\nDevice:\tFamily 17h PCIe Port [1453]\nSVendor:\tAdvanced Micro Devices, Inc. [AMD] [1022]\nSDevice:\tDevice [1453]\nDriver:\tpcieport\n\n"
+        "Slot:\t0000:00:09.0\nClass:\tPCI bridge [0604]\nVendor:\tAdvanced Micro Devices, Inc. [AMD] [1022]\nDevice:\tFamily 17h PCIe Port [1453]\nSVendor:\tAdvanced Micro Devices, Inc. [AMD] [1022]\nSDevice:\tDevice [1453]\nDriver:\tpcieport\n\n"
+        "Slot:\t0000:00:0a.0\nClass:\tPCI bridge [0604]\nVendor:\tAdvanced Micro Devices, Inc. [AMD] [1022]\nDevice:\tFamily 17h PCIe Port [1453]\nSVendor:\tAdvanced Micro Devices, Inc. [AMD] [1022]\nSDevice:\tDevice [1453]\nDriver:\tpcieport\n\n"
+        "Slot:\t0000:22:00.0\nClass:\tVGA compatible controller [0300]\nVendor:\tASPEED Technology, Inc. [1a03]\n"
+        "Device:\tASPEED Graphics Family [2000]\nSVendor:\tASRock Incorporation [1849]\nSDevice:\tASPEED Graphics Family [2000]\nDriver:\tast\n\n"
+        "Slot:\t0000:23:00.0\nClass:\tEthernet controller [0200]\nVendor:\tIntel Corporation [8086]\n"
+        "Device:\tI210 Gigabit Network Connection [1533]\nSVendor:\tASRock Incorporation [1849]\nSDevice:\tI210 Gigabit Network Connection [1533]\nDriver:\tigb\n\n"
+        "Slot:\t0000:24:00.0\nClass:\tEthernet controller [0200]\nVendor:\tIntel Corporation [8086]\n"
+        "Device:\tI210 Gigabit Network Connection [1533]\nSVendor:\tASRock Incorporation [1849]\nSDevice:\tI210 Gigabit Network Connection [1533]\nDriver:\tigb\n\n"
+        "Slot:\t0000:25:00.0\nClass:\tSATA controller [0106]\nVendor:\tASMedia Technology Inc. [1b21]\n"
+        "Device:\tASM1062 Serial ATA Controller [0612]\nSVendor:\tASRock Incorporation [1849]\nSDevice:\tMotherboard [0612]\nDriver:\tahci\n\n"
+        "Slot:\t0000:2b:00.0\nClass:\tSerial Attached SCSI controller [0107]\nVendor:\tBroadcom / LSI [1000]\n"
+        "Device:\tSAS2308 PCI-Express Fusion-MPT SAS-2 [0087]\nSVendor:\tBroadcom / LSI [1000]\nSDevice:\t9207-8e SAS2.1 HBA [3040]\nDriver:\tmpt3sas\n\n"
+        "Slot:\t0000:2c:00.0\nClass:\tNetwork controller [0280]\nVendor:\tIntel Corporation [8086]\n"
+        "Device:\tWi-Fi 6 AX200 [2723]\nSVendor:\tASRock Incorporation [1849]\nSDevice:\tWi-Fi 6 AX200 [0084]\nDriver:\tiwlwifi\n"
+    ),
+    "net_sysfs": "enp35s0\t\t../../../0000:23:00.0\nenp36s0\t1000\t../../../0000:24:00.0\nwlp44s0\t\t../../../0000:2c:00.0\n"
+                 "enx3e7ef27dd077\t\t../../../1-14.3:2.0\nlo\t\t\nvmbr0\t10000\t\n",
+    "ip_addr": json.dumps([
+        {"ifname": "enp35s0", "link_type": "ether", "address": "a8:a1:59:00:00:01", "addr_info": []},
+        {"ifname": "enp36s0", "link_type": "ether", "address": "a8:a1:59:00:00:02", "addr_info": []},
+        {"ifname": "wlp44s0", "link_type": "ether", "address": "a8:a1:59:00:00:03", "addr_info": []},
+    ]),
+    "ipmi": (127, ""),
+})

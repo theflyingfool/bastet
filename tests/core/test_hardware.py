@@ -113,3 +113,25 @@ def test_duplicate_serial_in_one_host_kept_once_with_note():
     v = view(dict(SERVER, lsblk=json.dumps(blk)))
     assert len([o for o in v.items if o.data.get("serial") == "WD-WCC4E1234567"]) == 1
     assert any("WD-WCC4E1234567" in n for n in v.notes)
+
+
+def test_add_in_card_found_by_subsystem_vendor_when_slot_data_is_useless():
+    from gather_fixtures import RACK
+    v = view(RACK, host="sanrio")
+    cards = {o.name: o for o in v.items if o.data["category"] in ("gpu", "hba", "nic")}
+    assert list(cards) == ["sanrio 9207-8e SAS2.1 HBA"]
+    hba = cards["sanrio 9207-8e SAS2.1 HBA"]
+    assert hba.data["category"] == "hba" and hba.key == "pci:sanrio:0000:2b:00" and "slot" not in hba.data
+
+
+def test_onboard_wired_and_wireless_interfaces_recorded():
+    from gather_fixtures import RACK
+    machine = view(RACK, host="sanrio").items[0]
+    assert [i["name"] for i in machine.data["interfaces"]] == ["enp35s0", "enp36s0", "wlp44s0"]
+
+
+def test_bmc_without_ipmitool_gives_a_hint():
+    from gather_fixtures import RACK
+    v = view(RACK, host="sanrio")
+    assert any("ipmitool" in n for n in v.hints)
+    assert not any("ipmitool" in n for n in view(SERVER).hints)

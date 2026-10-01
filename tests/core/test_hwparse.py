@@ -104,3 +104,13 @@ def test_memory_in_gib_units_and_duplicate_locators():
     assert [d["slot"] for d in m["memory"]] == ["Bottom - on board (BANK 0)", "Bottom - on board (BANK 2)"]
     assert [d["size"] for d in m["memory"]] == ["4 GB", "4 GB"] and m["memory_slots"] == "2 of 2 used"
     assert memory_size("512 MiB") == "512 MB" and memory_size("16384 MiB") == "16 GB" and memory_size("1 TiB") == "1 TB"
+
+
+def test_board_subsystem_vendor_by_name():
+    from bastet.core.hwparse import board_subsystem_id
+    devices = [{"SVendor": "Advanced Micro Devices, Inc. [AMD] [1022]"}] * 10 + [
+        {"SVendor": "ASRock Incorporation [1849]"}, {"SVendor": "Broadcom / LSI [1000]"}]
+    assert board_subsystem_id(devices, ["ASRockRack", "ASRockRack"]) == "1849"
+    assert board_subsystem_id([{"SVendor": "Super Micro Computer Inc [15d9]"}], ["Supermicro"]) == "15d9"
+    assert board_subsystem_id([{"SVendor": "Hewlett-Packard Company [103c]"}], ["HP"]) == "103c"
+    assert board_subsystem_id(devices, ["Unknown Vendor"]) is None

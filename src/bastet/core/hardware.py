@@ -12,7 +12,7 @@ from bastet.core.frontmatter import Document, new_document, set_keys
 from bastet.core.gatherplan import Note, merge_facts
 from bastet.core.gitrepo import GitRepo
 from bastet.core.hwparse import (
-    base_device, clean, machine_from_dmi, slot_designations, parse_disk_ids, parse_dmidecode, parse_ipmi_lan, parse_lspci,
+    base_device, board_subsystem_id, clean, has_ipmi, machine_from_dmi, pci_id, slot_designations, parse_disk_ids, parse_dmidecode, parse_ipmi_lan, parse_lspci,
     parse_net_sysfs, parse_pve_guests, parse_smart, parse_zpool, slots_in_use, strip_ids,
 )
 from bastet.core.inventory import Inventory, markdown_files
@@ -42,6 +42,7 @@ class HardwareView:
     complete: dict[str, bool] = field(default_factory=lambda: {"drives": False, "cards": False})
     skipped_root: bool = False
     notes: list[str] = field(default_factory=list)
+    hints: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -102,13 +103,19 @@ def observe_hardware(host: str, results: dict[str, ProbeResult], ex: Extracted) 
 
     designations = slot_designations(dmi)
     pci = parse_lspci(_text(results, "lspci") or "")
+    # Boards often report useless slot data; then an add-in card shows itself by a PCI subsystem vendor
+    # different from the one the board maker stamps on its onboard devices (found by name, else not used).
+    board_makers = [machine.get("make"), clean(ex.hints.get("vendor"))]
+    board_makers += [r["fields"].get("Manufacturer") for r in dmi if r["type"] == 2]
+    board_svid = board_subsystem_id(pci, board_makers)
     cards: dict[str, list[dict]] = {}
     for dev in pci:
         bus = dev.get("Slot", "").rsplit(".", 1)[0]
-        in_slot = bool(dev.get("PhySlot")) or bus in slots
+        svid = pci_id(dev.get("SVendor"))
+        in_slot = bool(dev.get("PhySlot")) or bus in slots or bool(svid and board_svid and svid != board_svid)
         if dev["class_code"] in CARD_CLASSES and in_slot:
             cards.setdefault(bus, []).append(dev)
-        elif dev["class_code"] == "0200" and not in_slot and dev.get("Slot", "").endswith(".0"):
+        elif dev["class_code"] in ("0200", "0280") and dev.get("Slot", "").endswith(".0"):
             onboard.extend(ports_by_bus.get(bus, []))
     view.complete["cards"] = bool(pci)
 
@@ -123,6 +130,9 @@ def observe_hardware(host: str, results: dict[str, ProbeResult], ex: Extracted) 
             data[key] = machine[key]
     if onboard:
         data["interfaces"] = onboard
+    ipmi_result = results.get("ipmi")
+    if has_ipmi(dmi) and ipmi_result is not None and ipmi_result.missing:
+        view.hints.append(f"has a BMC (IPMI); install ipmitool on {host} to record its out-of-band address")
     oob = parse_ipmi_lan(_text(results, "ipmi") or "")
     if oob:
         data["oob"] = oob
@@ -251,7 +261,7 @@ def plan_hardware(
     if not run.names:
         run.names.update(p.stem.lower() for p in markdown_files(inv.root))
     changes: list[Change] = []
-    notes: list[Note] = [Note(host, "warn", n) for n in view.notes]
+    notes: list[Note] = [Note(host, "warn", n) for n in view.notes] + [Note(host, "info", h) for h in view.hints]
     seen: set[Path] = set()
 
     for obs in view.items:

@@ -38,7 +38,7 @@ PROBES: tuple[Probe, ...] = (
     Probe("ip_route", "ip -j route show default", "ip (iproute2)"),
     Probe("pveversion", "pveversion", "pveversion (Proxmox VE)"),
     Probe("privilege", 'echo "${SUDO:-root}"', "sudo"),
-    Probe("dmidecode", "dmidecode -t 0,1,2,3,4,9,17", "dmidecode", root=True),
+    Probe("dmidecode", "dmidecode -t 0,1,2,3,4,9,17,38", "dmidecode", root=True),
     Probe(
         "smart",
         "command -v smartctl >/dev/null || exit 127; printf '['; sep=''; "
