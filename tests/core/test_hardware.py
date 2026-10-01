@@ -24,7 +24,7 @@ def test_server_machine_file():
     assert list(d)[:7] == ["bastet", "category", "make", "model", "serial", "status", "installed_in"]
     assert d["category"] == "server" and d["installed_in"] == "[[pve1]]" and d["status"] == "in-service"
     assert d["memory_slots"] == "2 of 4 used" and len(d["memory"]) == 2
-    assert d["interfaces"] == [{"name": "eno1", "mac": "3c:ec:ef:00:00:01"}]
+    assert d["interfaces"] == [{"name": "eno1", "mac": "3c:ec:ef:00:00:01", "max_speed": "1G", "firmware": "3.16, 0x800004d6"}]
     assert d["oob"] == {"type": "ipmi", "address": "10.0.10.9", "mac": "3c:ec:ef:00:00:09", "source": "static"}
 
 
@@ -46,30 +46,33 @@ def test_server_card_pools_guests():
     assert card.name == "pve1 Ethernet Converged Network Adapter X710-2" and card.key == "slot:pve1:6"
     assert card.data["slot"] == "CPU SLOT6 PCI-E 3.0 X16" and card.data["driver"] == "i40e"
     assert card.data["ports"] == [
-        {"name": "enp1s0f0", "mac": "3c:fd:fe:00:00:10"},
-        {"name": "enp1s0f1", "mac": "3c:fd:fe:00:00:11"},
+        {"name": "enp1s0f0", "mac": "3c:fd:fe:00:00:10", "max_speed": "10G", "firmware": "8.50 0x8000b6c5 1.3082.0"},
+        {"name": "enp1s0f1", "mac": "3c:fd:fe:00:00:11", "max_speed": "10G", "firmware": "8.50 0x8000b6c5 1.3082.0"},
     ]
     assert v.pools == [{"name": "tank", "state": "ONLINE"}]
     assert [g["name"] for g in v.guests] == ["git1", "media", "dns", "ghost"]
-    assert v.complete == {"drives": True, "cards": True} and not v.skipped_root
+    assert v.complete == {"drives": True, "cards": True, "cpus": True, "memory": True, "psus": True, "usb": True} and not v.skipped_root
 
 
 def test_laptop_machine_and_nvme():
     v = view(LAPTOP, host="hp-13")
     names = [o.name for o in v.items]
-    assert names == ["HP Spectre x360 Convertible 13-ae0xx 5CD1234XYZ", "SAMSUNG MZVLB512HAJQ-000H1 S4XXNX0M123456"]
+    assert names == ["HP Spectre x360 Convertible 13-ae0xx 5CD1234XYZ", "SAMSUNG MZVLB512HAJQ-000H1 S4XXNX0M123456",
+                     "hp-13 Intel Core i7-8565U U3E1", "hp-13 Onboard 16 GB"]
     assert v.items[0].data["category"] == "laptop"
     assert not [o for o in v.items if o.data["category"] in ("gpu", "nic", "hba")]
 
 
 def test_no_root_still_makes_machine_file():
-    outputs = dict(SERVER, privilege="none", dmidecode=(126, ""), smart=(126, ""), ipmi=(126, ""), pve_guests=(126, ""))
+    outputs = dict(SERVER, privilege="none", dmidecode=(126, ""), smart=(126, ""), ipmi=(126, ""), pve_guests=(126, ""),
+                   ipmi_fru=(126, ""), ipmi_mc=(126, ""))
     v = view(outputs)
     machine = v.items[0]
     assert machine.data["make"] == "Supermicro" and machine.data["model"] == "SYS-5019C-MR"
     assert "serial" not in machine.data and machine.key == "machine:pve1" and machine.name == "pve1 Supermicro SYS-5019C-MR"
     assert v.skipped_root and v.complete["cards"] is True and v.complete["drives"] is True
-    assert {o.data["category"] for o in v.items} == {"server", "drive", "nic"}
+    assert {o.data["category"] for o in v.items} == {"server", "drive", "nic", "usb"}
+    assert v.complete["cpus"] is False and v.complete["psus"] is False and v.complete["usb"] is True
 
 
 def test_identical_cards_get_distinct_names():
@@ -156,3 +159,54 @@ def test_subsystem_rule_not_used_when_slot_data_works():
     v = view(dict(SERVER, lspci=lspci, dmidecode=dmi))
     assert [o.name for o in v.items if o.data["category"] == "nic"] == ["pve1 Ethernet Converged Network Adapter X710-2"]
     assert [i["name"] for i in v.items[0].data["interfaces"]] == ["eno1"]
+
+
+def test_cpu_and_dimm_files_without_serials():
+    v = view(LAPTOP, host="hp-13")
+    cats = {o.data["category"]: o for o in v.items}
+    assert cats["cpu"].key == "cpu:hp-13:u3e1" and cats["cpu"].name == "hp-13 Intel Core i7-8565U U3E1"
+    assert cats["memory"].key == "dimm:hp-13:onboard" and cats["memory"].name == "hp-13 Onboard 16 GB"
+    assert "serial" not in cats["memory"].data and cats["memory"].data["size"] == "16 GB"
+    assert [o.key for o in view(LAPTOP, host="hp-13").items] == [o.key for o in v.items]
+
+
+def test_server_cpu_dimm_psu_files():
+    v = view(SERVER)
+    by_cat = {}
+    for o in v.items:
+        by_cat.setdefault(o.data["category"], []).append(o)
+    assert [o.name for o in by_cat["memory"]] == ["M391A4G43MB1-CTD 40A1B2C3", "M391A4G43MB1-CTD 40A1B2C4"]
+    assert by_cat["memory"][0].key == "serial:40a1b2c3" and by_cat["memory"][0].data["slot"] == "DIMMA1"
+    [psu] = by_cat["psu"]
+    assert psu.name == "PWS-504P-1R P504PCH12AB3456" and psu.key == "serial:p504pch12ab3456"
+    assert psu.data["max_power"] == "500 W" and psu.data["make"] == "SUPERMICRO"
+    assert by_cat["cpu"][0].data["cores"] == 6 and by_cat["cpu"][0].name == "pve1 Intel Xeon E-2236 CPU"
+    assert all(o.data["installed_in"] == "[[pve1]]" and o.data["status"] == "in-service" for o in v.items)
+
+
+def test_psu_only_in_dmi_or_only_in_fru():
+    dmi_only = view(dict(SERVER, ipmi_fru=(127, "")))
+    assert [o.name for o in dmi_only.items if o.data["category"] == "psu"] == ["PWS-504P-1R P504PCH12AB3456"]
+    no_serial = SERVER["ipmi_fru"].replace(" Product Serial        : P504PCH12AB3456\n", "")
+    dmi_free = SERVER["dmidecode"].split("Handle 0x0050")[0]
+    fru_only = view(dict(SERVER, ipmi_fru=no_serial, dmidecode=dmi_free))
+    [psu] = [o for o in fru_only.items if o.data["category"] == "psu"]
+    assert psu.key == "psu:pve1:psu1" and psu.name == "pve1 PSU1"
+
+
+def test_usb_removable_files_builtin_listed_hubs_skipped():
+    v = view(SERVER)
+    [usb] = [o for o in v.items if o.data["category"] == "usb"]
+    assert usb.name == "ConBee II DE2412345" and usb.data["usb_id"] == "1cf1:0030"
+    assert usb.key == "usb:1cf1:0030:de2412345"
+    assert v.items[0].data["usb"] == [{"name": "Virtual Keyboard and Mouse", "id": "0557:9241"}]
+
+
+def test_machine_firmware_gpus_and_port_speeds():
+    v = view(SERVER)
+    m = v.items[0].data
+    assert m["bmc_firmware"] == "1.73" and m["microcode"] == "0xde" and m["tpm"] == "TPM 2.0"
+    assert m["boot"] == "uefi" and m["secure_boot"] == "disabled"
+    assert m["gpus"] == [{"model": "CoffeeLake-S GT2 [UHD Graphics P630]", "make": "Intel Corporation", "pci": "0000:00:02.0"}]
+    [card] = [o for o in v.items if o.data["category"] == "nic"]
+    assert card.data["ports"][0]["max_speed"] == "10G" and card.data["ports"][0]["firmware"].startswith("8.50")

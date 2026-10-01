@@ -45,9 +45,11 @@ def test_first_gather_creates_files(repo):
     changes, notes = run(repo, "pve1")
     names = sorted(c.path.name for c in changes)
     assert names == [
+        "ConBee II DE2412345.md", "M391A4G43MB1-CTD 40A1B2C3.md", "M391A4G43MB1-CTD 40A1B2C4.md",
+        "PWS-504P-1R P504PCH12AB3456.md",
         "Samsung SSD 970 EVO Plus 1TB S4EWNX0R123456.md", "Supermicro SYS-5019C-MR S123456X.md",
         "WDC WD40EFRX-68N32N0 WD-WCC4E1234567.md", "WDC WD40EFRX-68N32N0 WD-WCC4E7654321.md",
-        "pve1 Ethernet Converged Network Adapter X710-2.md",
+        "pve1 Ethernet Converged Network Adapter X710-2.md", "pve1 Intel Xeon E-2236 CPU.md",
     ]
     assert all(c.before is None and c.path.parent == repo.root / "hardware" for c in changes)
     assert notes == []
@@ -150,7 +152,7 @@ def test_same_key_twice_in_one_run_is_claimed_once(repo):
     first, _ = plan_hardware(inv, inv.get("pve1"), v, repo, take=set(), run=state)
     v2 = observe_hardware("pve2", results, extract(results))
     second, notes = plan_hardware(inv, inv.get("pve2"), v2, repo, take=set(), run=state)
-    assert len(first) == 5 and [c for c in second if c.before is None and "WD-WCC4E" in c.path.name] == []
+    assert len(first) == 10 and [c for c in second if c.before is None and "WD-WCC4E" in c.path.name] == []
     assert any("also seen" in n.message for n in notes)
 
 
@@ -164,3 +166,21 @@ def test_hardware_files_get_summary_and_existing_ones_get_it_once(repo):
     apply(repo, changes)
     again, _ = run(repo, "pve1")
     assert [c.path for c in again] == [old.path] and f"![[{old.path.stem} summary]]" in again[0].after
+
+
+def test_removed_parts_are_warned_only_when_their_probe_ran(repo):
+    changes, _ = run(repo, "pve1")
+    apply(repo, changes)
+    no_stick = SERVER["usb"].replace("1-1\t1cf1\t0030\t00\tremovable\tdresden elektronik ingenieurtechnik GmbH\tConBee II\tDE2412345\n", "")
+    _, notes = run(repo, "pve1", dict(SERVER, usb=no_stick))
+    assert [n.message for n in notes if "wasn't seen" in n.message and "ConBee" in n.message]
+    _, notes = run(repo, "pve1", dict(SERVER, usb=(1, ""), ipmi_fru=(126, "")))
+    assert not [n for n in notes if "wasn't seen" in n.message]
+
+
+def test_psu_not_warned_when_only_fru_knew_it_and_ipmitool_is_gone(repo):
+    no_dmi_psu = SERVER["dmidecode"].split("Handle 0x0050")[0]
+    changes, _ = run(repo, "pve1", dict(SERVER, dmidecode=no_dmi_psu))
+    apply(repo, changes)
+    _, notes = run(repo, "pve1", dict(SERVER, dmidecode=no_dmi_psu, ipmi_fru=(127, "")))
+    assert not [n for n in notes if "wasn't seen" in n.message]

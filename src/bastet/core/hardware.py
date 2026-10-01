@@ -12,7 +12,8 @@ from bastet.core.frontmatter import Document, new_document, set_keys
 from bastet.core.gatherplan import Note, merge_facts
 from bastet.core.gitrepo import GitRepo
 from bastet.core.hwparse import (
-    base_device, board_subsystem_id, clean, parse_guest_conf, parse_neigh, has_bmc, machine_from_dmi, pci_id, slot_designations, parse_disk_ids, parse_dmidecode, parse_ipmi_lan, parse_lspci,
+    base_device, board_subsystem_id, clean, cpus_from_dmi, parse_ethtool, parse_firmware_info, parse_fru,
+    parse_mc_info, parse_usb, psus_from_dmi, short_cpu, parse_guest_conf, parse_neigh, has_bmc, machine_from_dmi, pci_id, slot_designations, parse_disk_ids, parse_dmidecode, parse_ipmi_lan, parse_lspci,
     parse_net_sysfs, parse_pve_guests, parse_smart, parse_zpool, slots_in_use, strip_ids,
 )
 from bastet.core.inventory import Inventory, markdown_files
@@ -39,7 +40,8 @@ class HardwareView:
     items: list[Observed] = field(default_factory=list)
     pools: list[dict] = field(default_factory=list)
     guests: list[dict] = field(default_factory=list)
-    complete: dict[str, bool] = field(default_factory=lambda: {"drives": False, "cards": False})
+    complete: dict[str, bool] = field(default_factory=lambda: {
+        "drives": False, "cards": False, "cpus": False, "memory": False, "psus": False, "usb": False})
     skipped_root: bool = False
     notes: list[str] = field(default_factory=list)
     hints: list[str] = field(default_factory=list)
@@ -89,6 +91,8 @@ def observe_hardware(host: str, results: dict[str, ProbeResult], ex: Extracted) 
         except json.JSONDecodeError:
             pass
     net = parse_net_sysfs(_text(results, "net_sysfs") or "")
+    eth = parse_ethtool(_text(results, "ethtool") or "")
+    usb_devices = parse_usb(_text(results, "usb") or "")
     slots = slots_in_use(dmi)
     ports_by_bus: dict[str, list[dict]] = {}
     onboard: list[dict] = []
@@ -98,6 +102,9 @@ def observe_hardware(host: str, results: dict[str, ProbeResult], ex: Extracted) 
         port = {"name": ifname}
         if macs.get(ifname):
             port["mac"] = macs[ifname]
+        for key in ("max_speed", "firmware"):
+            if eth.get(ifname, {}).get(key):
+                port[key] = eth[ifname][key]
         bus = info["pci"].rsplit(".", 1)[0]
         ports_by_bus.setdefault(bus, []).append(port)
 
@@ -134,6 +141,13 @@ def observe_hardware(host: str, results: dict[str, ProbeResult], ex: Extracted) 
             data[key] = machine[key]
     if onboard:
         data["interfaces"] = onboard
+    gpus = [{"model": strip_ids(d.get("Device")), "make": strip_ids(d.get("Vendor")), "pci": d.get("Slot")}
+            for d in pci if d["class_code"].startswith("03") and d.get("Slot", "").rsplit(".", 1)[0] not in cards]
+    if gpus:
+        data["gpus"] = gpus
+    builtin_usb = [{"name": u.get("model") or u["id"], "id": u["id"]} for u in usb_devices if not u["removable"]]
+    if builtin_usb:
+        data["usb"] = builtin_usb
     ipmi_result = results.get("ipmi")
     if ipmi_result is not None and ipmi_result.missing and has_bmc(dmi, pci, _text(results, "ipmi_dev")):
         view.hints.append(f"has a BMC (IPMI); install ipmitool on {host} to record its out-of-band address")
@@ -141,6 +155,10 @@ def observe_hardware(host: str, results: dict[str, ProbeResult], ex: Extracted) 
     if oob:
         data["oob"] = oob
         data["oob_address"] = oob["address"]
+    mc = parse_mc_info(_text(results, "ipmi_mc") or "")
+    if mc.get("firmware"):
+        data["bmc_firmware"] = mc["firmware"]
+    data.update(parse_firmware_info(_text(results, "firmware") or ""))
     if serial:
         view.items.append(Observed(f"serial:{serial.lower()}", file_name(_make_model(make, model), serial), data))
     else:
@@ -215,6 +233,13 @@ def observe_hardware(host: str, results: dict[str, ProbeResult], ex: Extracted) 
         drive["installed_in"] = link
         view.items.append(Observed(f"serial:{drive_serial.lower()}", file_name(drive_model, drive_serial), drive))
 
+    view.items.extend(_parts(host, link, dmi, machine, results, usb_devices))
+    view.complete["cpus"] = view.complete["memory"] = bool(dmi)
+    fru = results.get("ipmi_fru")
+    view.complete["psus"] = bool(fru is not None and fru.ok) or bool(psus_from_dmi(dmi))
+    usb_result = results.get("usb")
+    view.complete["usb"] = usb_result is not None and usb_result.ok
+
     view.guests = parse_pve_guests(_text(results, "pve_guests") or "")
     confs = parse_guest_conf(_text(results, "pve_guest_conf") or "")
     neighbours = parse_neigh(_text(results, "neigh") or "")
@@ -241,6 +266,69 @@ def observe_hardware(host: str, results: dict[str, ProbeResult], ex: Extracted) 
     return view
 
 
+def _part(category: str, link: str, fields: dict) -> dict:
+    data: dict[str, object] = {"bastet": "hardware", "category": category}
+    data.update({k: v for k, v in fields.items() if v not in (None, "")})
+    data["status"], data["installed_in"] = "in-service", link
+    return data
+
+
+def _merge_psus(fru: list[dict], dmi: list[dict]) -> list[dict]:
+    psus = [dict(p) for p in fru]
+    for p in dmi:
+        same = next((q for q in psus if (p.get("serial") and p.get("serial") == q.get("serial"))
+                     or ((not p.get("serial") or not q.get("serial")) and p.get("model") and p.get("model") == q.get("model"))), None)
+        if same is None:
+            psus.append(dict(p))
+        else:
+            for k, v in p.items():
+                same.setdefault(k, v)
+    return psus
+
+
+def _parts(host: str, link: str, dmi: list[dict], machine: dict, results: dict[str, ProbeResult],
+           usb_devices: list[dict]) -> list[Observed]:
+    """Removable parts that get their own files: CPUs, memory sticks, PSUs and removable USB devices."""
+    h = host.lower()
+    items: list[Observed] = []
+    for c in cpus_from_dmi(dmi):
+        short = short_cpu(c.get("model") or "CPU")
+        data = _part("cpu", link, {k: c.get(k) for k in ("make", "model", "serial", "socket", "cores", "threads")})
+        if c.get("serial"):
+            items.append(Observed(f"serial:{c['serial'].lower()}", file_name(short, c["serial"]), data))
+        else:
+            socket = str(c.get("socket") or "0")
+            items.append(Observed(f"cpu:{h}:{socket.lower()}", file_name(host, short, socket), data))
+    for d in machine.get("memory", []):
+        data = _part("memory", link, {"make": d.get("make"), "model": d.get("part"), "serial": d.get("serial"),
+                                      "size": d.get("size"), "type": d.get("type"), "speed": d.get("speed"),
+                                      "slot": d.get("slot")})
+        if d.get("serial"):
+            label = d.get("part") or " ".join(x for x in (d.get("type"), d.get("size")) if x)
+            items.append(Observed(f"serial:{d['serial'].lower()}", file_name(d.get("make"), label, d["serial"]), data))
+        else:
+            slot = str(d.get("slot") or "0")
+            items.append(Observed(f"dimm:{h}:{slot.lower()}", file_name(host, slot, d.get("size")), data))
+    for p in _merge_psus(parse_fru(_text(results, "ipmi_fru") or ""), psus_from_dmi(dmi)):
+        data = _part("psu", link, {k: p.get(k) for k in ("make", "model", "serial", "max_power", "name")})
+        if p.get("serial"):
+            items.append(Observed(f"serial:{p['serial'].lower()}", file_name(p.get("model"), p["serial"]), data))
+        else:
+            label = str(p.get("name") or p.get("model") or "PSU")
+            items.append(Observed(f"psu:{h}:{label.lower()}", file_name(host, label), data))
+    for u in usb_devices:
+        if not u["removable"]:
+            continue
+        data = _part("usb", link, {"make": u.get("make"), "model": u.get("model"), "serial": u.get("serial"),
+                                   "usb_id": u["id"], "usb_port": None if u.get("serial") else u["busid"]})
+        label = u.get("model") or f"USB {u['id']}"
+        if u.get("serial"):
+            items.append(Observed(f"usb:{u['id']}:{u['serial'].lower()}", file_name(label, u["serial"]), data))
+        else:
+            items.append(Observed(f"usb:{h}:{u['id']}:{u['busid']}", file_name(host, label), data))
+    return items
+
+
 HARDWARE_YOURS = {"category", "status", "location", "purchased", "vendor", "price", "warranty_until", "notes"}
 HARDWARE_SPECIAL = {"bastet", "installed_in"}
 
@@ -259,6 +347,17 @@ def _index(inv: Inventory) -> dict[str, Document]:
             index.setdefault(f"machine-any:{target}", doc)
             if not doc.data.get("serial"):
                 index.setdefault(f"machine:{target}", doc)
+        category, serial = doc.data.get("category"), doc.data.get("serial")
+        if category == "usb" and doc.data.get("usb_id"):
+            if serial:
+                index.setdefault(f"usb:{doc.data['usb_id']}:{str(serial).lower()}", doc)
+            elif target and doc.data.get("usb_port"):
+                index.setdefault(f"usb:{target}:{doc.data['usb_id']}:{doc.data['usb_port']}", doc)
+        elif target and not serial:
+            fallback = {"cpu": ("cpu", doc.data.get("socket")), "memory": ("dimm", doc.data.get("slot")),
+                        "psu": ("psu", doc.data.get("name") or doc.data.get("model"))}.get(str(category))
+            if fallback and fallback[1]:
+                index.setdefault(f"{fallback[0]}:{target}:{str(fallback[1]).lower()}", doc)
     return index
 
 
@@ -322,7 +421,9 @@ def plan_hardware(
         if doc.path in seen or (link_target(doc.data.get("installed_in")) or "").lower() != host.lower():
             continue
         category = doc.data.get("category")
-        checked = (category == "drive" and view.complete["drives"]) or (category in ("gpu", "hba", "nic") and view.complete["cards"])
+        complete_key = {"drive": "drives", "gpu": "cards", "hba": "cards", "nic": "cards", "cpu": "cpus",
+                        "memory": "memory", "psu": "psus", "usb": "usb"}.get(str(category))
+        checked = bool(complete_key and view.complete.get(complete_key))
         if checked:
             notes.append(Note(host, "warn", f"{doc.name} is recorded in {host} but wasn't seen (pulled, failed or moved?); its file is unchanged"))
     return changes, notes

@@ -220,7 +220,7 @@ def test_gather_server_creates_hardware_files(runner, server):
     result = runner.invoke(app, ["gather", "pve1", "-y", "--accept-new-hostkey"])
     assert result.exit_code == 0, result.output
     hw = sorted(p.name for p in (server / "hardware").glob("*.md"))
-    assert "Supermicro SYS-5019C-MR S123456X.md" in hw and len(hw) == 5
+    assert "Supermicro SYS-5019C-MR S123456X.md" in hw and len(hw) == 10
     host = (server / "hosts" / "pve1.md").read_text()
     assert "pools:\n  - name: tank\n    state: ONLINE\n" in host
     assert "git1" in result.output and "media" in result.output and "aren't in the inventory" in result.output
