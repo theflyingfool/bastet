@@ -6,7 +6,7 @@ from bastet.core.changes import Change
 from bastet.core.errors import BastetError
 from bastet.core.frontmatter import new_document
 from bastet.core.hosttypes import HostType
-from bastet.core.inventory import HARDWARE_STATUSES, Inventory
+from bastet.core.inventory import HARDWARE_STATUSES, Inventory, markdown_files
 from bastet.core.links import make_link
 
 NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._-]*$")
@@ -25,6 +25,9 @@ def _check_name(inv: Inventory, name: str) -> None:
     existing = inv.get(name)
     if existing is not None:
         raise BastetError(f"'{name}' already exists", file=existing.path)
+    for path in markdown_files(inv.root):
+        if path.stem.lower() == name.lower():
+            raise BastetError(f"a note named '{path.stem}' already exists; pick another name", file=path)
 
 
 def _require(inv: Inventory, name: str, kind: str, option: str) -> None:

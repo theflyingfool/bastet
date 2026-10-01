@@ -60,7 +60,7 @@ class Inventory:
         return sorted(found, key=lambda item: (item[0].name.lower(), item[1]))
 
 
-def _markdown_files(root: Path) -> Iterator[Path]:
+def markdown_files(root: Path) -> Iterator[Path]:
     for path in sorted(root.rglob("*.md")):
         if any(part in SKIP_DIRS for part in path.relative_to(root).parts[:-1]):
             continue
@@ -115,7 +115,7 @@ def _check_hardware(inv: Inventory, doc: Document) -> None:
 
 def load_inventory(root: Path, types: dict[str, HostType]) -> Inventory:
     inv = Inventory(root=root)
-    for path in _markdown_files(root):
+    for path in markdown_files(root):
         try:
             doc = parse_document(path.read_text(encoding="utf-8"), path)
         except BastetError as exc:

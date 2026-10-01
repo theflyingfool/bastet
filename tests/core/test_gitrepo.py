@@ -92,3 +92,29 @@ def test_pull_failure_is_bastet_error(tmp_path, repo):
     git(repo.root, "config", "branch.main.merge", "refs/heads/main")
     with pytest.raises(BastetError):
         repo.pull()
+
+
+def test_git_runs_non_interactive(monkeypatch):
+    from bastet.core.gitrepo import git_env
+
+    monkeypatch.delenv("GIT_SSH_COMMAND", raising=False)
+    env = git_env()
+    assert env["GIT_TERMINAL_PROMPT"] == "0"
+    assert "BatchMode=yes" in env["GIT_SSH_COMMAND"] and "ConnectTimeout" in env["GIT_SSH_COMMAND"]
+    monkeypatch.setenv("GIT_SSH_COMMAND", "ssh -i mykey")
+    assert git_env()["GIT_SSH_COMMAND"] == "ssh -i mykey"
+
+
+def test_push_timeout_is_false_not_crash(tmp_path, repo, monkeypatch):
+    import bastet.core.gitrepo as g
+
+    repo.add_remote(str(tmp_path / "x.git"))
+    real = g.subprocess.run
+
+    def slow(cmd, *a, **k):
+        if "push" in cmd:
+            raise g.subprocess.TimeoutExpired(cmd, 1)
+        return real(cmd, *a, **k)
+
+    monkeypatch.setattr(g.subprocess, "run", slow)
+    assert repo.push() is False

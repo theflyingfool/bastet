@@ -1,3 +1,4 @@
+import os
 import socket
 import subprocess
 from collections.abc import Iterable
@@ -6,6 +7,17 @@ from pathlib import Path
 from bastet.core.errors import BastetError
 
 BASTET_NAME = "Bastet"
+
+
+TIMEOUT = 120
+
+
+def git_env() -> dict[str, str]:
+    """Never wait for a password prompt or an unreachable host."""
+    env = dict(os.environ)
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    env.setdefault("GIT_SSH_COMMAND", "ssh -o BatchMode=yes -o ConnectTimeout=15")
+    return env
 
 
 def bastet_email() -> str:
@@ -17,9 +29,12 @@ class GitRepo:
         self.root = root
 
     def _git(self, *args: str, check: bool = True) -> subprocess.CompletedProcess:
-        result = subprocess.run(
-            ["git", "-C", str(self.root), *args], capture_output=True, text=True
-        )
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(self.root), *args], capture_output=True, text=True, env=git_env(), timeout=TIMEOUT
+            )
+        except subprocess.TimeoutExpired:
+            raise BastetError(f"git {args[0]} timed out after {TIMEOUT}s", file=self.root) from None
         if check and result.returncode != 0:
             raise BastetError(f"git {args[0]} failed: {result.stderr.strip()}", file=self.root)
         return result
@@ -29,6 +44,15 @@ class GitRepo:
             return False
         result = self._git("rev-parse", "--show-toplevel", check=False)
         return result.returncode == 0 and Path(result.stdout.strip()).resolve() == self.root.resolve()
+
+    def clone_from(self, url: str) -> bool:
+        try:
+            result = subprocess.run(
+                ["git", "clone", "-q", url, str(self.root)], capture_output=True, text=True, env=git_env(), timeout=TIMEOUT
+            )
+        except subprocess.TimeoutExpired:
+            return False
+        return result.returncode == 0
 
     def init(self) -> None:
         self._git("init", "-q", "-b", "main")
@@ -54,7 +78,10 @@ class GitRepo:
         if not self.has_remote():
             return True
         args = ["push", "-q"] if self._has_upstream() else ["push", "-q", "-u", "origin", "HEAD"]
-        return self._git(*args, check=False).returncode == 0
+        try:
+            return self._git(*args, check=False).returncode == 0
+        except BastetError:
+            return False
 
     def dirty(self) -> list[Path]:
         out = self._git("status", "--porcelain=v1", "-z", "--untracked-files=all").stdout

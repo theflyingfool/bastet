@@ -81,9 +81,67 @@ def test_keeps_existing_repo_and_merges_appearance(tmp_path):
     assert data == {"theme": "obsidian", "enabledCssSnippets": ["mine", "bastet"]}
 
 
-def test_remote_written_and_added(tmp_path):
+def test_remote_written_and_added(tmp_path, monkeypatch):
+    monkeypatch.setenv("GIT_SSH_COMMAND", "false")
     cfg = tmp_path / "bastet.yml"
     initialize(cfg, opts(tmp_path, remote="git@example.com:me/inv.git"), keys_dir=tmp_path / "ssh")
     assert load_config(cfg).inventory.remote == "git@example.com:me/inv.git"
     remotes = subprocess.run(["git", "-C", str(tmp_path / "Homelab"), "remote", "-v"], capture_output=True, text=True).stdout
     assert "git@example.com:me/inv.git" in remotes
+
+
+def test_bad_appearance_json_is_located_error(tmp_path):
+    inv = tmp_path / "Homelab"
+    (inv / ".obsidian").mkdir(parents=True)
+    (inv / ".obsidian" / "appearance.json").write_text("{not json")
+    with pytest.raises(BastetError) as e:
+        initialize(tmp_path / "bastet.yml", opts(tmp_path), keys_dir=tmp_path / "ssh")
+    assert e.value.file == inv / ".obsidian" / "appearance.json"
+
+
+def test_existing_key_with_extension(tmp_path):
+    key = tmp_path / "bastet.key"
+    subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(key)], check=True)
+    r = initialize(tmp_path / "bastet.yml", opts(tmp_path, key=key), keys_dir=tmp_path / "ssh")
+    assert r.public_key == tmp_path / "bastet.key.pub"
+
+
+def test_ssh_keygen_failure_is_bastet_error(tmp_path, monkeypatch):
+    import bastet.core.initialize as init_mod
+
+    def boom(*a, **k):
+        raise subprocess.CalledProcessError(1, a[0], stderr="nope")
+
+    monkeypatch.setattr(init_mod.subprocess, "run", boom)
+    with pytest.raises(BastetError):
+        initialize(tmp_path / "bastet.yml", opts(tmp_path), keys_dir=tmp_path / "ssh")
+
+
+def _bare_with_commit(tmp_path):
+    bare = tmp_path / "remote.git"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(bare)], check=True)
+    seed = tmp_path / "seed"
+    subprocess.run(["git", "clone", "-q", str(bare), str(seed)], check=True, capture_output=True)
+    (seed / "hosts").mkdir()
+    (seed / "hosts" / "pve1.md").write_text("---\nbastet: host\ntype: proxmox-node\nip: 10.0.10.11\n---\n")
+    for args in (["add", "."], ["-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-q", "-m", "seed"], ["push", "-q"]):
+        subprocess.run(["git", "-C", str(seed), *args], check=True, capture_output=True)
+    return bare
+
+
+def test_init_clones_remote_with_history(tmp_path):
+    bare = _bare_with_commit(tmp_path)
+    r = initialize(tmp_path / "bastet.yml", opts(tmp_path, remote=str(bare)), keys_dir=tmp_path / "ssh")
+    inv = tmp_path / "Homelab"
+    assert (inv / "hosts" / "pve1.md").exists()
+    assert any(a.startswith("cloned") for a in r.actions)
+    remote_log = subprocess.run(["git", "--git-dir", str(bare), "log", "--format=%s"], capture_output=True, text=True).stdout
+    assert "bastet init" in remote_log
+
+
+def test_init_pushes_to_empty_remote(tmp_path):
+    bare = tmp_path / "remote.git"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(bare)], check=True)
+    initialize(tmp_path / "bastet.yml", opts(tmp_path, remote=str(bare)), keys_dir=tmp_path / "ssh")
+    remote_log = subprocess.run(["git", "--git-dir", str(bare), "log", "--format=%s"], capture_output=True, text=True).stdout
+    assert "bastet init" in remote_log

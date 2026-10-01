@@ -51,3 +51,22 @@ def test_add_hardware(runner, inventory):
     assert result.exit_code == 0, result.output
     text = (inventory / "hardware" / "WD Red 4TB WX12.md").read_text()
     assert 'installed_in: "[[pve1]]"' in text and "status: in-service" in text
+
+
+def test_unreachable_remote_warns_and_continues(runner, inventory, tmp_path):
+    subprocess.run(["git", "-C", str(inventory), "remote", "add", "origin", str(tmp_path / "gone.git")], check=True)
+    subprocess.run(["git", "-C", str(inventory), "config", "branch.main.remote", "origin"], check=True)
+    subprocess.run(["git", "-C", str(inventory), "config", "branch.main.merge", "refs/heads/main"], check=True)
+    result = runner.invoke(app, ["add", "host", "edge1", "--type", "vps", "--provider", "linode", "--ip", "203.0.113.10", "-y"])
+    assert result.exit_code == 0, result.output
+    assert "warning" in result.output and (inventory / "hosts" / "edge1.md").exists()
+    assert authors(inventory)[0] == "Bastet add host edge1"
+
+
+def test_pending_personal_notes_left_alone(runner, inventory):
+    (inventory / "journal.md").write_text("# personal\n")
+    (inventory / "hosts" / "pve1.md").write_text("---\nbastet: host\ntype: proxmox-node\nip: 10.0.10.11\nnote: mine\n---\n")
+    result = runner.invoke(app, ["add", "host", "edge1", "--type", "vps", "--provider", "linode", "--ip", "203.0.113.10", "-y"])
+    assert result.exit_code == 0, result.output
+    status = subprocess.run(["git", "-C", str(inventory), "status", "--porcelain"], capture_output=True, text=True).stdout
+    assert "journal.md" in status and "pve1.md" not in status

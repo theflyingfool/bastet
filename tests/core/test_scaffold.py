@@ -121,3 +121,18 @@ def test_new_hardware_spare_by_default_without_host(tmp_path):
 def test_new_hardware_bad_status(tmp_path):
     with pytest.raises(BastetError):
         new_hardware(inv_with(tmp_path, {}), "x", "drive", status="broken")
+
+
+def test_refuses_to_overwrite_non_bastet_file(tmp_path):
+    inv = inv_with(tmp_path, {"hosts/web.md": "# my notes\nprecious\n"})
+    with pytest.raises(BastetError) as e:
+        new_host(inv, TYPES, "web", "server", ip="10.0.10.50")
+    assert e.value.file == tmp_path / "hosts" / "web.md"
+
+
+def test_refuses_same_name_any_case_anywhere(tmp_path):
+    inv = inv_with(tmp_path, {"notes/Web.md": "# a personal note\n"})
+    with pytest.raises(BastetError):
+        new_host(inv, TYPES, "web", "server", ip="10.0.10.50")
+    with pytest.raises(BastetError):
+        new_hardware(inv, "WEB", "drive")

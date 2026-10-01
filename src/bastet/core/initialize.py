@@ -49,9 +49,13 @@ def _css() -> str:
     return (resources.files("bastet") / "data" / "obsidian" / "bastet.css").read_text(encoding="utf-8")
 
 
+def _pub(key: Path) -> Path:
+    return Path(str(key) + ".pub")
+
+
 def _key(options: InitOptions, keys_dir: Path, actions: list[str]) -> Path:
     if options.key is not None:
-        if not options.key.is_file() or not options.key.with_suffix(".pub").is_file():
+        if not options.key.is_file() or not _pub(options.key).is_file():
             raise BastetError("SSH private key (and its .pub) not found", file=options.key)
         actions.append(f"kept SSH key {options.key} (yours)")
         return options.key
@@ -62,10 +66,14 @@ def _key(options: InitOptions, keys_dir: Path, actions: list[str]) -> Path:
     if shutil.which("ssh-keygen") is None:
         raise BastetError("ssh-keygen not found; install OpenSSH")
     keys_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-    subprocess.run(
-        ["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", f"bastet@{socket.gethostname()}", "-f", str(key)],
-        check=True,
-    )
+    try:
+        subprocess.run(
+            ["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", f"bastet@{socket.gethostname()}", "-f", str(key)],
+            check=True, capture_output=True, text=True,
+        )
+    except (subprocess.CalledProcessError, OSError) as exc:
+        detail = getattr(exc, "stderr", None) or str(exc)
+        raise BastetError(f"ssh-keygen failed: {str(detail).strip()}", file=key) from None
     actions.append(f"created SSH key {key}")
     return key
 
@@ -88,8 +96,14 @@ def initialize(config_file: Path, options: InitOptions, *, keys_dir: Path) -> In
         actions.append(f"created {config_file}")
 
     root = options.inventory
-    root.mkdir(parents=True, exist_ok=True)
     repo = GitRepo(root)
+    empty = not root.exists() or not any(root.iterdir())
+    if options.remote and empty:
+        if repo.clone_from(options.remote):
+            actions.append(f"cloned {options.remote} into {root}")
+        else:
+            actions.append(f"warning: could not clone {options.remote}; starting a local repository, pushed later")
+    root.mkdir(parents=True, exist_ok=True)
     if repo.is_repo():
         actions.append(f"kept git repository {root}")
     else:
@@ -119,7 +133,12 @@ def initialize(config_file: Path, options: InitOptions, *, keys_dir: Path) -> In
 
     if options.snippet:
         appearance = root / ".obsidian" / "appearance.json"
-        data = json.loads(appearance.read_text(encoding="utf-8")) if appearance.exists() else {}
+        try:
+            data = json.loads(appearance.read_text(encoding="utf-8")) if appearance.exists() else {}
+        except json.JSONDecodeError as exc:
+            raise BastetError(f"invalid JSON: {exc.msg}", file=appearance, line=exc.lineno) from None
+        if not isinstance(data, dict):
+            raise BastetError("expected a JSON object", file=appearance)
         snippets = data.setdefault("enabledCssSnippets", [])
         if "bastet" in snippets:
             actions.append("kept Obsidian stylesheet setting")
@@ -130,4 +149,6 @@ def initialize(config_file: Path, options: InitOptions, *, keys_dir: Path) -> In
             actions.append("created Obsidian stylesheet setting (enabled 'bastet')")
 
     committed = repo.commit(written, "bastet init") if written else False
-    return InitResult(actions=actions, committed=committed, public_key=key.with_suffix(".pub"))
+    if options.remote and committed and not repo.push():
+        actions.append("warning: push failed; the commit is kept locally and pushed on a later run")
+    return InitResult(actions=actions, committed=committed, public_key=_pub(key))

@@ -44,11 +44,15 @@ def load_context() -> Context:
 def write_with_confirmation(ctx: Context, changes: list[Change], message: str, yes: bool) -> bool:
     if not ctx.repo.is_repo():
         raise BastetError("the inventory is not a git repository; run `bastet init`", file=ctx.root)
-    ctx.repo.pull()
+    try:
+        ctx.repo.pull()
+    except BastetError as exc:
+        typer.secho(f"warning: {exc}; continuing on the last pulled state", fg="yellow", err=True)
     targets = {c.path for c in changes}
-    pending = [p for p in ctx.repo.dirty() if p.suffix == ".md"]
+    bastet_files = {d.path.resolve() for d in ctx.inventory.objects.values()} | {t.resolve() for t in targets}
+    pending = [p for p in ctx.repo.dirty() if p.suffix == ".md" and p.resolve() in bastet_files]
     if pending:
-        typer.echo("Uncommitted edits in the inventory:")
+        typer.echo("Uncommitted edits to Bastet files:")
         for path in pending:
             typer.echo(f"  {path.relative_to(ctx.root)}")
         if yes or typer.confirm("Commit them as you before Bastet writes?", default=True):
