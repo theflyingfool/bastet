@@ -15,7 +15,7 @@ def log(root):
 
 def opts(tmp_path: Path, **kw) -> InitOptions:
     base = dict(
-        inventory=tmp_path / "Homelab", remote=None, key=None, bootstrap_user="alex",
+        inventory=tmp_path / "Homelab", remote=None, key=None, bootstrap_user="nick",
         lab_name="Homelab", domains={"public": "example.com"}, snippet=True,
     )
     base.update(kw)
@@ -29,7 +29,7 @@ def test_init_from_nothing(tmp_path):
     loaded = load_config(cfg)
     assert loaded.inventory.path == inv
     assert loaded.ssh.key == tmp_path / "cfg" / "ssh" / "id_ed25519"
-    assert loaded.ssh.bootstrap_user == "alex"
+    assert loaded.ssh.bootstrap_user == "nick"
     lab = (inv / "Homelab.md").read_text()
     assert lab.startswith("---\nbastet: lab\n") and "name: Homelab\n" in lab and "public: example.com\n" in lab
     assert (inv / ".obsidian" / "snippets" / "bastet.css").exists()
