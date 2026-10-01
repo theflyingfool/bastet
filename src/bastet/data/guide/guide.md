@@ -39,6 +39,14 @@ This page is generated from the Bastet version you run, so it always matches it.
 - `install_tools: false` stops gather from installing its helper tools on that host. What gather has
   installed is listed in the host's `bastet_tools`.
 
+## Roles
+
+A role is a menu of options for one thing: `systemd` (time, hostname, locale, services), `packages`, `users`,
+`files`. You pick values in role files under `_roles/`: one for the whole lab, a group or a host
+(`bastet add role packages media01`). More specific wins: lab, then the host type, then groups (inner groups
+over outer ones), then the host. Lists add up across levels. Every option is listed, with its default, on the
+role's page in `_bastet/roles/`. `bastet check` shows what would change; `bastet apply` changes it after asking.
+
 ## Drift
 
 Your files are the source of truth. When something changes outside Bastet (say, a guest's IP edited in

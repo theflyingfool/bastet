@@ -107,3 +107,35 @@ def test_arch_packages_contract(arch_host):
 def test_arch_users_contract(arch_host):
     converge(arch_host, users_batches())
     check_users(arch_host)
+
+
+from pathlib import Path  # noqa: E402
+
+from bastet.roles.builtin import HostInfo, batches_for  # noqa: E402
+from bastet.roles.contract import check_values as _check, load_roles as _roles, with_defaults as _defaults  # noqa: E402
+from bastet.roles.resolve import Applied  # noqa: E402
+
+
+def _applied(role, values):
+    r = _roles()[role]
+    return Applied(r, _defaults(r, _check(r, values, role)))
+
+
+def test_roles_contract(host):
+    info = HostInfo(name="media01", type="vm", data={"os": "Debian GNU/Linux 13 (trixie)", "hostname": "media01"},
+                    root=Path("/nonexistent"), lab={})
+    batches = batches_for([
+        _applied("packages", {"install": ["tree"], "install_recommends": False}),
+        _applied("users", {"groups": {"media": {"gid": 2001}},
+                           "users": {"nick": {"uid": 2000, "groups": ["media"], "shell": "/bin/bash",
+                                              "keys": [KEY], "sudo": {"nopasswd": True}}}}),
+        _applied("files", {"files": {"/etc/systemd/system/bastet-demo.service": {"content": DEMO_UNIT, "mode": "0644"}},
+                           "directories": {"/srv/bastet": {"mode": "0750"}}}),
+        _applied("systemd", {"timezone": "America/Chicago", "locale": "en_US.UTF-8",
+                             "services": {"bastet-demo.service": {"enabled": True, "state": "up"}},
+                             "dropins": [{"unit": "bastet-demo.service", "name": "bastet", "content": "[Service]\nNice=5\n"}]}),
+    ], info)
+    converge(host, batches)
+    assert host.run("systemctl is-active bastet-demo.service").stdout.strip() == "active"
+    assert host.run("command -v tree").returncode == 0
+    assert "NOPASSWD: ALL" in host.run("sudo -n sudo -l -U nick").stdout
