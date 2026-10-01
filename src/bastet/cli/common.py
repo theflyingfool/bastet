@@ -5,7 +5,7 @@ from pathlib import Path
 import typer
 
 from bastet.core.changes import Change, render_diff, write_changes
-from bastet.core.config import config_path, data_dir, inventory_dir, load_config
+from bastet.core.config import Config, config_path, data_dir, inventory_dir, load_config
 from bastet.core.errors import BastetError
 from bastet.core.gitrepo import GitRepo
 from bastet.core.hosttypes import HostType, load_host_types
@@ -26,6 +26,7 @@ def handles_errors(fn):
 
 @dataclass
 class Context:
+    config: Config
     root: Path
     repo: GitRepo
     types: dict[str, HostType]
@@ -38,7 +39,7 @@ def load_context() -> Context:
     if not root.is_dir():
         raise BastetError("inventory directory does not exist; run `bastet init`", file=root)
     types = load_host_types()
-    return Context(root=root, repo=GitRepo(root), types=types, inventory=load_inventory(root, types))
+    return Context(config=config, root=root, repo=GitRepo(root), types=types, inventory=load_inventory(root, types))
 
 
 def write_with_confirmation(ctx: Context, changes: list[Change], message: str, yes: bool) -> bool:

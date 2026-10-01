@@ -32,3 +32,6 @@ app.add_typer(add_app, name="add")
 from bastet.cli.init import init  # noqa: E402
 
 app.command()(init)
+from bastet.cli.gather import gather  # noqa: E402
+
+app.command()(gather)
