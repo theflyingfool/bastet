@@ -153,10 +153,12 @@ def test_suggested_ip_helper(tmp_path):
         suggested_ip(inv, "iot")
 
 
-def test_unifi_types_default_to_not_gathered(tmp_path):
-    from bastet.core.hosttypes import load_host_types
+def test_unifi_types_are_gathered_with_mca_dump(tmp_path):
+    from bastet.core.hosttypes import HostType, load_host_types
     types = load_host_types()
     assert {"unifi-gateway", "unifi-switch", "unifi-ap"} <= set(types)
-    assert types["unifi-ap"].gather is False and types["server"].gather is True
+    assert types["unifi-ap"].gather is True and types["unifi-ap"].fields["ports"] == "fact"
     draft = new_host(inv_with(tmp_path, {}), types, "u7-pro-xg", "unifi-ap", ip="10.10.0.3")
-    assert "gather: false" in draft.change.after and "hostname: u7-pro-xg" in draft.change.after
+    assert "gather: true" in draft.change.after and "hostname: u7-pro-xg" in draft.change.after
+    quiet = {**types, "quiet": HostType(name="quiet", minimal=["ip"], gather=False)}
+    assert "gather: false" in new_host(inv_with(tmp_path, {}), quiet, "q1", "quiet", ip="10.10.0.9").change.after

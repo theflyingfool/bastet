@@ -1,7 +1,7 @@
 name: unifi-gateway
 description: UniFi gateway (e.g. UXG); configured through the UniFi controller
 physical: true
-gather: false
+gather: true
 minimal: [ip]
 fields:
   hostname: yours
@@ -9,5 +9,7 @@ fields:
   address: yours
   location: yours
   model: yours
-  mac: yours
   firmware: fact
+  ssh_host_key: fact
+  mac: fact
+  ports: fact

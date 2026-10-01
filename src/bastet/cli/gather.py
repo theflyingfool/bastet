@@ -1,4 +1,6 @@
+import datetime as dt
 import getpass
+import json
 import ipaddress
 import os
 import shlex
@@ -15,13 +17,16 @@ from bastet.core.scaffold import new_host
 from bastet.core.tools import install_script, needed_tools
 from bastet.core import hostkeys
 from bastet.core.bootstrap import setup_command
-from bastet.core.collect import Snapshot, collect, save_snapshot
+from bastet.core.cabling import merge_links, propose_links
+from bastet.core.changes import Change
+from bastet.core.collect import ProbeResult, Snapshot, collect, save_snapshot
 from bastet.core.config import data_dir
 from bastet.core.errors import AuthFailed, BastetError
-from bastet.core.facts import extract
-from bastet.core.frontmatter import Document
+from bastet.core.facts import Extracted, extract
+from bastet.core.frontmatter import Document, parse_document, set_keys
+from bastet.core.unifi import device_facts, machine_item, parse_mca, redact
 from bastet.core.gatherplan import Note, plan_update
-from bastet.core.hardware import RunState, observe_hardware, plan_hardware
+from bastet.core.hardware import HardwareView, RunState, observe_hardware, plan_hardware
 from bastet.core.remote import LocalRunner, SshRunner, SshTarget, run_interactive
 
 
@@ -58,12 +63,8 @@ def _fixed_ip(value: object) -> str | None:
     return text
 
 
-def _collect(ctx: Context, doc: Document, tmp: Path, *, yes: bool, accept: bool) -> tuple[Snapshot, str | None, object]:
-    if doc.data.get("connection") == "local":
-        if not yes and os.geteuid() != 0:
-            sudo_validate()
-        runner = local_runner()
-        return collect(runner, doc.name), None, runner
+def _pin(ctx: Context, doc: Document, tmp: Path, *, yes: bool, accept: bool) -> tuple[str, Path, str]:
+    """Scan, check and pin the host key (first contact asks); returns address, known_hosts path, recorded key."""
     address = doc.data.get("address") or _fixed_ip(doc.data.get("ip"))
     if not address:
         raise BastetError("no address to connect to; set `address:` (e.g. laptop.local) or a fixed `ip:`", file=doc.path)
@@ -89,6 +90,33 @@ def _collect(ctx: Context, doc: Document, tmp: Path, *, yes: bool, accept: bool)
     else:
         trusted, hostkey = [best], offered
     known = hostkeys.write_known_hosts(trusted, str(address), 22, tmp / doc.name)
+    return str(address), known, hostkey
+
+
+def _gather_unifi(ctx: Context, doc: Document, tmp: Path, *, yes: bool, accept: bool) -> tuple[str, str]:
+    """UniFi devices: one read-only `mca-dump` over the user's own SSH login (UniFi's device SSH account)."""
+    address, known, hostkey = _pin(ctx, doc, tmp, yes=yes, accept=accept)
+    user = ctx.config.ssh.bootstrap_user or getpass.getuser()
+    res = ssh_runner(SshTarget(address, user, None, known)).run("mca-dump\n", timeout=60)
+    if res.returncode != 0 or not res.stdout.strip():
+        raise BastetError("mca-dump failed or isn't there; is this a UniFi device, and does the device SSH login work?")
+    return res.stdout, hostkey
+
+
+def _group(proposals) -> dict[str, list[dict]]:
+    out: dict[str, list[dict]] = {}
+    for p in proposals:
+        out.setdefault(p.host, []).append(p.link)
+    return out
+
+
+def _collect(ctx: Context, doc: Document, tmp: Path, *, yes: bool, accept: bool) -> tuple[Snapshot, str | None, object]:
+    if doc.data.get("connection") == "local":
+        if not yes and os.geteuid() != 0:
+            sudo_validate()
+        runner = local_runner()
+        return collect(runner, doc.name), None, runner
+    address, known, hostkey = _pin(ctx, doc, tmp, yes=yes, accept=accept)
     key = ctx.config.ssh.key
     if key is not None:
         try:
@@ -218,21 +246,33 @@ def gather(
     found_guests: list[tuple[str, dict]] = []
     guest_drift_by_host: dict[str, list[str]] = {}
     run_state = RunState()
+    unifi_devices: dict = {}
     with tempfile.TemporaryDirectory(prefix="bastet-") as tmp:
         for doc in docs:
             typer.echo(f"{doc.name}: gathering…")
             try:
-                snapshot, hostkey, runner = _collect(ctx, doc, Path(tmp), yes=yes, accept=accept_new_hostkey)
                 host_type = ctx.types.get(str(doc.data.get("type")), ctx.types["unknown"])
-                snapshot, installed = _maybe_install_tools(ctx, doc, host_type, snapshot, runner, yes)
-                save_snapshot(snapshot, data_dir())
-                extracted = extract(snapshot.results)
-                tools = sorted(set(doc.data.get("bastet_tools") or []) | set(installed))
-                if tools:
-                    extracted.facts["bastet_tools"] = tools
-                view = observe_hardware(doc.name, snapshot.results, extracted) if host_type.physical else None
-                if view is not None and view.pools:
-                    extracted.facts["pools"] = view.pools
+                if host_type.name.startswith("unifi-"):
+                    raw, hostkey = _gather_unifi(ctx, doc, Path(tmp), yes=yes, accept=accept_new_hostkey)
+                    device = parse_mca(raw)
+                    taken = dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+                    snapshot = Snapshot(doc.name, "ssh", taken,
+                                        {"mca_dump": ProbeResult(0, json.dumps(redact(json.loads(raw)), indent=1))})
+                    save_snapshot(snapshot, data_dir())
+                    unifi_devices[doc.name] = (host_type.name, device)
+                    extracted = Extracted(facts=device_facts(device))
+                    view = HardwareView(items=[machine_item(doc.name, host_type.name, device)])
+                else:
+                    snapshot, hostkey, runner = _collect(ctx, doc, Path(tmp), yes=yes, accept=accept_new_hostkey)
+                    snapshot, installed = _maybe_install_tools(ctx, doc, host_type, snapshot, runner, yes)
+                    save_snapshot(snapshot, data_dir())
+                    extracted = extract(snapshot.results)
+                    tools = sorted(set(doc.data.get("bastet_tools") or []) | set(installed))
+                    if tools:
+                        extracted.facts["bastet_tools"] = tools
+                    view = observe_hardware(doc.name, snapshot.results, extracted) if host_type.physical else None
+                    if view is not None and view.pools:
+                        extracted.facts["pools"] = view.pools
                 update = plan_update(
                     doc, extracted, host_type, ctx.repo, take=take_fields, hostkey=hostkey, types=ctx.types
                 )
@@ -270,6 +310,27 @@ def gather(
             else:
                 changes.extend(host_changes)
                 gathered.append(doc.name)
+
+    if unifi_devices:
+        by_path = {c.path: c for c in changes}
+        for proposal_host, links in _group(propose_links(inv, unifi_devices)).items():
+            target = inv.get(proposal_host)
+            if target is None:
+                continue
+            pending = by_path.get(target.path)
+            text = pending.after if pending is not None else target.path.read_text(encoding="utf-8")
+            merged = merge_links(parse_document(text, target.path).data.get("links") or [], links)
+            if merged is None:
+                continue
+            after = set_keys(text, {"links": merged}, target.path)
+            if pending is not None:
+                pending.after = after
+            else:
+                by_path[target.path] = Change(target.path, text, after)
+                changes.append(by_path[target.path])
+                gathered.append(target.name)
+            notes.extend(Note(target.name, "info", f"link {link['port']} → {link['to']} port {link['to_port']}")
+                         for link in links if link in merged)
 
     for note in notes:
         mark = "⚠" if note.severity == "warn" else "·"
