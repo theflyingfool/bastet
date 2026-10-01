@@ -1,6 +1,7 @@
 import datetime as dt
 import json
 import secrets
+import shlex
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -13,6 +14,7 @@ class Probe:
     command: str
     tool: str
     required: bool = False
+    root: bool = False
 
 
 PROBES: tuple[Probe, ...] = (
@@ -35,6 +37,27 @@ PROBES: tuple[Probe, ...] = (
     Probe("ip_addr", "ip -j addr", "ip (iproute2)", True),
     Probe("ip_route", "ip -j route show default", "ip (iproute2)"),
     Probe("pveversion", "pveversion", "pveversion (Proxmox VE)"),
+    Probe("privilege", 'echo "${SUDO:-root}"', "sudo"),
+    Probe("dmidecode", "dmidecode -t 0,1,2,3,4,9,17", "dmidecode", root=True),
+    Probe(
+        "smart",
+        "command -v smartctl >/dev/null || exit 127; printf '['; sep=''; "
+        "for d in $(lsblk -dnp -o NAME,TYPE | awk '$2==\"disk\"{print $1}'); do "
+        "printf '%s' \"$sep\"; smartctl -a -j \"$d\" || true; sep=','; done; printf ']'",
+        "smartctl (smartmontools)",
+        root=True,
+    ),
+    Probe("lspci", "lspci -vmm -nn -k -D", "lspci (pciutils)"),
+    Probe(
+        "net_sysfs",
+        "for i in /sys/class/net/*; do n=${i##*/}; "
+        "printf '%s\\t%s\\t%s\\n' \"$n\" \"$(cat \"$i/speed\" 2>/dev/null)\" \"$(readlink \"$i/device\" 2>/dev/null)\"; done",
+        "/sys/class/net",
+    ),
+    Probe("ipmi", "ipmitool lan print 1", "ipmitool", root=True),
+    Probe("zpool", "zpool status -P", "zpool (OpenZFS)"),
+    Probe("disk_ids", "ls -l /dev/disk/by-id/", "/dev/disk/by-id"),
+    Probe("pve_guests", "pvesh get /cluster/resources --type vm --output-format json", "pvesh (Proxmox VE)", root=True),
 )
 
 
@@ -51,6 +74,10 @@ class ProbeResult:
     def missing(self) -> bool:
         return self.returncode == 127
 
+    @property
+    def denied(self) -> bool:
+        return self.returncode == 126
+
 
 @dataclass
 class Snapshot:
@@ -60,11 +87,23 @@ class Snapshot:
     results: dict[str, ProbeResult]
 
 
+PRELUDE = """export LC_ALL=C
+if [ "$(id -u)" = 0 ]; then SUDO=""
+elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then SUDO="sudo -n"
+else SUDO="none"; fi"""
+
+
 def build_script(probes: tuple[Probe, ...] = PROBES, mark: str = MARK) -> str:
-    lines = ["export LC_ALL=C"]
+    lines = [PRELUDE]
     for p in probes:
+        if p.root:
+            lines.append(
+                f'if [ "$SUDO" = none ]; then out=""; rc=126; '
+                f"else out=$( $SUDO sh -c {shlex.quote(p.command)} 2>/dev/null ); rc=$?; fi"
+            )
+        else:
+            lines.append(f"out=$( ( {p.command} ) 2>/dev/null ); rc=$?")
         lines += [
-            f"out=$( ( {p.command} ) 2>/dev/null ); rc=$?",
             f"printf '%s %s %s\\n' '{mark}' '{p.name}' \"$rc\"",
             "printf '%s\\n' \"$out\"",
         ]

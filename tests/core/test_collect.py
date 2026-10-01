@@ -52,3 +52,27 @@ def test_forged_markers_in_output_are_ignored():
     snap = collect(LocalRunner(), "h", probes)
     assert set(snap.results) == {"evil", "after"}
     assert "fake" in snap.results["evil"].output and snap.results["after"].output == "ok"
+
+
+def test_root_probe_without_sudo_is_denied_not_hung():
+    import os
+    probes = (Probe("who", "id -u", "id", root=True), Probe("privilege", 'echo "${SUDO:-root}"', "sudo"))
+    snap = collect(LocalRunner(), "h", probes)
+    priv = snap.results["privilege"].output
+    assert priv in ("root", "sudo -n", "none")
+    if priv == "none":
+        assert snap.results["who"].denied and snap.results["who"].output == ""
+    else:
+        assert snap.results["who"].output == "0" or os.geteuid() == 0
+
+
+def test_root_probe_command_is_quoted_safely():
+    script = build_script((Probe("q", "printf '%s' \"it's\"", "printf", root=True),))
+    import subprocess
+    subprocess.run(["sh", "-n"], input=script, text=True, check=True)
+
+
+def test_new_probes_present():
+    names = {p.name for p in PROBES}
+    assert {"privilege", "dmidecode", "smart", "lspci", "net_sysfs", "ipmi", "zpool", "disk_ids", "pve_guests"} <= names
+    assert {p.name for p in PROBES if p.root} == {"dmidecode", "smart", "ipmi", "pve_guests"}
