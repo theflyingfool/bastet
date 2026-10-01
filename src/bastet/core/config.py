@@ -43,11 +43,29 @@ class SecretsConfig(BaseModel):
         return value.expanduser() if value is not None else None
 
 
+class SshConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    key: Path | None = None
+    bootstrap_user: str | None = None
+
+    @field_validator("key")
+    @classmethod
+    def _absolute_key(cls, value: Path | None) -> Path | None:
+        if value is None:
+            return None
+        value = value.expanduser()
+        if not value.is_absolute():
+            raise ValueError("must be an absolute path or start with ~")
+        return value
+
+
 class Config(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     inventory: InventoryConfig
     secrets: SecretsConfig = SecretsConfig()
+    ssh: SshConfig = SshConfig()
 
 
 def config_path(env: Mapping[str, str] | None = None) -> Path:

@@ -131,3 +131,18 @@ def test_unreadable_config_is_a_bastet_error(tmp_path):
     with pytest.raises(BastetError) as e:
         load_config(bad)
     assert e.value.file == bad
+
+
+def test_ssh_section(tmp_path):
+    cfg = load_config(
+        write(tmp_path, "inventory:\n  path: ~/Homelab\nssh:\n  key: ~/.ssh/bastet\n  bootstrap_user: nick\n")
+    )
+    assert cfg.ssh.key == Path.home() / ".ssh" / "bastet"
+    assert cfg.ssh.bootstrap_user == "nick"
+
+
+def test_ssh_key_must_be_absolute(tmp_path):
+    p = write(tmp_path, "inventory:\n  path: ~/Homelab\nssh:\n  key: bastet\n")
+    with pytest.raises(BastetError) as e:
+        load_config(p)
+    assert e.value.key == "ssh.key"
