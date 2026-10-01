@@ -5,7 +5,8 @@ import shlex
 from dataclasses import dataclass
 from typing import ClassVar
 
-from bastet.engine.model import ABSENT, Read, ReadError, Resource, Unsupported
+from bastet.engine.files import Block, File, Line
+from bastet.engine.model import ABSENT, FieldChange, Read, ReadError, Resource, Unsupported
 
 MANAGERS = ("apt-get", "pacman", "dnf", "zypper", "apk")
 DETECT = ("for m in apt-get pacman dnf zypper apk; do "
@@ -127,3 +128,153 @@ class Package(Resource):
 
     def fix(self, changes, current):
         return type(self).fix_group([(self, changes, current)])
+
+
+REPO_NAME = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]*$")
+
+
+@dataclass(frozen=True, kw_only=True)
+class Repository(Resource):
+    family: ClassVar[str] = "Packages"
+    name: str
+    uris: tuple[str, ...]
+    suites: tuple[str, ...] = ()
+    components: tuple[str, ...] = ()
+    types: tuple[str, ...] = ("deb",)
+    architectures: tuple[str, ...] = ()
+    key: str | None = None
+    signed_by: str | None = None
+    enabled: bool = True
+    trusted: bool | None = None
+    options: tuple[tuple[str, str], ...] = ()
+
+    def __post_init__(self):
+        if not REPO_NAME.match(self.name or ""):
+            raise ValueError(f"not a repository name: {self.name!r}")
+        if not self.uris:
+            raise ValueError(f"repository {self.name} needs at least one URI")
+
+    @property
+    def identity(self) -> str:
+        return f"repo:{self.name}"
+
+    @property
+    def label(self) -> str:
+        return f"repository {self.name}"
+
+    def desired(self):
+        return {"uris": self.uris, "suites": self.suites, "components": self.components, "types": self.types,
+                "architectures": self.architectures, "key": self.key, "signed_by": self.signed_by,
+                "enabled": self.enabled, "trusted": self.trusted, "options": self.options}
+
+    def _deb822(self) -> str:
+        lines = [f"Types: {' '.join(self.types)}", f"URIs: {' '.join(self.uris)}", f"Suites: {' '.join(self.suites)}"]
+        if self.components:
+            lines.append(f"Components: {' '.join(self.components)}")
+        if self.architectures:
+            lines.append(f"Architectures: {' '.join(self.architectures)}")
+        if not self.enabled:
+            lines.append("Enabled: no")
+        if self.trusted is not None:
+            lines.append(f"Trusted: {'yes' if self.trusted else 'no'}")
+        if self.key:
+            lines.append("Signed-By:")
+            lines += [f" {line}" if line.strip() else " ." for line in self.key.strip().splitlines()]
+        elif self.signed_by:
+            lines.append(f"Signed-By: {self.signed_by}")
+        lines += [f"{k}: {v}" for k, v in self.options]
+        return "\n".join(lines) + "\n"
+
+    def _rpm_key_path(self) -> str:
+        return f"/etc/pki/rpm-gpg/RPM-GPG-KEY-bastet-{self.name}"
+
+    def _ini(self, manager: str) -> str:
+        if manager == "zypper" and len(self.uris) != 1:
+            raise ValueError(f"repository {self.name}: zypper takes exactly one URI")
+        baseurl = "\n        ".join(self.uris)
+        signed = bool(self.key or self.signed_by) and self.trusted is not True
+        lines = [f"[{self.name}]", f"name={self.name}", f"baseurl={baseurl}", f"enabled={1 if self.enabled else 0}",
+                 f"gpgcheck={1 if signed else 0}"]
+        if self.key:
+            lines.append(f"gpgkey=file://{self._rpm_key_path()}")
+        elif self.signed_by:
+            lines.append(f"gpgkey={self.signed_by}")
+        lines += [f"{k}={v}" for k, v in self.options]
+        return "\n".join(lines) + "\n"
+
+    def _pacman(self) -> str:
+        lines = [f"[{self.name}]"]
+        if self.trusted is True and not any(k == "SigLevel" for k, _ in self.options):
+            lines.append("SigLevel = Never")
+        lines += [f"Server = {u}" for u in self.uris]
+        lines += [f"{k} = {v}" for k, v in self.options]
+        if not self.enabled:
+            lines = [f"#{line}" for line in lines]
+        return "\n".join(lines)
+
+    def parts(self, manager: str) -> list[Resource]:
+        common = {"root": self.root}
+        if manager == "apt-get":
+            return [File(path=f"/etc/apt/sources.list.d/{self.name}.sources", content=self._deb822(), mode="0644", **common)]
+        if manager in ("dnf", "zypper"):
+            folder = "/etc/yum.repos.d" if manager == "dnf" else "/etc/zypp/repos.d"
+            parts: list[Resource] = [File(path=f"{folder}/{self.name}.repo", content=self._ini(manager), mode="0644", **common)]
+            if self.key:
+                parts.append(File(path=self._rpm_key_path(), content=self.key, mode="0644", **common))
+            return parts
+        if manager == "pacman":
+            return [Block(path="/etc/pacman.conf", block=self._pacman(), marker=f"bastet repo {self.name}", **common)]
+        if manager == "apk":
+            parts = [Line(path="/etc/apk/repositories", line=("" if self.enabled else "#") + u,
+                          match=r"^#?" + re.escape(u) + r"$", **common) for u in self.uris]
+            if self.key:
+                parts.append(File(path=f"/etc/apk/keys/{self.name}.rsa.pub", content=self.key, mode="0644", **common))
+            return parts
+        return []
+
+    def reads(self):
+        reads = [Read("manager", DETECT)]
+        for m in MANAGERS:
+            try:
+                parts = self.parts(m)
+            except ValueError:
+                continue
+            for j, part in enumerate(parts):
+                reads += [Read(f"{m}.{j}.{r.name}", r.command, root=r.root) for r in part.reads()]
+        return tuple(reads)
+
+    def current(self, results):
+        m = results["manager"]
+        if not m.ok or not m.output.strip():
+            raise Unsupported("no supported package manager (apt, pacman, dnf, zypper, apk)")
+        manager = m.output.strip()
+        if self.key and manager == "pacman":
+            raise Unsupported("pacman keys are added with pacman-key; not supported yet")
+        try:
+            parts = self.parts(manager)
+        except ValueError as e:
+            raise ReadError(str(e)) from None
+        states = [p.current({r.name: results[f"{manager}.{j}.{r.name}"] for r in p.reads()}) for j, p in enumerate(parts)]
+        return {"manager": manager, "parts": states}
+
+    def _pairs(self, current):
+        return list(zip(self.parts(str(current["manager"])), current["parts"]))
+
+    def compare(self, current):
+        changes = []
+        for part, state in self._pairs(current):
+            where = getattr(part, "path", part.label)
+            changes += [FieldChange(f"{where}:{c.field}", c.before, c.after) for c in part.compare(state)]
+        return changes
+
+    def fix(self, changes, current):
+        cmds: list[str] = []
+        for part, state in self._pairs(current):
+            own = part.compare(state)
+            if own:
+                cmds += part.fix(own, state)
+        return cmds
+
+    def diff_text(self, current):
+        texts = [part.diff_text(state) for part, state in self._pairs(current) if part.compare(state)]
+        return "\n".join(t for t in texts if t) or None

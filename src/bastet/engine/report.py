@@ -7,8 +7,9 @@ FAMILIES = ("System", "Packages", "Users", "Services", "Files", "Commands", "Oth
 
 
 def change_text(c: FieldChange, *, secret: bool) -> str:
-    if c.field == "content":
-        return "(absent) → create" if c.before == ABSENT else "differs → update"
+    if c.field == "content" or c.field.endswith(":content"):
+        where = "" if c.field == "content" else c.field[: -len(":content")] + ": "
+        return where + ("(absent) → create" if c.before == ABSENT else "differs → update")
     return f"{c.field}: {show_value(c.before, secret=secret)} → {show_value(c.after, secret=secret)}"
 
 

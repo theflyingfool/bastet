@@ -49,3 +49,10 @@ def test_render_runs_single_full_many_collapsed_with_total():
     many = render_runs([one, two])
     assert "/x: compliant ✓" in many and many.rstrip().endswith("all: 2 hosts · 1 changed · 0 failed")
     assert "/x  ✓ compliant" in render_runs([one, two], verbose=True)
+
+
+def test_composite_content_change_text():
+    assert change_text(FieldChange("/etc/apt/sources.list.d/b.sources:content", ABSENT, "desired"), secret=False) == \
+        "/etc/apt/sources.list.d/b.sources: (absent) → create"
+    assert change_text(FieldChange("/etc/pacman.conf:content", "current", "desired"), secret=False) == \
+        "/etc/pacman.conf: differs → update"
