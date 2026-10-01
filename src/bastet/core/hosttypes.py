@@ -18,6 +18,7 @@ class HostType(BaseModel):
     physical: bool = False
     minimal: list[str] = []
     fields: dict[str, Nature] = {}
+    roles: dict[str, dict] = {}
 
 
 def _shipped_dir() -> Path:

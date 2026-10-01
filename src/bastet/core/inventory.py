@@ -32,6 +32,7 @@ class Inventory:
     root: Path
     objects: dict[str, Document] = field(default_factory=dict)
     problems: list[Problem] = field(default_factory=list)
+    role_files: list[Document] = field(default_factory=list)
 
     def get(self, name: str) -> Document | None:
         return self.objects.get(name.lower())
@@ -134,6 +135,9 @@ def load_inventory(root: Path, types: dict[str, HostType]) -> Inventory:
         if kind not in KINDS:
             _add(inv, "error", f"unknown kind '{kind}' (known: {', '.join(KINDS)})", doc, "bastet")
             continue
+        if kind == "role":
+            inv.role_files.append(doc)
+            continue
         existing = inv.objects.get(doc.name.lower())
         if existing is not None:
             _add(inv, "error", f"duplicate name '{doc.name}': also {existing.path}", doc)
@@ -161,4 +165,12 @@ def load_inventory(root: Path, types: dict[str, HostType]) -> Inventory:
                     _add(inv, "error", f'expected a link like "[[name]]", got {item!r}', doc, key)
                 elif inv.get(target) is None:
                     _add(inv, "warning", f"links to [[{target}]], which isn't in the inventory", doc, key)
+    for doc in inv.role_files:
+        if not doc.data.get("role"):
+            _add(inv, "error", "a role file needs `role:` (which role)", doc, "role")
+        target = link_target(doc.data.get("applies_to"))
+        if target is None:
+            _add(inv, "warning", 'a role file needs `applies_to: "[[host, group or lab]]"`', doc, "applies_to")
+        elif inv.get(target) is None or inv.get(target).data.get("bastet") not in ("host", "group", "lab"):
+            _add(inv, "warning", f"applies_to [[{target}]], which isn't a host, group or the lab", doc, "applies_to")
     return inv
