@@ -83,3 +83,26 @@ def test_new_document():
     assert new_document({"bastet": "host", "type": "vps"}, "# edge1\n") == (
         "---\nbastet: host\ntype: vps\n---\n# edge1\n"
     )
+
+
+def test_set_keys_blank_line_inside_nested_block():
+    text = "---\nnetworks:\n  lab:\n    cidr: a\n\n  mgmt:\n    cidr: b\nname: x\n---\n"
+    out = set_keys(text, {"networks": {"only": {"cidr": "c"}}}, P)
+    assert "mgmt" not in out and "lab" not in out
+    assert "only:" in out and "name: x" in out
+
+
+def test_set_keys_quoted_key():
+    text = '---\n"my key": 1\nother: 2\n---\n'
+    out = set_keys(text, {"my key": 3}, P)
+    assert out.count("my key") == 1 and "my key: 3" in out and "other: 2" in out
+
+
+def test_set_keys_preserves_crlf():
+    text = "---\r\na: 1\r\nb: 2\r\n---\r\nbody\r\n"
+    assert set_keys(text, {"a": 3}, P) == "---\r\na: 3\r\nb: 2\r\n---\r\nbody\r\n"
+
+
+def test_key_lines_include_quoted_keys():
+    doc = parse_document('---\n"my key": 1\nb: 2\n---\n', P)
+    assert doc.key_lines == {"my key": 2, "b": 3}
