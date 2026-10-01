@@ -90,6 +90,20 @@ def _port_names(ports: object) -> list[str]:
     return [str(p["name"]) for p in ports if isinstance(p, dict) and p.get("name")] if isinstance(ports, list) else []
 
 
+def _roles_card(inv: Inventory, doc: Document, types: dict[str, HostType]) -> list[str] | None:
+    from bastet.roles.contract import load_roles  # lazy: roles builds on core
+    from bastet.roles.resolve import resolve
+
+    try:
+        applied = resolve(inv, doc, types, load_roles())
+    except BastetError as exc:
+        return _card("Roles", "⚠", exc.message)
+    if not applied:
+        return None
+    parts = [f"[[{a.role.name} role|{a.role.name}]] ({', '.join(sorted({s.label for s in a.sources}))})" for a in applied]
+    return _card("Roles", len(applied), ", ".join(parts))
+
+
 def host_summary(
     inv: Inventory, doc: Document, types: dict[str, HostType], warnings: list[str], drift: list[str] | None = None
 ) -> str:
@@ -137,6 +151,9 @@ def host_summary(
     guests = _guests(inv, doc.name)
     if guests or (host_type and host_type.name == "proxmox-node"):
         cards.append(_card("Guests", len(guests), ", ".join(f"[[{g.name}]]" for g in guests) or None))
+    card = _roles_card(inv, doc, types)
+    if card is not None:
+        cards.append(card)
     body = _grid(cards)
     drift = list(drift or [])
     if drift:
@@ -375,6 +392,10 @@ def generated_changes(
         want(summary_path(root, doc.name), hardware_summary(inv, doc))
     want(root / DASHBOARD_PATH, dashboard(inv, types, by_host, _recent(repo), drift_by_host))
     want(root / GUIDE_PATH, guide())
+    from bastet.roles.pages import role_pages  # lazy: roles builds on core
+
+    for path, text in role_pages(inv, types).items():
+        want(path, text)
     snippet = root / ".obsidian" / "snippets" / "bastet.css"
     if snippet.exists():  # only keep it current where the user installed it
         want(snippet, (resources.files("bastet") / "data" / "obsidian" / "bastet.css").read_text(encoding="utf-8"))

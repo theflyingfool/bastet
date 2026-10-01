@@ -1,9 +1,9 @@
-from bastet.core.views import HARDWARE_BASE_PATH, VIEWS, ensure_views, has_hardware_section, insert_after_title
+from bastet.core.views import HARDWARE_BASE_PATH, ROLES_BASE_PATH, VIEWS, ensure_views, has_hardware_section, insert_after_title
 
 
 def test_ensure_views_creates_all_then_nothing(tmp_path):
     changes = ensure_views(tmp_path)
-    assert {c.path for c in changes} == {tmp_path / HARDWARE_BASE_PATH}
+    assert {c.path for c in changes} == {tmp_path / HARDWARE_BASE_PATH, tmp_path / ROLES_BASE_PATH}
     for c in changes:
         c.path.parent.mkdir(parents=True, exist_ok=True)
         c.path.write_text(c.after)

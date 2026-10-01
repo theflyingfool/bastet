@@ -25,7 +25,17 @@ HARDWARE_BASE = _base(
     "installed_in == this",
     [("table", "Table", HARDWARE_LIST_COLUMNS), ("cards", "Cards", HARDWARE_LIST_COLUMNS)],
 )
-VIEWS = {HARDWARE_BASE_PATH: HARDWARE_BASE}
+ROLES_BASE_PATH = "_bastet/roles-here.base"
+ROLES_BASE = _base(
+    "applies_to == this",
+    [("table", "Table", ("file.name", "role", "applies_to")), ("cards", "Cards", ("file.name", "role"))],
+)
+VIEWS = {HARDWARE_BASE_PATH: HARDWARE_BASE, ROLES_BASE_PATH: ROLES_BASE}
+ROLES_SECTION = "\n## Roles\n\n![[roles-here.base]]\n"
+
+
+def has_roles_section(body: str) -> bool:
+    return "roles-here.base" in body or "\n## Roles" in "\n" + body
 
 HARDWARE_SECTION = "\n## Hardware\n\n![[hardware-here.base]]\n"
 _LEGACY_SUMMARY = re.compile(r"## Summary\n\n!\[\[(?:host|hardware)-summary\.base\]\]")

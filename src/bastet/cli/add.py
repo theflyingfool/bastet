@@ -4,7 +4,12 @@ import typer
 
 from bastet.cli.common import handles_errors, load_context, refresh_generated, write_with_confirmation
 from bastet.core.render import lab_embed_changes
+from bastet.core.changes import Change
 from bastet.core.errors import BastetError
+from bastet.core.frontmatter import new_document
+from bastet.core.links import make_link
+from bastet.core.views import ROLES_SECTION, has_roles_section
+from bastet.roles.contract import load_roles
 from bastet.core.inventory import HARDWARE_STATUSES
 from bastet.core.scaffold import new_hardware, new_host, suggested_ip
 
@@ -151,4 +156,39 @@ def add_hardware(
         installed_in=installed_in, location=location, status=status,
     )
     if write_with_confirmation(ctx, [change, *lab_embed_changes(inv)], f"add hardware {name}", yes):
+        refresh_generated(ctx)
+
+
+@add_app.command("role")
+@handles_errors
+def add_role(
+    role: str = typer.Argument(..., help="Role name (see _bastet/roles/)."),
+    target: str = typer.Argument(..., help="A host, a group, or `lab` for every host."),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Don't ask; write and commit."),
+) -> None:
+    """Write a role file for a host, a group or the whole lab, after showing the diff."""
+    ctx = load_context()
+    roles = load_roles()
+    if role not in roles:
+        raise BastetError(f"unknown role {role!r} (roles: {', '.join(sorted(roles))})")
+    if target == "lab":
+        doc = ctx.inventory.lab
+        if doc is None:
+            raise BastetError("no lab file yet; run `bastet init`")
+        folder = ctx.root / "_roles" / "lab"
+    else:
+        doc = ctx.inventory.get(target)
+        if doc is None or doc.data.get("bastet") not in ("host", "group"):
+            raise BastetError(f"no host or group named '{target}'")
+        folder = ctx.root / "_roles" / ("hosts" if doc.data["bastet"] == "host" else "groups") / doc.name
+    path = folder / f"{role}.md"
+    if path.exists():
+        raise BastetError("already exists; edit it in Obsidian", file=path)
+    body = f"# {role} for {doc.name}\n\nOptions: see [[{role} role]].\n"
+    data = {"bastet": "role", "role": role, "applies_to": make_link(doc.name)}
+    changes = [Change(path, None, new_document(data, body))]
+    if doc.data.get("bastet") in ("host", "group") and not has_roles_section(doc.body):
+        text = doc.path.read_text(encoding="utf-8")
+        changes.append(Change(doc.path, text, text.rstrip("\n") + "\n" + ROLES_SECTION))
+    if write_with_confirmation(ctx, changes, f"add role {role} to {doc.name}", yes):
         refresh_generated(ctx)
