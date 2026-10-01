@@ -210,3 +210,9 @@ def test_machine_firmware_gpus_and_port_speeds():
     assert m["gpus"] == [{"model": "CoffeeLake-S GT2 [UHD Graphics P630]", "make": "Intel Corporation", "pci": "0000:00:02.0"}]
     [card] = [o for o in v.items if o.data["category"] == "nic"]
     assert card.data["ports"][0]["max_speed"] == "10G" and card.data["ports"][0]["firmware"].startswith("8.50")
+
+
+def test_fru_output_used_even_when_ipmitool_exits_nonzero():
+    v = view(dict(SERVER, ipmi_fru=(1, SERVER["ipmi_fru"]), dmidecode=SERVER["dmidecode"].split("Handle 0x0050")[0]))
+    assert [o.name for o in v.items if o.data["category"] == "psu"] == ["PWS-504P-1R P504PCH12AB3456"]
+    assert v.complete["psus"] is True

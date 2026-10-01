@@ -1,3 +1,5 @@
+import json
+
 from bastet.core.hwparse import (
     base_device, clean, machine_from_dmi, memory_size, parse_disk_ids, parse_dmidecode, parse_ipmi_lan,
     parse_lspci, parse_net_sysfs, parse_pve_guests, parse_smart, parse_zpool, slots_in_use, speed_label, strip_ids,
@@ -162,7 +164,7 @@ from bastet.core.hwparse import (  # noqa: E402
 def test_cpus_and_psus_from_dmi():
     records = parse_dmidecode(SERVER["dmidecode"])
     assert cpus_from_dmi(records) == [{"socket": "CPU", "model": "Intel(R) Xeon(R) E-2236 CPU @ 3.40GHz", "cores": 6, "threads": 12}]
-    assert psus_from_dmi(records) == [{"name": "PWS-504P-1R", "make": "SUPERMICRO", "model": "PWS-504P-1R",
+    assert psus_from_dmi(records) == [{"name": "PSU1", "make": "SUPERMICRO", "model": "PWS-504P-1R",
                                        "serial": "P504PCH12AB3456", "max_power": "500 W"}]
 
 
@@ -204,3 +206,13 @@ def test_links():
         "vlans": [{"name": "vmbr0.20", "id": 20, "parent": "vmbr0"}],
     }
     assert parse_links("not json") == {}
+
+
+def test_links_skip_firewall_and_container_bridges():
+    data = json.loads(SERVER["ip_link"]) + [
+        {"ifname": "fwbr101i0", "linkinfo": {"info_kind": "bridge"}},
+        {"ifname": "fwpr101p0", "master": "vmbr0"}, {"ifname": "fwln101i0", "master": "fwbr101i0"},
+        {"ifname": "podman0", "linkinfo": {"info_kind": "bridge"}},
+        {"ifname": "cni-podman0", "linkinfo": {"info_kind": "bridge"}},
+    ]
+    assert [b["name"] for b in parse_links(json.dumps(data))["bridges"]] == ["vmbr0"]

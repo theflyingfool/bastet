@@ -33,6 +33,7 @@ class Observed:
     key: str
     name: str
     data: dict
+    alt: str | None = None  # host-scoped fallback key, tried when the serial key finds no file
 
 
 @dataclass
@@ -62,6 +63,12 @@ def file_name(*parts: str | None) -> str:
 def _text(results: dict[str, ProbeResult], name: str) -> str | None:
     r = results.get(name)
     return r.output if r is not None and r.ok and r.output.strip() else None
+
+
+def _usable(results: dict[str, ProbeResult], name: str) -> str | None:
+    """Output of a probe that ran (not missing, not denied), even if it exited non-zero."""
+    r = results.get(name)
+    return r.output if r is not None and not r.missing and not r.denied and r.output.strip() else None
 
 
 def _make_model(make: str | None, model: str | None) -> str | None:
@@ -235,8 +242,7 @@ def observe_hardware(host: str, results: dict[str, ProbeResult], ex: Extracted) 
 
     view.items.extend(_parts(host, link, dmi, machine, results, usb_devices))
     view.complete["cpus"] = view.complete["memory"] = bool(dmi)
-    fru = results.get("ipmi_fru")
-    view.complete["psus"] = bool(fru is not None and fru.ok) or bool(psus_from_dmi(dmi))
+    view.complete["psus"] = bool(_usable(results, "ipmi_fru")) or bool(psus_from_dmi(dmi))
     usb_result = results.get("usb")
     view.complete["usb"] = usb_result is not None and usb_result.ok
 
@@ -294,28 +300,31 @@ def _parts(host: str, link: str, dmi: list[dict], machine: dict, results: dict[s
     for c in cpus_from_dmi(dmi):
         short = short_cpu(c.get("model") or "CPU")
         data = _part("cpu", link, {k: c.get(k) for k in ("make", "model", "serial", "socket", "cores", "threads")})
+        socket = str(c.get("socket") or "0")
+        fallback = f"cpu:{h}:{socket.lower()}"
         if c.get("serial"):
-            items.append(Observed(f"serial:{c['serial'].lower()}", file_name(short, c["serial"]), data))
+            items.append(Observed(f"serial:{c['serial'].lower()}", file_name(short, c["serial"]), data, fallback))
         else:
-            socket = str(c.get("socket") or "0")
-            items.append(Observed(f"cpu:{h}:{socket.lower()}", file_name(host, short, socket), data))
+            items.append(Observed(fallback, file_name(host, short, socket), data))
     for d in machine.get("memory", []):
         data = _part("memory", link, {"make": d.get("make"), "model": d.get("part"), "serial": d.get("serial"),
                                       "size": d.get("size"), "type": d.get("type"), "speed": d.get("speed"),
                                       "slot": d.get("slot")})
+        slot = str(d.get("slot") or "0")
+        fallback = f"dimm:{h}:{slot.lower()}"
         if d.get("serial"):
             label = d.get("part") or " ".join(x for x in (d.get("type"), d.get("size")) if x)
-            items.append(Observed(f"serial:{d['serial'].lower()}", file_name(d.get("make"), label, d["serial"]), data))
+            items.append(Observed(f"serial:{d['serial'].lower()}", file_name(d.get("make"), label, d["serial"]), data, fallback))
         else:
-            slot = str(d.get("slot") or "0")
-            items.append(Observed(f"dimm:{h}:{slot.lower()}", file_name(host, slot, d.get("size")), data))
-    for p in _merge_psus(parse_fru(_text(results, "ipmi_fru") or ""), psus_from_dmi(dmi)):
+            items.append(Observed(fallback, file_name(host, slot, d.get("size")), data))
+    for p in _merge_psus(parse_fru(_usable(results, "ipmi_fru") or ""), psus_from_dmi(dmi)):
         data = _part("psu", link, {k: p.get(k) for k in ("make", "model", "serial", "max_power", "name")})
+        label = str(p.get("name") or p.get("model") or "PSU")
+        fallback = f"psu:{h}:{label.lower()}"
         if p.get("serial"):
-            items.append(Observed(f"serial:{p['serial'].lower()}", file_name(p.get("model"), p["serial"]), data))
+            items.append(Observed(f"serial:{p['serial'].lower()}", file_name(p.get("model"), p["serial"]), data, fallback))
         else:
-            label = str(p.get("name") or p.get("model") or "PSU")
-            items.append(Observed(f"psu:{h}:{label.lower()}", file_name(host, label), data))
+            items.append(Observed(fallback, file_name(host, label), data))
     for u in usb_devices:
         if not u["removable"]:
             continue
@@ -353,7 +362,7 @@ def _index(inv: Inventory) -> dict[str, Document]:
                 index.setdefault(f"usb:{doc.data['usb_id']}:{str(serial).lower()}", doc)
             elif target and doc.data.get("usb_port"):
                 index.setdefault(f"usb:{target}:{doc.data['usb_id']}:{doc.data['usb_port']}", doc)
-        elif target and not serial:
+        elif target:
             fallback = {"cpu": ("cpu", doc.data.get("socket")), "memory": ("dimm", doc.data.get("slot")),
                         "psu": ("psu", doc.data.get("name") or doc.data.get("model"))}.get(str(category))
             if fallback and fallback[1]:
@@ -385,6 +394,10 @@ def plan_hardware(
             continue
         run.claimed[obs.key] = host
         doc = index.get(obs.key)
+        if doc is None and obs.alt and index.get(obs.alt) is not None:
+            candidate = index[obs.alt]
+            if not candidate.data.get("serial") or str(candidate.data["serial"]).lower() == str(obs.data.get("serial")).lower():
+                doc = candidate
         if doc is None and obs.data.get("category") in MACHINE_CATEGORIES:
             fallback = "machine-any" if obs.key.startswith("machine:") else "machine"
             doc = index.get(f"{fallback}:{host.lower()}")

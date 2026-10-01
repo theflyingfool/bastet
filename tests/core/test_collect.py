@@ -97,3 +97,11 @@ def test_completeness_probes_present():
     assert names["ipmi_fru"].root and names["ipmi_mc"].root and not names["usb"].root
     assert ",39" in names["dmidecode"].command
     subprocess.run(["sh", "-n"], input=build_script(), text=True, check=True)
+
+
+def test_firmware_probe_succeeds_without_secure_boot_variable(tmp_path):
+    import subprocess
+    probe = {p.name: p for p in PROBES}["firmware"]
+    command = probe.command.replace("/sys/firmware/efi/efivars", str(tmp_path / "none"))
+    r = subprocess.run(["sh", "-c", command], capture_output=True, text=True)
+    assert r.returncode == 0 and "boot=" in r.stdout

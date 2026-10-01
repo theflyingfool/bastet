@@ -95,7 +95,7 @@ PROBES: tuple[Probe, ...] = (
         "printf 'tpm=%s\\n' \"$(cat /sys/class/tpm/tpm0/tpm_version_major 2>/dev/null)\"; "
         "if [ -d /sys/firmware/efi ]; then echo boot=uefi; else echo boot=bios; fi; "
         "for f in /sys/firmware/efi/efivars/SecureBoot-*; do [ -f \"$f\" ] && printf 'secure_boot=%s\\n' "
-        "\"$(od -An -t u1 \"$f\" | awk '{print $NF}')\"; done",
+        "\"$(od -An -t u1 \"$f\" | awk '{print $NF}')\"; done; true",
         "/proc/cpuinfo, /sys/firmware",
     ),
 )

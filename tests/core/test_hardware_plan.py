@@ -184,3 +184,28 @@ def test_psu_not_warned_when_only_fru_knew_it_and_ipmitool_is_gone(repo):
     apply(repo, changes)
     _, notes = run(repo, "pve1", dict(SERVER, dmidecode=no_dmi_psu, ipmi_fru=(127, "")))
     assert not [n for n in notes if "wasn't seen" in n.message]
+
+
+def test_psu_serial_coming_and_going_keeps_one_file(repo):
+    dmi_no_serial = SERVER["dmidecode"].replace("\tSerial Number: P504PCH12AB3456\n", "")
+    changes, _ = run(repo, "pve1", dict(SERVER, dmidecode=dmi_no_serial))
+    apply(repo, changes)
+    again, notes = run(repo, "pve1", dict(SERVER, dmidecode=dmi_no_serial, ipmi_fru=(127, "")))
+    assert [c for c in again if c.before is None] == []
+    assert not [n for n in notes if "wasn't seen" in n.message]
+
+
+def test_hand_filled_serial_keeps_file_and_swapped_dimm_gets_new_one(repo):
+    import re
+    changes, _ = run(repo, "pve1")
+    apply(repo, changes)
+    cpu = repo.root / "hardware" / "pve1 Intel Xeon E-2236 CPU.md"
+    cpu.write_text(cpu.read_text().replace("socket: CPU\n", "socket: CPU\nserial: LABEL123\n"))
+    repo.commit([cpu], "hand edit", as_bastet=False)
+    again, notes = run(repo, "pve1")
+    assert [c for c in again if c.before is None] == []
+    assert not [n for n in notes if "wasn't seen" in n.message]
+    swapped = SERVER["dmidecode"].replace("Serial Number: 40A1B2C3", "Serial Number: 99Z9Z9Z9")
+    third, _ = run(repo, "pve1", dict(SERVER, dmidecode=swapped))
+    assert [c.path.name for c in third if c.before is None] == ["M391A4G43MB1-CTD 99Z9Z9Z9.md"]
+    assert re.search(r"serial: 40A1B2C3", (repo.root / "hardware" / "M391A4G43MB1-CTD 40A1B2C3.md").read_text())

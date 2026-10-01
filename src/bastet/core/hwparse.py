@@ -379,7 +379,7 @@ def psus_from_dmi(records: list[dict]) -> list[dict]:
     for p in _of_type(records, 39):
         if "Not Present" in p.get("Status", ""):
             continue
-        entry = {"name": clean(p.get("Name")) or clean(p.get("Location")), "make": clean(p.get("Manufacturer")),
+        entry = {"name": clean(p.get("Location")) or clean(p.get("Name")), "make": clean(p.get("Manufacturer")),
                  "model": clean(p.get("Model Part Number")), "serial": clean(p.get("Serial Number")),
                  "max_power": clean(p.get("Max Power Capacity"))}
         if entry["model"] or entry["serial"]:
@@ -506,7 +506,7 @@ def parse_links(text: str) -> dict:
             members.setdefault(e["master"], []).append(e["ifname"])
     bridges, bonds, vlans = [], [], []
     for name, (kind, info_data, link) in sorted(kinds.items()):
-        if kind == "bridge" and not name.startswith(("docker", "br-", "virbr")):
+        if kind == "bridge" and not name.startswith(("docker", "br-", "virbr", "fwbr", "podman", "cni-", "cni0")):
             bridges.append({"name": name, "ports": sorted(members.get(name, []))})
         elif kind == "bond":
             bond = {"name": name, "ports": sorted(members.get(name, []))}
