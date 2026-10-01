@@ -1,0 +1,7 @@
+filters:
+  and:
+    - file.inFolder("hardware")
+views:
+  - type: table
+    name: all hardware
+    order: [file.name, serial, size, status, installed_in]
