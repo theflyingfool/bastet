@@ -31,13 +31,15 @@ def _lines(r: ProbeResult) -> list[str]:
     return r.output.split("\n")
 
 
+FILE_TAIL = (
+    "if [ -L \"$p\" ]; then echo link; elif [ -f \"$p\" ]; then echo file; "
+    "stat -c '%U %G %a %u %g' \"$p\"; base64 < \"$p\" | tr -d '\\n'; echo; "
+    "elif [ -e \"$p\" ]; then echo other; else echo absent; fi"
+)
+
+
 def _file_read(path: str, root: bool) -> Read:
-    command = (
-        f"p={_q(path)}; if [ -L \"$p\" ]; then echo link; elif [ -f \"$p\" ]; then echo file; "
-        "stat -c '%U %G %a %u %g' \"$p\"; base64 < \"$p\" | tr -d '\\n'; echo; "
-        "elif [ -e \"$p\" ]; then echo other; else echo absent; fi"
-    )
-    return Read("file", command, root=root)
+    return Read("file", f"p={_q(path)}; {FILE_TAIL}", root=root)
 
 
 def _parse_file(r: ProbeResult) -> dict[str, object]:

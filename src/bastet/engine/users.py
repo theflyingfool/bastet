@@ -1,11 +1,14 @@
 """Users family: users and groups (spec 9.2). Authorized keys and sudoers rules live here too (Task 5)."""
 
+import base64
 import datetime as dt
 import re
 import shlex
 from dataclasses import dataclass
 from typing import ClassVar
 
+from bastet.core.collect import ProbeResult
+from bastet.engine.files import FILE_TAIL, File, _parse_file
 from bastet.engine.model import ABSENT, FieldChange, Read, ReadError, Resource, Unsupported
 
 ACCOUNT = re.compile(r"^[a-z_][a-z0-9_-]*\$?$")
@@ -218,3 +221,108 @@ class Group(Resource):
         if "members" in fields:
             cmds.append(f"gpasswd -M {_q(','.join(sorted(set(self.members or ()))))} {n}")
         return cmds
+
+
+SUDOERS_NAME = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+@dataclass(frozen=True, kw_only=True)
+class AuthorizedKey(Resource):
+    family: ClassVar[str] = "Users"
+    user: str
+    key: str
+    options: str | None = None
+    path: str | None = None
+
+    def __post_init__(self):
+        _check_name("user", self.user)
+        if len(self.key.split()) < 2:
+            raise ValueError(f"not an SSH public key: {self.key[:30]!r}")
+
+    @property
+    def body(self) -> str:
+        return self.key.split()[1]
+
+    @property
+    def identity(self) -> str:
+        return f"authkey:{self.user}:{self.body}"
+
+    @property
+    def label(self) -> str:
+        parts = self.key.split()
+        return f"{self.user} key {parts[2] if len(parts) > 2 else self.body[-12:]}"
+
+    def touches(self) -> str | None:
+        return self.path or f"~{self.user}/.ssh/authorized_keys"
+
+    def _where(self) -> str:
+        n = _q(self.user)
+        p = _q(self.path) if self.path else '"$h/.ssh/authorized_keys"'
+        return f"n={n}; h=$(getent passwd \"$n\" | cut -d: -f6); p={p}"
+
+    def desired(self):
+        return {"key": self.key.strip(), "options": self.options, "mode": "0600"}
+
+    def reads(self):
+        command = f"{self._where()}; if [ -z \"$h\" ]; then echo nouser; exit 0; fi; echo \"$p\"; {FILE_TAIL}"
+        return (Read("keys", command, root=True),)
+
+    def current(self, results):
+        out = results["keys"].output
+        if out.strip() == "nouser":
+            return {"content": ABSENT, "mode": ABSENT}
+        path, _, rest = out.partition("\n")
+        state = _parse_file(ProbeResult(results["keys"].returncode, rest))
+        return {"path": path, "content": state["content"], "mode": state["mode"]}
+
+    def line(self) -> str:
+        return f"{self.options} {self.key.strip()}" if self.options else self.key.strip()
+
+    def wanted(self, content: object) -> str:
+        text = "" if content == ABSENT else str(content)
+        lines = text.splitlines(keepends=True)
+        for i, line in enumerate(lines):
+            if self.body in line.split():
+                lines[i] = self.line() + "\n"
+                return "".join(lines)
+        sep = "" if not text or text.endswith("\n") else "\n"
+        return text + sep + self.line() + "\n"
+
+    def compare(self, current):
+        old = current["content"]
+        changes = []
+        if self.wanted(old) != old:
+            changes.append(FieldChange("key", ABSENT if old == ABSENT or self.body not in str(old) else "(other options)", "present"))
+        if old != ABSENT and current.get("mode") != "0600":
+            changes.append(FieldChange("mode", current.get("mode"), "0600"))
+        return changes
+
+    def fix(self, changes, current):
+        data = base64.b64encode(self.wanted(current["content"]).encode("utf-8")).decode("ascii")
+        n = _q(self.user)
+        return [
+            self._where(),
+            'test -n "$h" || { echo "user $n does not exist" >&2; exit 1; }',
+            'g=$(id -gn "$n")',
+            'd=$(dirname "$p"); mkdir -p "$d"; chown "$n:$g" "$d"; chmod 700 "$d"',
+            't="$p.bastet-tmp"; trap \'rm -f -- "$t"\' EXIT',
+            f"printf '%s' '{data}' | base64 -d > \"$t\"",
+            'chown "$n:$g" "$t"; chmod 600 "$t"; mv -f "$t" "$p"',
+        ]
+
+
+def sudoer(name: str, *, rules: tuple[str, ...] = (), user: str | None = None, group: str | None = None,
+           commands: tuple[str, ...] = ("ALL",), runas: str = "ALL", hosts: str = "ALL", nopasswd: bool = False,
+           setenv: bool = False, defaults: tuple[str, ...] = ()) -> File:
+    """A validated file in /etc/sudoers.d: a rule for a user or %group, Defaults lines, and raw rules."""
+    if not SUDOERS_NAME.match(name or ""):
+        raise ValueError(f"not a sudoers file name (letters, digits, - and _ only; sudo skips others): {name!r}")
+    who = user if user else (f"%{group}" if group else None)
+    lines = ["# Managed by Bastet"]
+    lines += [f"Defaults:{who} {d}" if who else f"Defaults {d}" for d in defaults]
+    if who:
+        tags = " ".join(t for t, on in (("NOPASSWD:", nopasswd), ("SETENV:", setenv)) if on)
+        lines.append(f"{who} {hosts}=({runas}) {tags + ' ' if tags else ''}{', '.join(commands)}")
+    lines += list(rules)
+    return File(path=f"/etc/sudoers.d/{name}", content="\n".join(lines) + "\n", owner="root", group="root",
+                mode="0440", validate="visudo -cf %s")
