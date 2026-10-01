@@ -1,0 +1,74 @@
+description: "Users, groups, SSH keys and sudoers rules."
+options:
+  users:
+    type: map
+    description: "Users by name"
+    items:
+      type: object
+      fields:
+        uid: {type: int}
+        group: {type: string, description: "Primary group"}
+        groups: {type: list, items: {type: string}, description: "Supplementary groups"}
+        append: {type: bool, description: "Only add groups (default); false = exactly these"}
+        comment: {type: string}
+        home: {type: string}
+        create_home: {type: bool}
+        move_home: {type: bool}
+        shell: {type: string}
+        system: {type: bool}
+        password_hash: {type: string, secret: true, description: "crypt hash, e.g. from mkpasswd -m sha-512"}
+        update_password: {type: string, choices: [always, on_create]}
+        locked: {type: bool}
+        expires: {type: string, description: "YYYY-MM-DD or never"}
+        max_days: {type: int}
+        min_days: {type: int}
+        warn_days: {type: int}
+        inactive_days: {type: int}
+        non_unique: {type: bool}
+        skeleton: {type: string}
+        keys:
+          type: list
+          description: "Authorized SSH keys; a key line, or a map with options"
+          items:
+            type: object
+            shorthand: key
+            fields:
+              key: {type: string}
+              options: {type: string, description: 'e.g. from="10.0.10.0/24",no-agent-forwarding'}
+              path: {type: string, description: "Custom authorized_keys path"}
+              state: {type: string, choices: [present, absent], description: "absent revokes the key"}
+        sudo:
+          type: object
+          description: "A sudoers rule for this user (/etc/sudoers.d/<user>)"
+          fields:
+            commands: {type: list, items: {type: string}}
+            runas: {type: string}
+            hosts: {type: string}
+            nopasswd: {type: bool}
+            setenv: {type: bool}
+            defaults: {type: list, items: {type: string}}
+  groups:
+    type: map
+    description: "Groups by name"
+    items:
+      type: object
+      fields:
+        gid: {type: int}
+        system: {type: bool}
+        members: {type: list, items: {type: string}}
+        append_members: {type: bool, description: "Only add members; default sets exactly these"}
+  sudoers:
+    type: map
+    description: "Sudoers files by name (/etc/sudoers.d/<name>)"
+    items:
+      type: object
+      fields:
+        rules: {type: list, items: {type: string}, description: "Raw sudoers lines"}
+        user: {type: string}
+        group: {type: string}
+        commands: {type: list, items: {type: string}}
+        runas: {type: string}
+        hosts: {type: string}
+        nopasswd: {type: bool}
+        setenv: {type: bool}
+        defaults: {type: list, items: {type: string}}

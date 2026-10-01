@@ -1,0 +1,54 @@
+description: "Packages and package repositories for apt, pacman, dnf, zypper and apk."
+options:
+  refresh: {type: bool, default: true, description: "Refresh the package index before installing (no effect on pacman)"}
+  install_recommends: {type: bool, description: "apt recommends / dnf weak deps / zypper recommends; unset = distro default"}
+  full_upgrade: {type: bool, default: false, description: "Upgrade the whole system as part of installing (pacman -Syu, apt full-upgrade, …)"}
+  default_release: {type: string, description: "apt only: install from this release (-t), e.g. trixie-backports"}
+  allow_change_held: {type: bool, default: false, description: "apt only: allow changing held packages"}
+  dpkg_options: {type: list, items: {type: string}, description: "apt only: dpkg options; default keeps changed config files (--force-confdef --force-confold)"}
+  extra_args: {type: list, items: {type: string}, description: "Extra arguments for the package manager (e.g. --enablerepo=crb)"}
+  install:
+    type: list
+    description: "Packages to install; a name, or a map with per-package knobs"
+    items:
+      type: object
+      shorthand: name
+      fields:
+        name: {type: string}
+        version: {type: string, description: "Exact version (not on pacman); rpm accepts a version without release"}
+        install_recommends: {type: bool}
+        default_release: {type: string}
+        allow_change_held: {type: bool}
+        dpkg_options: {type: list, items: {type: string}}
+        extra_args: {type: list, items: {type: string}}
+        refresh: {type: bool}
+        full_upgrade: {type: bool}
+        manager: {type: string, choices: [apt-get, pacman, dnf, zypper, apk], description: "Fail unless the host uses this manager"}
+  remove:
+    type: list
+    description: "Packages to remove"
+    items:
+      type: object
+      shorthand: name
+      fields:
+        name: {type: string}
+        purge: {type: bool, description: "Also remove config (apt purge, pacman -Rns, apk --purge)"}
+        extra_args: {type: list, items: {type: string}}
+  repositories:
+    type: list
+    description: "Package repositories, written in the host's own format"
+    items:
+      type: object
+      fields:
+        name: {type: string}
+        uris: {type: list, items: {type: string}}
+        suites: {type: list, items: {type: string}, description: "apt only"}
+        components: {type: list, items: {type: string}, description: "apt only"}
+        types: {type: list, items: {type: string}, description: "apt only (deb, deb-src)"}
+        architectures: {type: list, items: {type: string}, description: "apt only"}
+        key: {type: string, description: "Public key text (armored/PEM)"}
+        key_name: {type: string, description: "apk only: key file name in /etc/apk/keys"}
+        signed_by: {type: string, description: "Path or URL of an existing key"}
+        enabled: {type: bool}
+        trusted: {type: bool}
+        options: {type: map, items: {type: string}, description: "Extra fields in the repository's own format"}

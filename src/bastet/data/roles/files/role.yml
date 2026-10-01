@@ -1,0 +1,49 @@
+description: "Files, directories, links, and blocks or lines inside other files."
+options:
+  files:
+    type: map
+    description: "Whole files by absolute path"
+    items:
+      type: object
+      fields:
+        content: {type: string}
+        template: {type: string, description: "A Jinja2 template in the inventory (path from its root); gets host, name, lab"}
+        owner: {type: string}
+        group: {type: string}
+        mode: {type: string, description: 'Quoted, e.g. "0644"'}
+        validate: {type: string, description: "Command checking the new file first; %s is its path"}
+        secret: {type: bool, description: "Never show the contents"}
+  directories:
+    type: map
+    description: "Directories by absolute path"
+    items:
+      type: object
+      fields:
+        owner: {type: string}
+        group: {type: string}
+        mode: {type: string}
+  links:
+    type: map
+    description: "Symlinks: path -> target"
+    items: {type: string}
+  blocks:
+    type: list
+    description: "A marked block inside a file"
+    items:
+      type: object
+      fields:
+        path: {type: string}
+        marker: {type: string}
+        block: {type: string}
+        comment: {type: string, description: "Comment character for the markers (default #)"}
+        validate: {type: string}
+  lines:
+    type: list
+    description: "One line inside a file"
+    items:
+      type: object
+      fields:
+        path: {type: string}
+        line: {type: string}
+        match: {type: string, description: "Regex for the line to replace"}
+        validate: {type: string}

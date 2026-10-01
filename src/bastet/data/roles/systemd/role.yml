@@ -1,0 +1,33 @@
+description: "Settings systemd owns: time and time sync, hostname, locale, and services with their drop-ins."
+options:
+  timezone: {type: string, description: "IANA timezone, e.g. America/Chicago"}
+  ntp: {type: bool, description: "Keep the clock synced (on LXC the node does this, so it's left alone)"}
+  ntp_service:
+    type: string
+    default: keep
+    choices: [keep, timesyncd, chrony]
+    description: "keep: leave the service alone and let timedatectl turn sync on or off. timesyncd/chrony: install, enable and configure that one, and stop the other"
+  ntp_servers: {type: list, items: {type: string}, description: "NTP servers (timesyncd NTP=, chrony server lines); needs timesyncd or chrony"}
+  fallback_ntp_servers: {type: list, items: {type: string}, description: "timesyncd FallbackNTP= (timesyncd only)"}
+  rtc_local: {type: bool, default: false, description: "Hardware clock in local time; only for Windows dual-boot"}
+  manage_hostname: {type: bool, default: true, description: "Set the hostname from the host file's hostname: (or the note name)"}
+  locale: {type: string, description: "LANG, e.g. en_US.UTF-8; the locale must exist on the host"}
+  keymap: {type: string, description: "Console keymap (not supported on Debian yet)"}
+  services:
+    type: map
+    description: "Units and the state you want them in, e.g. ssh.service: {enabled: true, state: up}"
+    items:
+      type: object
+      fields:
+        enabled: {type: bool, description: "Start at boot"}
+        state: {type: string, choices: [up, down], description: "Running now or stopped"}
+  dropins:
+    type: list
+    description: "Drop-in files for units: /etc/systemd/system/<unit>.d/<name>.conf"
+    items:
+      type: object
+      fields:
+        unit: {type: string, description: "e.g. gitea.service"}
+        name: {type: string, description: "File name without .conf"}
+        content: {type: string, description: "The drop-in's contents"}
+        restart: {type: bool, default: true, description: "Restart the unit when the drop-in changes"}
