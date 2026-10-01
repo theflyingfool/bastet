@@ -1,0 +1,14 @@
+name: proxmox-node
+description: Proxmox VE node on physical hardware
+physical: true
+minimal: [ip]
+fields:
+  hostname: fact
+  os: fact
+  kernel: fact
+  cpu: fact
+  ram: fact
+  ssh_host_key: fact
+  ip: yours
+  address: yours
+  location: yours

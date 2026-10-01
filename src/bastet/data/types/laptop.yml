@@ -1,0 +1,15 @@
+name: laptop
+description: Laptop or workstation; may be the machine Bastet runs on
+physical: true
+minimal: []
+fields:
+  hostname: fact
+  os: fact
+  kernel: fact
+  cpu: fact
+  ram: fact
+  ssh_host_key: fact
+  ip: yours
+  address: yours
+  ip_observed: fact
+  location: yours

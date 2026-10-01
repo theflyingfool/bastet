@@ -1,0 +1,15 @@
+name: lxc
+description: LXC container on a Proxmox node
+physical: false
+minimal: [runs_on, ip]
+fields:
+  hostname: fact
+  os: fact
+  kernel: fact
+  ssh_host_key: fact
+  cores: desired
+  ram: desired
+  disk: desired
+  network: desired
+  ip: desired
+  runs_on: yours

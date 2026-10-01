@@ -1,0 +1,15 @@
+name: vps
+description: Virtual private server at a provider
+physical: false
+minimal: [provider, ip]
+fields:
+  hostname: fact
+  os: fact
+  kernel: fact
+  cpu: fact
+  ram: fact
+  disk: fact
+  ssh_host_key: fact
+  ip: yours
+  provider: yours
+  location: yours
