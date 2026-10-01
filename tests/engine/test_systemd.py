@@ -83,8 +83,19 @@ def test_locale_on_debian_uses_update_locale():
     status = ok("   System Locale: LANG=C.UTF-8\n       VC Keymap: (unset)")
     loc = Locale(lang="en_US.UTF-8")
     cur = loc.current({"localectl": status, "update_locale": ok("/usr/sbin/update-locale")})
-    assert loc.fix(loc.compare(cur), cur) == ["update-locale LANG=en_US.UTF-8"]
+    assert loc.fix(loc.compare(cur), cur) == ["/usr/sbin/update-locale LANG=en_US.UTF-8"]
     with pytest.raises(Unsupported) as e:
         Locale(lang="en_US.UTF-8", keymap="us").current({"localectl": status, "update_locale": ok("/usr/sbin/update-locale")})
     assert "console-setup" in str(e.value)
     assert Locale(lang="en_US.UTF-8").current({"localectl": status, "update_locale": ProbeResult(1, "")})["tool"] == "localectl"
+
+
+def test_missing_or_masked_unit_is_already_off():
+    off = Unit(name="nope.service", enabled=False, state="down")
+    assert off.compare(off.current({"show": ok("LoadState=not-found\nUnitFileState=\nActiveState=inactive")})) == []
+    masked = Unit(name="m.service", enabled=False)
+    assert masked.compare(masked.current({"show": ok("LoadState=masked\nUnitFileState=masked\nActiveState=inactive")})) == []
+
+
+def test_update_locale_found_outside_the_users_path():
+    assert "/usr/sbin/update-locale" in Locale(lang="en_US.UTF-8").reads()[1].command

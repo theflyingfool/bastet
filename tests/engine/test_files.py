@@ -99,3 +99,35 @@ def test_line_appends_when_nothing_matches(tmp_path):
     p.write_text("a")
     converge([Line(path=str(p), line="b", root=False)])
     assert p.read_text() == "a\nb\n"
+
+
+def test_line_already_present_but_unmatched_is_left_alone(tmp_path):
+    p = tmp_path / "conf"
+    p.write_text("c=1\n")
+    converge([Line(path=str(p), line="c = 3", match=r"^c=", root=False)])
+    assert p.read_text() == "c = 3\n"
+
+
+def test_unterminated_block_is_refused(tmp_path):
+    p = tmp_path / "conf"
+    original = "a\n# BEGIN m\nold\nkeep1\n"
+    p.write_text(original)
+    run = run_host(LocalRunner(), "h", [Batch("t", [Block(path=str(p), block="new", marker="m", root=False)])], apply=True)
+    assert run.items[0].status == "failed" and "unterminated" in run.items[0].error and p.read_text() == original
+
+
+def test_failed_write_leaves_no_temp_file(tmp_path):
+    p = tmp_path / "x"
+    run = run_host(LocalRunner(), "h", [Batch("t", [File(path=str(p), content="a", owner="no-such-user-bastet", root=False)])], apply=True)
+    assert run.items[0].status == "failed" and list(tmp_path.iterdir()) == []
+
+
+def test_ownership_is_kept_by_number():
+    f = File(path="/etc/orphan", content="new\n")
+    cur = {"content": "old\n", "owner": "UNKNOWN", "group": "UNKNOWN", "uid": "4242", "gid": "4343", "mode": "0644"}
+    cmds = f.fix(f.compare(cur), cur)
+    assert any("chown 4242:4343" in c for c in cmds) and not any("UNKNOWN" in c for c in cmds)
+
+
+def test_secret_line_hides_its_value():
+    assert "SUPERSECRET" not in Line(path="/etc/app.env", line="token=SUPERSECRET", secret=True).label

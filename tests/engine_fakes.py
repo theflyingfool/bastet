@@ -116,3 +116,19 @@ class ExplodingRunner:
 
     def run(self, script, *, timeout=120):
         raise AssertionError("nothing should have run")
+
+
+@dataclass(frozen=True, kw_only=True)
+class Unreadable(Flag):
+    def current(self, results):
+        from bastet.engine.model import ReadError
+        raise ReadError("exists and isn't a regular file (dir)")
+
+
+class SilentRunner:
+    """Returns no sections at all, as when a read script dies early."""
+
+    name = "silent"
+
+    def run(self, script, *, timeout=120):
+        return CommandResult("", "", 0)

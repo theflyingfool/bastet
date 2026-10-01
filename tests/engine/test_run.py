@@ -90,3 +90,39 @@ def test_same_file_edits_see_each_other(tmp_path):
     first = run_host(LocalRunner(), "h", batches, apply=True)
     assert first.ok and (tmp_path / "shared").read_text() == "one\ntwo\n"
     assert run_host(LocalRunner(), "h", batches, apply=True).count("compliant") == 2
+
+
+from bastet.engine.command import Command  # noqa: E402
+from bastet.engine.run import collect_items  # noqa: E402
+from bastet.engine.systemd import TimeSettings  # noqa: E402
+from engine_fakes import SilentRunner, Unreadable  # noqa: E402
+
+
+def test_stdin_reading_check_cannot_swallow_later_reads(tmp_path):
+    marker = tmp_path / "m"
+    marker.write_text("")
+    greedy = Command(name="greedy", run="true", unless="cat >/dev/null; true", root=False)
+    guard = Command(name="guard", run=f"echo ran >> {tmp_path / 'log'}", unless=f"test -e {marker}", root=False)
+    run = run_host(LocalRunner(), "h", [Batch("t", [greedy, guard])], apply=True)
+    assert not (tmp_path / "log").exists() and statuses(run)["guard"] == ("compliant", None)
+
+
+def test_unreported_read_fails_the_item():
+    run = run_host(SilentRunner(), "h", [Batch("t", [Command(name="guard", run="x", unless="y", root=False)])], apply=False)
+    assert run.items[0].status == "failed" and "no output" in run.items[0].error
+
+
+def test_read_failure_stops_the_rest_of_its_batch(tmp_path):
+    run = run_host(LocalRunner(), "h", [Batch("t", [Unreadable(path=str(tmp_path / "d"), value="1"),
+                                                     Flag(path=str(tmp_path / "after"), value="2")])], apply=True)
+    s = statuses(run)
+    assert s[str(tmp_path / "after")][0] == "skipped" and not (tmp_path / "after").exists()
+
+
+def test_partial_desires_merge_and_real_clashes_still_conflict():
+    [(_, [item])] = collect_items([Batch("a", [TimeSettings(timezone="UTC")])])
+    planned = collect_items([Batch("a", [TimeSettings(timezone="UTC")]), Batch("b", [TimeSettings(ntp=True)])])
+    [item] = [i for _, mine in planned for i in mine]
+    assert item.resource.desired() == {"timezone": "UTC", "ntp": True, "rtc_local": None} and item.origins == ["a", "b"]
+    with pytest.raises(ConflictError):
+        collect_items([Batch("a", [TimeSettings(timezone="UTC")]), Batch("b", [TimeSettings(timezone="Europe/Paris")])])

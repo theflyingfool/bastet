@@ -84,6 +84,16 @@ class Unit(Resource):
         enabled: object = True if state_file in ENABLED else ("masked" if state_file.startswith("masked") else False)
         return {"exists": True, "enabled": enabled, "state": "up" if kv.get("ActiveState") in UP else "down"}
 
+    def compare(self, current):
+        """A unit that isn't there is already disabled and down; masked is stronger than disabled."""
+        changes = super().compare(current)
+        if current.get("exists") is False:
+            changes = [c for c in changes if not (c.field == "enabled" and c.after is False)
+                       and not (c.field == "state" and c.after == "down")]
+        if current.get("enabled") == "masked":
+            changes = [c for c in changes if not (c.field == "enabled" and c.after is False)]
+        return changes
+
     def fix(self, changes, current):
         cmds = [] if current.get("exists") else ["systemctl daemon-reload"]
         for c in changes:
@@ -198,7 +208,8 @@ class Locale(Resource):
     def reads(self):
         return (
             Read("localectl", "command -v localectl >/dev/null || exit 127; localectl status"),
-            Read("update_locale", "command -v update-locale"),
+            Read("update_locale", "for p in /usr/sbin/update-locale /usr/bin/update-locale; do "
+                                  "[ -x \"$p\" ] && echo \"$p\" && exit 0; done; command -v update-locale"),
         )
 
     def current(self, results):
@@ -215,13 +226,14 @@ class Locale(Resource):
         if debian and self.keymap is not None:
             raise Unsupported("Debian sets the console keymap through console-setup (/etc/default/keyboard); not supported yet")
         return {"lang": lang.group(1) if lang else ABSENT, "keymap": km if km not in (None, "(unset)", "n/a") else ABSENT,
-                "tool": "update-locale" if debian else "localectl"}
+                "tool": results["update_locale"].output.strip() if debian else "localectl"}
 
     def fix(self, changes, current):
         cmds = []
         for c in changes:
             if c.field == "lang":
-                setter = "update-locale" if current.get("tool") == "update-locale" else "localectl set-locale"
+                tool = str(current.get("tool", "localectl"))
+                setter = "localectl set-locale" if tool == "localectl" else _q(tool)
                 cmds.append(f"{setter} {_q('LANG=' + str(c.after))}")
             elif c.field == "keymap":
                 cmds.append(f"localectl set-keymap {_q(str(c.after))}")

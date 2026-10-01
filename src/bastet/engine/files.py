@@ -34,7 +34,7 @@ def _lines(r: ProbeResult) -> list[str]:
 def _file_read(path: str, root: bool) -> Read:
     command = (
         f"p={_q(path)}; if [ -L \"$p\" ]; then echo link; elif [ -f \"$p\" ]; then echo file; "
-        "stat -c '%U %G %a' \"$p\"; base64 < \"$p\" | tr -d '\\n'; echo; "
+        "stat -c '%U %G %a %u %g' \"$p\"; base64 < \"$p\" | tr -d '\\n'; echo; "
         "elif [ -e \"$p\" ]; then echo other; else echo absent; fi"
     )
     return Read("file", command, root=root)
@@ -47,12 +47,12 @@ def _parse_file(r: ProbeResult) -> dict[str, object]:
         return {"content": ABSENT, "owner": ABSENT, "group": ABSENT, "mode": ABSENT}
     if kind != "file":
         raise ReadError(f"exists and isn't a regular file ({kind})")
-    owner, group, mode = lines[1].split()
+    owner, group, mode, uid, gid = (lines[1].split() + ["", ""])[:5]
     try:
         content = base64.b64decode(lines[2] if len(lines) > 2 else "", validate=True).decode("utf-8")
     except (binascii.Error, UnicodeDecodeError):
         raise ReadError("isn't a text file") from None
-    return {"content": content, "owner": owner, "group": group, "mode": _mode(mode)}
+    return {"content": content, "owner": owner, "group": group, "mode": _mode(mode), "uid": uid or None, "gid": gid or None}
 
 
 def _chown(owner: str | None, group: str | None, target: str) -> list[str]:
@@ -66,7 +66,8 @@ def _write(path: str, content: str, *, owner, group, mode, validate, in_place: b
     """Write via a temporary file: validated first; renamed into place (new file) or copied over (keeps inode)."""
     p, tmp = _q(path), _q(path + ".bastet-tmp")
     data = base64.b64encode(content.encode("utf-8")).decode("ascii")
-    cmds = [f"mkdir -p {_q(posixpath.dirname(path) or '/')}", f"printf '%s' '{data}' | base64 -d > {tmp}"]
+    cmds = [f"t={tmp}; trap 'rm -f -- \"$t\"' EXIT",
+            f"mkdir -p {_q(posixpath.dirname(path) or '/')}", f"printf '%s' '{data}' | base64 -d > {tmp}"]
     if validate:
         cmds.append(f"{validate.replace('%s', tmp)} || {{ rm -f {tmp}; exit 1; }}")
     if in_place:
@@ -121,7 +122,7 @@ class File(Resource):
         if "content" in fields:
             return _write(
                 self.path, self.content,
-                owner=self.owner or _known(current.get("owner")), group=self.group or _known(current.get("group")),
+                owner=self.owner or _known(current.get("uid")), group=self.group or _known(current.get("gid")),
                 mode=_mode(self.mode) or _known(current.get("mode")), validate=self.validate, in_place=False,
             )
         cmds = _chown(self.owner, self.group, _q(self.path)) if fields & {"owner", "group"} else []
@@ -284,9 +285,10 @@ class Block(_Edit):
         stripped = [line.rstrip("\n") for line in lines]
         if begin in stripped:
             i = stripped.index(begin)
-            j = next((k for k in range(i + 1, len(stripped)) if stripped[k] == end), None)
-            if j is not None:
-                return "".join(lines[:i]) + new + "".join(lines[j + 1:])
+            j = next((k for k in range(i + 1, len(stripped)) if stripped[k] in (end, begin)), None)
+            if j is None or stripped[j] != end:
+                raise ReadError(f"unterminated block: '{begin}' has no matching '{end}'; fix the file by hand")
+            return "".join(lines[:i]) + new + "".join(lines[j + 1:])
         sep = "" if not text or text.endswith("\n") else "\n"
         return text + sep + new
 
@@ -302,7 +304,7 @@ class Line(_Edit):
 
     @property
     def label(self) -> str:
-        return f"{self.path} ({self.line})"
+        return f"{self.path} (secret)" if self.secret else f"{self.path} ({self.line})"
 
     def desired(self):
         return {"line": self.line, "match": self.match}
@@ -316,7 +318,7 @@ class Line(_Edit):
             if hits:
                 lines[hits[-1]] = self.line + "\n"
                 return "".join(lines)
-        elif self.line in stripped:
+        if self.line in stripped:
             return text
         sep = "" if not text or text.endswith("\n") else "\n"
         return text + sep + self.line + "\n"

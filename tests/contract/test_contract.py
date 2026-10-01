@@ -26,8 +26,8 @@ def test_files_contract(host):
         Block(path="/etc/bastet-ct/conf", block="a = 1\nb = 2", marker="bastet ct"),
         Line(path="/etc/bastet-ct/conf", line="c = 3", match=r"^c ="),
     ])])
-    assert host.run("cat /etc/bastet-ct/motd").stdout == TRICKY
-    assert host.run("stat -c %a /etc/bastet-ct/motd").stdout.strip() == "640"
+    assert host.run("sudo -n cat /etc/bastet-ct/motd").stdout == TRICKY
+    assert host.run("sudo -n stat -c %a /etc/bastet-ct/motd").stdout.strip() == "640"
 
 
 def test_systemd_contract(host):

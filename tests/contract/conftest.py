@@ -18,12 +18,17 @@ IMAGE = "localhost/bastet-contract:debian-13"
 
 
 class PodmanRunner:
-    def __init__(self, container: str) -> None:
+    """Runs scripts in the container as root, or as the `bastet` user through a login shell (its real PATH,
+    root only through `sudo -n`), the way Bastet reaches real hosts."""
+
+    def __init__(self, container: str, user: str = "root") -> None:
         self.container = container
-        self.name = f"podman:{container}"
+        self.user = user
+        self.name = f"podman:{container}:{user}"
 
     def run(self, script: str, *, timeout: int = 120) -> CommandResult:
-        r = subprocess.run(["podman", "exec", "-i", self.container, "sh", "-s"], input=script,
+        shell = ["sh", "-s"] if self.user == "root" else ["su", "-", self.user, "-c", "sh -s"]
+        r = subprocess.run(["podman", "exec", "-i", self.container, *shell], input=script,
                            capture_output=True, text=True, timeout=timeout)
         return CommandResult(r.stdout, r.stderr, r.returncode)
 
@@ -39,14 +44,14 @@ def contract_image() -> str:
     return IMAGE
 
 
-@pytest.fixture
-def host(contract_image):
+@pytest.fixture(params=["root", "bastet"])
+def host(request, contract_image):
     name = f"bastet-ct-{uuid.uuid4().hex[:8]}"
     subprocess.run(["podman", "run", "-d", "--name", name, "--systemd=always", "--cap-add", "SYS_ADMIN",
                     "--no-hostname", contract_image], check=True, capture_output=True)
     try:
         subprocess.run(["podman", "exec", name, "systemctl", "is-system-running", "--wait"],
                        capture_output=True, timeout=90)
-        yield PodmanRunner(name)
+        yield PodmanRunner(name, request.param)
     finally:
         subprocess.run(["podman", "rm", "-f", "-t", "0", name], capture_output=True)

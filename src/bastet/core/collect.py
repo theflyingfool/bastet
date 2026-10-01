@@ -139,10 +139,10 @@ def build_script(probes: tuple[Probe, ...] = PROBES, mark: str = MARK) -> str:
         if p.root:
             lines.append(
                 f'if [ "$SUDO" = none ]; then out=""; rc=126; '
-                f"else out=$( $SUDO sh -c {shlex.quote(p.command)} 2>/dev/null ); rc=$?; fi"
+                f"else out=$( $SUDO sh -c {shlex.quote(p.command)} </dev/null 2>/dev/null ); rc=$?; fi"
             )
         else:
-            lines.append(f"out=$( ( {p.command} ) 2>/dev/null ); rc=$?")
+            lines.append(f"out=$( ( {p.command} ) </dev/null 2>/dev/null ); rc=$?")
         lines += [
             f"printf '%s %s %s\\n' '{mark}' '{p.name}' \"$rc\"",
             "printf '%s\\n' \"$out\"",

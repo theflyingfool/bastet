@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields, replace
 
 from bastet.core.errors import BastetError
 from bastet.engine.model import FieldChange, ReadError, Resource, Trigger, Unsupported, show_value
-from bastet.engine.script import exec_script, new_mark, read_script, split_results
+from bastet.engine.script import NOT_REPORTED, exec_script, new_mark, read_script, split_results
 
 
 class ConflictError(BastetError):
@@ -68,12 +68,7 @@ def collect_items(batches: list[Batch]) -> list[tuple[Batch, list[Item]]]:
                 seen[res.identity] = item
                 mine.append(item)
                 continue
-            a, b = item.resource.desired(), res.desired()
-            if a != b:
-                keys = sorted(k for k in set(a) | set(b) if a.get(k) != b.get(k))
-                raise ConflictError(
-                    f"{res.label}: {item.origins[0]} and {batch.name} want different {', '.join(keys)}"
-                )
+            item.resource = _merge(item.resource, res, item.origins[0], batch.name)
             if batch.name not in item.origins:
                 item.origins.append(batch.name)
             for t in res.on_change:
@@ -83,6 +78,27 @@ def collect_items(batches: list[Batch]) -> list[tuple[Batch, list[Item]]]:
     return planned
 
 
+def _merge(a: Resource, b: Resource, a_from: str, b_from: str) -> Resource:
+    """Same item from two sources: fields only one side sets combine; both setting different values is a conflict."""
+    if type(a) is not type(b):
+        raise ConflictError(f"{b.label}: {a_from} and {b_from} describe it differently")
+    updates: dict[str, object] = {}
+    clashes: list[str] = []
+    for f in fields(a):
+        if f.name == "on_change":
+            continue
+        va, vb = getattr(a, f.name), getattr(b, f.name)
+        if f.name == "secret":
+            updates["secret"] = bool(va or vb)
+        elif va is None and vb is not None:
+            updates[f.name] = vb
+        elif vb is not None and va != vb:
+            clashes.append(f.name)
+    if clashes:
+        raise ConflictError(f"{b.label}: {a_from} and {b_from} want different {', '.join(clashes)}")
+    return replace(a, **updates) if updates else a
+
+
 def _tail(stderr: str, returncode: int) -> str:
     lines = [line for line in stderr.strip().splitlines() if line.strip()]
     return "\n".join(lines[-5:]) if lines else f"exit status {returncode}"
@@ -90,18 +106,21 @@ def _tail(stderr: str, returncode: int) -> str:
 
 def _assess(item: Item, results: dict) -> None:
     item.error, item.diff, item.changes = None, None, []
+    if any(r is NOT_REPORTED for r in results.values()):
+        item.status, item.error = "failed", "no output for this read (the read script stopped early)"
+        return
     if any(r.denied for r in results.values()):
         item.status, item.error = "failed", "needs root: sudo -n is not available"
         return
     try:
         item.current = item.resource.current(results)
+        item.changes = item.resource.compare(item.current)
     except Unsupported as e:
         item.status, item.error = "skipped", str(e)
         return
     except ReadError as e:
         item.status, item.error = "failed", f"couldn't read: {e}"
         return
-    item.changes = item.resource.compare(item.current)
     item.status = "would-change" if item.changes else "compliant"
     if item.changes and not item.resource.secret:
         item.diff = item.resource.diff_text(item.current)
@@ -137,6 +156,8 @@ def run_host(runner, host: str, batches: list[Batch], *, apply: bool) -> HostRun
         pending: list[Trigger] = []
         broken: str | None = None
         for item in mine:
+            if item.status == "failed" and broken is None:
+                broken = item.resource.label
             if item.status != "would-change":
                 continue
             if broken is not None:
@@ -145,6 +166,8 @@ def run_host(runner, host: str, batches: list[Batch], *, apply: bool) -> HostRun
             path = item.resource.touches()
             if path is not None and path in touched:
                 _assess(item, _read(runner, [item])[0])
+                if item.status == "failed":
+                    broken = item.resource.label
                 if item.status != "would-change":
                     continue
             commands = item.resource.fix(item.changes, item.current)
@@ -166,6 +189,9 @@ def run_host(runner, host: str, batches: list[Batch], *, apply: bool) -> HostRun
 
     if changed:  # phase 6
         for item, results in zip(changed, _read(runner, changed)):
+            if any(r is NOT_REPORTED for r in results.values()):
+                item.status, item.error = "failed", "couldn't verify: no output for this read"
+                continue
             try:
                 remaining = item.resource.compare(item.resource.current(results))
             except (ReadError, Unsupported) as e:
