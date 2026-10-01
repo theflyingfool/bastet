@@ -12,8 +12,8 @@ from bastet.core.frontmatter import Document, new_document, set_keys
 from bastet.core.gatherplan import Note, merge_facts
 from bastet.core.gitrepo import GitRepo
 from bastet.core.hwparse import (
-    base_device, clean, machine_from_dmi, parse_disk_ids, parse_dmidecode, parse_ipmi_lan, parse_lspci,
-    parse_net_sysfs, parse_pve_guests, parse_smart, parse_zpool, slots_in_use, speed_label, strip_ids,
+    base_device, clean, machine_from_dmi, slot_designations, parse_disk_ids, parse_dmidecode, parse_ipmi_lan, parse_lspci,
+    parse_net_sysfs, parse_pve_guests, parse_smart, parse_zpool, slots_in_use, strip_ids,
 )
 from bastet.core.inventory import Inventory, markdown_files
 from bastet.core.links import link_target, make_link
@@ -40,6 +40,14 @@ class HardwareView:
     guests: list[dict] = field(default_factory=list)
     complete: dict[str, bool] = field(default_factory=lambda: {"drives": False, "cards": False})
     skipped_root: bool = False
+    notes: list[str] = field(default_factory=list)
+
+
+@dataclass
+class RunState:
+    """Shared across the hosts of one gather run, so two hosts never create the same file."""
+    claimed: dict[str, str] = field(default_factory=dict)
+    names: set[str] = field(default_factory=set)
 
 
 def file_name(*parts: str | None) -> str:
@@ -88,20 +96,20 @@ def observe_hardware(host: str, results: dict[str, ProbeResult], ex: Extracted) 
         port = {"name": ifname}
         if macs.get(ifname):
             port["mac"] = macs[ifname]
-        if speed_label(info["speed"]):
-            port["speed"] = speed_label(info["speed"])
         bus = info["pci"].rsplit(".", 1)[0]
         ports_by_bus.setdefault(bus, []).append(port)
 
+    designations = slot_designations(dmi)
     pci = parse_lspci(_text(results, "lspci") or "")
     cards: dict[str, list[dict]] = {}
     for dev in pci:
         bus = dev.get("Slot", "").rsplit(".", 1)[0]
-        if dev["class_code"] in CARD_CLASSES and bus in slots:
+        in_slot = bool(dev.get("PhySlot")) or bus in slots
+        if dev["class_code"] in CARD_CLASSES and in_slot:
             cards.setdefault(bus, []).append(dev)
-        elif dev["class_code"] == "0200":
+        elif dev["class_code"] == "0200" and not in_slot and dev.get("Slot", "").endswith(".0"):
             onboard.extend(ports_by_bus.get(bus, []))
-    view.complete["cards"] = bool(dmi) and bool(pci)
+    view.complete["cards"] = bool(pci)
 
     data: dict[str, object] = {"bastet": "hardware", "category": MACHINE_CATEGORY.get(str(ex.facts.get("chassis")), "machine")}
     for key, value in (("make", make), ("model", model), ("serial", serial)):
@@ -125,16 +133,24 @@ def observe_hardware(host: str, results: dict[str, ProbeResult], ex: Extracted) 
     card_items = []
     for bus, devs in sorted(cards.items()):
         first = devs[0]
-        card_model = strip_ids(first.get("SDevice") or first.get("Device"))
+        sub = strip_ids(first.get("SDevice"))
+        card_model = sub if sub and sub != "Device" else strip_ids(first.get("Device"))
+        phys = (first.get("PhySlot") or "").strip()
+        slot_name = designations.get(phys) or slots.get(bus) or (f"slot {phys}" if phys else "")
         card = {"bastet": "hardware", "category": CARD_CLASSES[first["class_code"]],
-                "make": strip_ids(first.get("Vendor")), "model": card_model, "pci": bus, "slot": slots[bus]}
+                "make": strip_ids(first.get("Vendor")), "model": card_model, "pci": bus}
+        if slot_name:
+            card["slot"] = slot_name
+        if phys:
+            card["phys_slot"] = phys
         if first.get("Driver"):
             card["driver"] = first["Driver"]
         if ports_by_bus.get(bus):
             card["ports"] = ports_by_bus[bus]
         card["status"] = "in-service"
         card["installed_in"] = link
-        card_items.append(Observed(f"pci:{host.lower()}:{bus}", file_name(host, card_model), card))
+        key = f"slot:{host.lower()}:{phys}" if phys else f"pci:{host.lower()}:{bus}"
+        card_items.append(Observed(key, file_name(host, card_model), card))
     names = [c.name for c in card_items]
     for c in card_items:
         if names.count(c.name) > 1:
@@ -184,6 +200,16 @@ def observe_hardware(host: str, results: dict[str, ProbeResult], ex: Extracted) 
         view.items.append(Observed(f"serial:{drive_serial.lower()}", file_name(drive_model, drive_serial), drive))
 
     view.guests = parse_pve_guests(_text(results, "pve_guests") or "")
+    seen: dict[str, Observed] = {}
+    unique = []
+    for item in view.items:
+        if item.key in seen:
+            view.notes.append(f"{item.data.get('serial') or item.key} appears twice ({seen[item.key].name}); "
+                              "multipath or a duplicated serial, one file kept")
+            continue
+        seen[item.key] = item
+        unique.append(item)
+    view.items = unique
     return view
 
 
@@ -197,32 +223,49 @@ def _index(inv: Inventory) -> dict[str, Document]:
         target = (link_target(doc.data.get("installed_in")) or "").lower()
         if doc.data.get("serial"):
             index[f"serial:{str(doc.data['serial']).lower()}"] = doc
+        if doc.data.get("phys_slot") and target:
+            index[f"slot:{target}:{doc.data['phys_slot']}"] = doc
         if doc.data.get("pci") and target:
-            index[f"pci:{target}:{doc.data['pci']}"] = doc
-        if target and not doc.data.get("serial") and doc.data.get("category") in MACHINE_CATEGORIES:
-            index.setdefault(f"machine:{target}", doc)
+            index.setdefault(f"pci:{target}:{doc.data['pci']}", doc)
+        if target and doc.data.get("category") in MACHINE_CATEGORIES:
+            index.setdefault(f"machine-any:{target}", doc)
+            if not doc.data.get("serial"):
+                index.setdefault(f"machine:{target}", doc)
     return index
 
 
 def plan_hardware(
-    inv: Inventory, host_doc: Document, view: HardwareView, repo: GitRepo, *, take: set[str]
+    inv: Inventory,
+    host_doc: Document,
+    view: HardwareView,
+    repo: GitRepo,
+    *,
+    take: set[str],
+    run: RunState | None = None,
 ) -> tuple[list[Change], list[Note]]:
     host = host_doc.name
+    run = run if run is not None else RunState()
     index = _index(inv)
-    taken = {p.stem.lower() for p in markdown_files(inv.root)}
+    if not run.names:
+        run.names.update(p.stem.lower() for p in markdown_files(inv.root))
     changes: list[Change] = []
-    notes: list[Note] = []
+    notes: list[Note] = [Note(host, "warn", n) for n in view.notes]
     seen: set[Path] = set()
 
     for obs in view.items:
+        if obs.key in run.claimed and run.claimed[obs.key] != host:
+            notes.append(Note(host, "warn", f"{obs.name} was also seen in {run.claimed[obs.key]} in this run; not recorded twice"))
+            continue
+        run.claimed[obs.key] = host
         doc = index.get(obs.key)
         if doc is None and obs.data.get("category") in MACHINE_CATEGORIES:
-            doc = index.get(f"machine:{host.lower()}")
+            fallback = "machine-any" if obs.key.startswith("machine:") else "machine"
+            doc = index.get(f"{fallback}:{host.lower()}")
         if doc is None:
             name, n = obs.name, 2
-            while name.lower() in taken:
+            while name.lower() in run.names:
                 name, n = f"{obs.name} {n}", n + 1
-            taken.add(name.lower())
+            run.names.add(name.lower())
             changes.append(Change(inv.root / "hardware" / f"{name}.md", None, new_document(obs.data, f"# {name}\n")))
             continue
         seen.add(doc.path)

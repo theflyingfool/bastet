@@ -42,7 +42,8 @@ No agent, no Python and no Ansible are needed on hosts.
 | `pvesh` (as root) | Proxmox VE | optional | guests on a Proxmox node |
 
 Root-only tools run through passwordless sudo (the `bastet` user has it). When gathering the computer you run Bastet
-from, gather asks for your sudo password once. Without root, those facts are skipped and gather says so.
+from, gather asks for your sudo password once (not with `-y`, which never asks). Without root, those facts are skipped
+and gather says so.
 
 The first gather can set up a `bastet` user on each host, from your own SSH login (it asks first). That user has
 key login only (no password) and passwordless sudo. Setting it up needs `useradd`, `usermod`, `install`, `getent`

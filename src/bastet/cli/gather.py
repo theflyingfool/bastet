@@ -1,6 +1,7 @@
 import getpass
 import ipaddress
 import os
+import shlex
 import subprocess
 import tempfile
 from pathlib import Path
@@ -16,7 +17,7 @@ from bastet.core.errors import AuthFailed, BastetError
 from bastet.core.facts import extract
 from bastet.core.frontmatter import Document
 from bastet.core.gatherplan import Note, plan_update
-from bastet.core.hardware import observe_hardware, plan_hardware
+from bastet.core.hardware import RunState, observe_hardware, plan_hardware
 from bastet.core.remote import LocalRunner, SshRunner, SshTarget, run_interactive
 from bastet.core.views import ensure_views
 
@@ -56,8 +57,8 @@ def _fixed_ip(value: object) -> str | None:
 
 def _collect(ctx: Context, doc: Document, tmp: Path, *, yes: bool, accept: bool) -> tuple[Snapshot, str | None]:
     if doc.data.get("connection") == "local":
-        if not yes and os.geteuid() != 0 and not sudo_validate():
-            typer.secho(f"{doc.name}: no sudo; root-only facts will be skipped", fg="yellow")
+        if not yes and os.geteuid() != 0:
+            sudo_validate()
         return collect(local_runner(), doc.name), None
     address = doc.data.get("address") or _fixed_ip(doc.data.get("ip"))
     if not address:
@@ -135,6 +136,7 @@ def gather(
 
     take_fields = set(take) | ({"ssh_host_key"} if accept_new_hostkey else set())
     changes, notes, gathered = [], [], []
+    run_state = RunState()
     with tempfile.TemporaryDirectory(prefix="bastet-") as tmp:
         for doc in docs:
             typer.echo(f"{doc.name}: gathering…")
@@ -149,7 +151,7 @@ def gather(
                 update = plan_update(
                     doc, extracted, host_type, ctx.repo, take=take_fields, hostkey=hostkey, types=ctx.types
                 )
-                hw_changes, hw_notes = plan_hardware(inv, doc, view, ctx.repo, take=take_fields) if view else ([], [])
+                hw_changes, hw_notes = plan_hardware(inv, doc, view, ctx.repo, take=take_fields, run=run_state) if view else ([], [])
             except BastetError as exc:
                 typer.secho(f"{doc.name}: {exc}", fg="yellow")
                 continue
@@ -162,12 +164,16 @@ def gather(
             notes.extend(hw_notes)
             privilege = snapshot.results.get("privilege")
             if privilege is not None and privilege.output.strip() == "none":
-                notes.append(Note(doc.name, "warn", "root-only facts skipped (no passwordless sudo): DIMMs, serials, BIOS, drive health, BMC, guests"))
+                notes.append(Note(doc.name, "warn", "root-only facts skipped (no sudo): machine serial, DIMMs, BIOS, drive health, BMC, guests"))
+            node_names = {doc.name.lower(), str(extracted.facts.get("hostname", "")).lower()}
             for guest in view.guests if view else []:
+                if str(guest.get("node", "")).lower() not in node_names:
+                    continue
                 if guest.get("name") and inv.get(str(guest["name"])) is None:
                     kind = "lxc" if guest.get("type") == "lxc" else "vm"
-                    notes.append(Note(doc.name, "info", f"runs {kind} {guest['vmid']} '{guest['name']}', not in the inventory "
-                                      f"(bastet add host {guest['name']} --type {kind} --on {doc.name})"))
+                    name = shlex.quote(str(guest["name"]))
+                    notes.append(Note(doc.name, "info", f"runs {kind} {guest['vmid']} {name}, not in the inventory "
+                                      f"(bastet add host {name} --type {kind} --on {shlex.quote(doc.name)})"))
             host_changes = ([update.change] if update.change else []) + hw_changes
             if not host_changes:
                 typer.echo(f"{doc.name}: up to date")

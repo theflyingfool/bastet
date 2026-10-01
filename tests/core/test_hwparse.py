@@ -78,3 +78,18 @@ def test_pve_guests():
         {"vmid": 104, "name": "git1", "type": "lxc", "node": "pve1", "status": "running"},
         {"vmid": 105, "name": "media", "type": "qemu", "node": "pve1", "status": "stopped"},
     ]
+
+
+def test_clean_heuristics():
+    for junk in ("123456789", "0000000000000000", "XXXXXXXX", "FFFFFFFF", "Not Present", "To Be Filled By O.E.M"):
+        assert clean(junk) is None, junk
+    assert clean("WD-WCC4E1234567") == "WD-WCC4E1234567"
+
+
+def test_slot_ids():
+    from bastet.core.hwparse import slot_designations
+    assert slot_designations(parse_dmidecode(SERVER["dmidecode"])) == {"6": "CPU SLOT6 PCI-E 3.0 X16"}
+
+
+def test_smart_tolerates_empty_entries():
+    assert parse_smart('[,{"device":{"name":"/dev/sda"},"serial_number":"S1","model_name":"M"}]')["/dev/sda"]["serial"] == "S1"

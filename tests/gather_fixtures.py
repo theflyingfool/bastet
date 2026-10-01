@@ -198,6 +198,7 @@ Handle 0x0009, DMI type 9, 17 bytes
 System Slot Information
 \tDesignation: CPU SLOT6 PCI-E 3.0 X16
 \tCurrent Usage: In Use
+\tID: 6
 \tBus Address: 0000:01:00.0
 
 Handle 0x000A, DMI type 9, 17 bytes
@@ -255,9 +256,9 @@ Memory Device
         "Device:\tCannon Lake PCH SATA AHCI Controller [a352]\nDriver:\tahci\n\n"
         "Slot:\t0000:01:00.0\nClass:\tEthernet controller [0200]\nVendor:\tIntel Corporation [8086]\n"
         "Device:\tEthernet Controller X710 for 10GbE SFP+ [1572]\nSVendor:\tIntel Corporation [8086]\n"
-        "SDevice:\tEthernet Converged Network Adapter X710-2 [0007]\nRev:\t02\nDriver:\ti40e\n\n"
+        "SDevice:\tEthernet Converged Network Adapter X710-2 [0007]\nPhySlot:\t6\nRev:\t02\nDriver:\ti40e\n\n"
         "Slot:\t0000:01:00.1\nClass:\tEthernet controller [0200]\nVendor:\tIntel Corporation [8086]\n"
-        "Device:\tEthernet Controller X710 for 10GbE SFP+ [1572]\nDriver:\ti40e\n\n"
+        "Device:\tEthernet Controller X710 for 10GbE SFP+ [1572]\nPhySlot:\t6\nDriver:\ti40e\n\n"
         "Slot:\t0000:03:00.0\nClass:\tEthernet controller [0200]\nVendor:\tIntel Corporation [8086]\n"
         "Device:\tI210 Gigabit Network Connection [1533]\nDriver:\tigb\n"
     ),

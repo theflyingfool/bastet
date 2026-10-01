@@ -76,3 +76,8 @@ def test_new_probes_present():
     names = {p.name for p in PROBES}
     assert {"privilege", "dmidecode", "smart", "lspci", "net_sysfs", "ipmi", "zpool", "disk_ids", "pve_guests"} <= names
     assert {p.name for p in PROBES if p.root} == {"dmidecode", "smart", "ipmi", "pve_guests"}
+
+
+def test_smart_probe_skips_standby_disks_and_builds_valid_json():
+    [smart] = [p for p in PROBES if p.name == "smart"]
+    assert "-n standby" in smart.command and 'if [ -n "$o" ]' in smart.command

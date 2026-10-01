@@ -250,3 +250,15 @@ def test_yes_skips_sudo_prompt(runner, laptop, monkeypatch):
     monkeypatch.setattr(gather_mod, "sudo_validate", lambda: calls.append(1) or True)
     runner.invoke(app, ["gather", "hp-13", "-y"])
     assert calls == []
+
+
+def test_guests_on_other_nodes_ignored_and_names_quoted(runner, server, monkeypatch):
+    guests = json.dumps([
+        {"vmid": 104, "name": "git1", "type": "lxc", "node": "pve1", "status": "running"},
+        {"vmid": 200, "name": "elsewhere", "type": "qemu", "node": "pve2", "status": "running"},
+        {"vmid": 201, "name": "my box", "type": "qemu", "node": "pve1", "status": "running"},
+    ])
+    monkeypatch.setattr(gather_mod, "ssh_runner", lambda target: FakeRunner(dict(SERVER, pve_guests=guests), "x"))
+    result = runner.invoke(app, ["gather", "pve1", "-y", "--accept-new-hostkey"])
+    assert "elsewhere" not in result.output
+    assert "bastet add host 'my box'" in result.output

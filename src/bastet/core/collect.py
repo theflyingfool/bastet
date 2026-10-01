@@ -43,7 +43,7 @@ PROBES: tuple[Probe, ...] = (
         "smart",
         "command -v smartctl >/dev/null || exit 127; printf '['; sep=''; "
         "for d in $(lsblk -dnp -o NAME,TYPE | awk '$2==\"disk\"{print $1}'); do "
-        "printf '%s' \"$sep\"; smartctl -a -j \"$d\" || true; sep=','; done; printf ']'",
+        "o=$(smartctl -n standby -a -j \"$d\" 2>/dev/null); if [ -n \"$o\" ]; then printf '%s%s' \"$sep\" \"$o\"; sep=','; fi; done; printf ']'",
         "smartctl (smartmontools)",
         root=True,
     ),

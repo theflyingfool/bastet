@@ -119,3 +119,36 @@ def test_serial_learned_later_updates_the_same_machine_file(repo):
     machine = [c for c in changes2 if "Supermicro" in c.path.name]
     assert len(machine) == 1 and machine[0].before is not None
     assert machine[0].path.name == "pve1 Supermicro SYS-5019C-MR.md" and "serial: S123456X" in machine[0].after
+
+
+def test_machine_with_serial_not_duplicated_by_later_no_root_gather(repo):
+    changes, _ = run(repo, "pve1")
+    apply(repo, changes)
+    no_root = dict(SERVER, privilege="none", dmidecode=(126, ""), smart=(126, ""), ipmi=(126, ""), pve_guests=(126, ""))
+    changes2, _ = run(repo, "pve1", no_root)
+    assert not [c for c in changes2 if c.before is None and "Supermicro" in c.path.name]
+
+
+def test_card_survives_bus_renumbering(repo):
+    changes, _ = run(repo, "pve1")
+    apply(repo, changes)
+    renum = dict(SERVER, lspci=SERVER["lspci"].replace("0000:01:00", "0000:02:00"),
+                 net_sysfs=SERVER["net_sysfs"].replace("0000:01:00", "0000:02:00"),
+                 dmidecode=SERVER["dmidecode"].replace("0000:01:00.0", "0000:02:00.0"))
+    changes2, notes = run(repo, "pve1", renum)
+    card = [c for c in changes2 if "X710" in c.path.name]
+    assert len(card) == 1 and card[0].before is not None and "pci: 0000:02:00" in card[0].after
+    assert not [n for n in notes if "wasn't seen" in n.message]
+
+
+def test_same_key_twice_in_one_run_is_claimed_once(repo):
+    from bastet.core.hardware import RunState
+    state = RunState()
+    inv = load_inventory(repo.root, TYPES)
+    results = parse_sections(stdout_for(SERVER))
+    v = observe_hardware("pve1", results, extract(results))
+    first, _ = plan_hardware(inv, inv.get("pve1"), v, repo, take=set(), run=state)
+    v2 = observe_hardware("pve2", results, extract(results))
+    second, notes = plan_hardware(inv, inv.get("pve2"), v2, repo, take=set(), run=state)
+    assert len(first) == 5 and [c for c in second if c.before is None and "WD-WCC4E" in c.path.name] == []
+    assert any("also seen" in n.message for n in notes)

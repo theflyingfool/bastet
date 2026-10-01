@@ -14,7 +14,12 @@ def clean(value: object) -> str | None:
     if value is None:
         return None
     text = str(value).strip()
-    return None if text.lower() in PLACEHOLDERS else text
+    lowered = text.lower().rstrip(".")
+    if lowered in PLACEHOLDERS or lowered in {"not present", "to be filled by o.e.m"}:
+        return None
+    if len(set(lowered)) == 1 or re.fullmatch(r"0*1234567890?", lowered):
+        return None
+    return text
 
 
 def _int(value: object) -> int | None:
@@ -109,6 +114,11 @@ def slots_in_use(records: list[dict]) -> dict[str, str]:
         if "In Use" in s.get("Current Usage", "") and re.match(r"^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.", address):
             out[address.rsplit(".", 1)[0]] = s.get("Designation", "").strip()
     return out
+
+
+def slot_designations(records: list[dict]) -> dict[str, str]:
+    """Physical slot number (SMBIOS slot ID, as lspci's PhySlot) -> designation."""
+    return {s["ID"].strip(): s.get("Designation", "").strip() for s in _of_type(records, 9) if s.get("ID", "").strip()}
 
 
 def parse_lspci(text: str) -> list[dict]:
@@ -211,7 +221,7 @@ def base_device(name: str) -> str:
 
 def parse_smart(text: str) -> dict[str, dict]:
     try:
-        data = json.loads(text)
+        data = json.loads(re.sub(r"\[\s*,|,\s*(?=,)|,\s*\]", lambda m: m.group(0).replace(",", ""), text))
     except json.JSONDecodeError:
         return {}
     out = {}
