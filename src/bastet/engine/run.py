@@ -139,7 +139,19 @@ def _still(c: FieldChange, secret: bool) -> str:
     return f"still {c.field} {show_value(c.before, secret=secret)} after apply (wanted {show_value(c.after, secret=secret)})"
 
 
-def run_host(runner, host: str, batches: list[Batch], *, apply: bool) -> HostRun:
+FIX_TIMEOUT = 1800
+
+
+def _exec(runner, commands: list[str], root: bool, timeout: int) -> tuple[bool, str | None]:
+    """Run a fix or trigger; a timeout or lost connection is a failure of this step, not of the whole run."""
+    try:
+        res = runner.run(exec_script(commands, root=root, mark=new_mark()), timeout=timeout)
+    except BastetError as e:
+        return False, str(e)
+    return (True, None) if res.returncode == 0 else (False, _tail(res.stderr, res.returncode))
+
+
+def run_host(runner, host: str, batches: list[Batch], *, apply: bool, fix_timeout: int = FIX_TIMEOUT) -> HostRun:
     planned = collect_items(batches)
     items = [i for _, mine in planned for i in mine]
     run = HostRun(host, apply, items)
@@ -183,9 +195,8 @@ def run_host(runner, host: str, batches: list[Batch], *, apply: bool) -> HostRun
                 commands = type(item.resource).fix_group([(g.resource, g.changes, g.current) for g in group])
             else:
                 commands = item.resource.fix(item.changes, item.current)
-            res = runner.run(exec_script(commands, root=any(g.resource.root for g in group), mark=new_mark()))
-            if res.returncode != 0:
-                error = _tail(res.stderr, res.returncode)
+            ok, error = _exec(runner, commands, any(g.resource.root for g in group), fix_timeout)
+            if not ok:
                 for g in group:
                     g.status, g.error = "failed", error
                 broken = item.resource.label
@@ -199,8 +210,8 @@ def run_host(runner, host: str, batches: list[Batch], *, apply: bool) -> HostRun
                     if t not in pending:
                         pending.append(t)
         for t in sorted(pending, key=lambda t: t.order):  # phase 5
-            res = runner.run(exec_script([t.command], root=t.root, mark=new_mark()))
-            run.triggers.append(TriggerRun(t, res.returncode == 0, None if res.returncode == 0 else _tail(res.stderr, res.returncode)))
+            ok, error = _exec(runner, [t.command], t.root, fix_timeout)
+            run.triggers.append(TriggerRun(t, ok, error))
 
     if changed:  # phase 6
         for item, results in zip(changed, _read(runner, changed)):

@@ -19,7 +19,8 @@ def user_state(passwd="nick:x:1000:1000:Nick:/home/nick:/bin/bash", groups="nick
 def test_current_user():
     c = User(name="nick").current(user_state())
     assert c == {"exists": True, "uid": "1000", "group": "nick", "groups": ("media", "wheel"), "comment": "Nick",
-                 "home": "/home/nick", "shell": "/bin/bash", "password": HASH, "locked": False, "expires": "never"}
+                 "home": "/home/nick", "shell": "/bin/bash", "password": HASH, "locked": False, "expires": "never",
+                 "min_days": "0", "max_days": "99999", "warn_days": "7", "inactive_days": "(absent)"}
     locked = User(name="nick").current(user_state(shadow=f"nick:!{HASH}:19000:0:99999:7::20089:"))
     assert locked["locked"] is True and locked["password"] == HASH and locked["expires"] == "2025-01-01"
 

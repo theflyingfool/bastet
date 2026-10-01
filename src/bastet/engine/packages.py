@@ -1,4 +1,7 @@
-"""Packages family: packages for apt, pacman, dnf, zypper and apk, and their repositories (spec 9.2)."""
+"""Packages family: packages for apt, pacman, dnf, zypper and apk, and their repositories (spec 9.2).
+
+Every knob either works on a manager or raises Unsupported there; nothing is silently ignored.
+"""
 
 import re
 import shlex
@@ -13,8 +16,11 @@ DETECT = ("for m in apt-get pacman dnf zypper apk; do "
           "command -v $m >/dev/null 2>&1 && { echo $m; exit 0; }; done; exit 127")
 NAME = re.compile(r"^[A-Za-z0-9@._+:][A-Za-z0-9@._+:-]*$")
 APT = "apt-get -o DPkg::Lock::Timeout=120"
+DPKG_DEFAULT = ("--force-confdef", "--force-confold")
 REFRESH = {"apt-get": f"{APT} update -q", "dnf": "dnf makecache -q", "zypper": "zypper --non-interactive refresh",
            "apk": "apk update -q"}
+UPGRADE = {"dnf": "dnf upgrade -y -q", "zypper": "zypper --non-interactive update", "apk": "apk upgrade -q"}
+RPM = ("dnf", "zypper")
 
 
 def _q(text: str) -> str:
@@ -26,26 +32,30 @@ def _query(name: str) -> str:
     return (f"case \"$({DETECT})\" in "
             f"apt-get) dpkg-query -W -f='${{db:Status-Abbrev}}|${{Version}}\\n' -- {n} 2>/dev/null;; "
             f"pacman) pacman -Q -- {n} 2>/dev/null;; "
-            f"dnf|zypper) rpm -q --qf '%{{VERSION}}-%{{RELEASE}}\\n' -- {n} 2>/dev/null;; "
+            f"dnf|zypper) rpm -q --qf '%{{EPOCH}}:%{{VERSION}}-%{{RELEASE}}\\n' -- {n} 2>/dev/null;; "
             f"apk) apk info -e -v {n} 2>/dev/null;; esac; true")
 
 
-def _installed(manager: str, name: str, output: str) -> str | None:
-    out = output.strip()
-    if not out:
-        return None
-    first = out.splitlines()[0]
+def _installed(manager: str, name: str, output: str) -> list[str]:
+    """Installed versions (several for rpm packages like kernels); empty when not installed."""
+    lines = [line.strip() for line in output.strip().splitlines() if line.strip()]
+    if not lines:
+        return []
+    first = lines[0]
     if manager == "apt-get":
         status, _, version = first.partition("|")
-        return version.strip() if status.startswith("ii") else None
+        # the second letter is the current state: i = installed (ii, hi held, ri/pi marked but still installed)
+        return [version.strip()] if len(status) > 1 and status[1] == "i" else []
     if manager == "pacman":
         parts = first.split()
-        return parts[1] if len(parts) > 1 else None
-    if manager in ("dnf", "zypper"):
-        return None if first.startswith("package ") or "not installed" in first else first.strip()
+        return [parts[1]] if len(parts) > 1 else []
+    if manager in RPM:
+        if first.startswith("package ") or "not installed" in first:
+            return []
+        return [line.removeprefix("(none):") for line in lines]
     if manager == "apk":
-        return first[len(name) + 1:] if first.startswith(name + "-") else None
-    return None
+        return [first[len(name) + 1:]] if first.startswith(name + "-") else []
+    return []
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -58,6 +68,10 @@ class Package(Resource):
     install_recommends: bool | None = None
     purge: bool = False
     full_upgrade: bool = False
+    default_release: str | None = None
+    allow_change_held: bool = False
+    dpkg_options: tuple[str, ...] = DPKG_DEFAULT
+    extra_args: tuple[str, ...] = ()
     manager: str | None = None
 
     def __post_init__(self):
@@ -82,6 +96,20 @@ class Package(Resource):
     def reads(self):
         return (Read("manager", DETECT), Read("query", _query(self.name)))
 
+    def _check(self, manager: str) -> None:
+        if manager != "apt-get":
+            for knob, used in (("default_release", self.default_release is not None),
+                               ("allow_change_held", self.allow_change_held),
+                               ("dpkg_options", tuple(self.dpkg_options) != DPKG_DEFAULT)):
+                if used:
+                    raise Unsupported(f"{knob} only applies to apt; this host uses {manager}")
+        if self.install_recommends is not None and manager in ("pacman", "apk"):
+            raise Unsupported(f"{manager} has no recommended packages to turn on or off")
+        if self.purge and manager in RPM:
+            raise Unsupported(f"{manager} has no purge; removing already drops unchanged config")
+        if self.version is not None and manager == "pacman":
+            raise Unsupported("pacman can't install a specific version")
+
     def current(self, results):
         m = results["manager"]
         if not m.ok or not m.output.strip():
@@ -89,13 +117,33 @@ class Package(Resource):
         manager = m.output.strip()
         if self.manager is not None and self.manager != manager:
             raise ReadError(f"expected {self.manager}, but this host uses {manager}")
-        if self.version is not None and manager == "pacman":
-            raise Unsupported("pacman can't install a specific version")
-        version = _installed(manager, self.name, results["query"].output)
-        return {"state": "present" if version else "absent", "version": version or ABSENT, "manager": manager}
+        self._check(manager)
+        versions = _installed(manager, self.name, results["query"].output)
+        return {"state": "present" if versions else "absent", "version": versions[0] if versions else ABSENT,
+                "versions": versions, "manager": manager}
+
+    def _version_ok(self, current) -> bool:
+        want = str(self.version)
+        for have in current.get("versions") or []:
+            if have == want:
+                return True
+            if current.get("manager") in RPM:
+                bare = have.split(":", 1)[-1]
+                if bare == want or bare.startswith(want + "-") or have.startswith(want + "-"):
+                    return True
+        return False
+
+    def compare(self, current):
+        changes = []
+        if current["state"] != self.state:
+            changes.append(FieldChange("state", current["state"], self.state))
+        elif self.state == "present" and self.version is not None and not self._version_ok(current):
+            changes.append(FieldChange("version", current["version"], self.version))
+        return changes
 
     def group_key(self):
-        return f"package:{self.state}:{self.refresh}:{self.install_recommends}:{self.purge}:{self.full_upgrade}"
+        return (f"package:{self.state}:{self.refresh}:{self.install_recommends}:{self.purge}:{self.full_upgrade}:"
+                f"{self.default_release}:{self.allow_change_held}:{self.dpkg_options}:{self.extra_args}")
 
     def _spec(self, manager: str) -> str:
         if self.version is None or self.state == "absent":
@@ -107,22 +155,32 @@ class Package(Resource):
         first, _, current = members[0]
         manager = str(current["manager"])
         specs = " ".join(_q(p._spec(manager)) for p, _, _ in members)
+        pinned = any(p.version is not None and p.state == "present" for p, _, _ in members)
+        extra = "".join(f" {_q(a)}" for a in first.extra_args)
+        apt = f"DEBIAN_FRONTEND=noninteractive {APT}" + "".join(f" -o Dpkg::Options::={o}" for o in first.dpkg_options)
+        held = " --allow-change-held-packages" if first.allow_change_held else ""
         if first.state == "absent":
             return [{
-                "apt-get": f"DEBIAN_FRONTEND=noninteractive {APT} {'purge' if first.purge else 'remove'} -y -q -- {specs}",
-                "pacman": f"pacman {'-Rns' if first.purge else '-R'} --noconfirm -- {specs}",
-                "dnf": f"dnf remove -y -q -- {specs}",
-                "zypper": f"zypper --non-interactive remove -- {specs}",
-                "apk": f"apk del -q {specs}",
+                "apt-get": f"{apt} {'purge' if first.purge else 'remove'} -y -q{held}{extra} -- {specs}",
+                "pacman": f"pacman {'-Rns' if first.purge else '-R'} --noconfirm{extra} -- {specs}",
+                "dnf": f"dnf remove -y -q{extra} -- {specs}",
+                "zypper": f"zypper --non-interactive remove{extra} -- {specs}",
+                "apk": f"apk del -q{' --purge' if first.purge else ''}{extra} {specs}",
             }[manager]]
         cmds = [REFRESH[manager]] if first.refresh and manager in REFRESH else []
-        recommends = {True: " --install-recommends", False: " --no-install-recommends", None: ""}[first.install_recommends]
+        if first.full_upgrade and manager != "pacman":
+            cmds.append(f"{apt} full-upgrade -y -q" if manager == "apt-get" else UPGRADE[manager])
+        rec = first.install_recommends
+        apt_rec = {True: " --install-recommends", False: " --no-install-recommends", None: ""}[rec]
+        dnf_rec = "" if rec is None else f" --setopt=install_weak_deps={rec}"
+        zyp_rec = {True: " --recommends", False: " --no-recommends", None: ""}[rec]
+        release = f" -t {_q(first.default_release)}" if first.default_release else ""
         cmds.append({
-            "apt-get": f"DEBIAN_FRONTEND=noninteractive {APT} install -y -q{recommends} -- {specs}",
-            "pacman": f"pacman {'-Syu' if first.full_upgrade else '-S'} --noconfirm --needed -- {specs}",
-            "dnf": f"dnf install -y -q -- {specs}",
-            "zypper": f"zypper --non-interactive install -- {specs}",
-            "apk": f"apk add -q {specs}",
+            "apt-get": f"{apt} install -y -q{apt_rec}{release}{held}{' --allow-downgrades' if pinned else ''}{extra} -- {specs}",
+            "pacman": f"pacman {'-Syu' if first.full_upgrade else '-S'} --noconfirm --needed{extra} -- {specs}",
+            "dnf": f"dnf install -y -q{dnf_rec}{extra} -- {specs}",
+            "zypper": f"zypper --non-interactive install{zyp_rec}{' --oldpackage' if pinned else ''}{extra} -- {specs}",
+            "apk": f"apk add -q{extra} {specs}",
         }[manager])
         return cmds
 
@@ -131,6 +189,7 @@ class Package(Resource):
 
 
 REPO_NAME = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]*$")
+KEY_NAME = re.compile(r"^[A-Za-z0-9@_][A-Za-z0-9@._+-]*$")
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -143,6 +202,7 @@ class Repository(Resource):
     types: tuple[str, ...] = ("deb",)
     architectures: tuple[str, ...] = ()
     key: str | None = None
+    key_name: str | None = None
     signed_by: str | None = None
     enabled: bool = True
     trusted: bool | None = None
@@ -153,6 +213,10 @@ class Repository(Resource):
             raise ValueError(f"not a repository name: {self.name!r}")
         if not self.uris:
             raise ValueError(f"repository {self.name} needs at least one URI")
+        if self.key and self.signed_by:
+            raise ValueError(f"repository {self.name}: give key or signed_by, not both")
+        if self.key_name is not None and not KEY_NAME.match(self.key_name):
+            raise ValueError(f"not a key file name: {self.key_name!r}")
 
     @property
     def identity(self) -> str:
@@ -162,10 +226,14 @@ class Repository(Resource):
     def label(self) -> str:
         return f"repository {self.name}"
 
+    def touches(self) -> str | None:
+        # pacman.conf and /etc/apk/repositories are shared, so a second repository in a run re-reads first
+        return "package-repositories"
+
     def desired(self):
         return {"uris": self.uris, "suites": self.suites, "components": self.components, "types": self.types,
-                "architectures": self.architectures, "key": self.key, "signed_by": self.signed_by,
-                "enabled": self.enabled, "trusted": self.trusted, "options": self.options}
+                "architectures": self.architectures, "key": self.key, "key_name": self.key_name,
+                "signed_by": self.signed_by, "enabled": self.enabled, "trusted": self.trusted, "options": self.options}
 
     def _deb822(self) -> str:
         lines = [f"Types: {' '.join(self.types)}", f"URIs: {' '.join(self.uris)}", f"Suites: {' '.join(self.suites)}"]
@@ -192,7 +260,7 @@ class Repository(Resource):
         if manager == "zypper" and len(self.uris) != 1:
             raise ValueError(f"repository {self.name}: zypper takes exactly one URI")
         baseurl = "\n        ".join(self.uris)
-        signed = bool(self.key or self.signed_by) and self.trusted is not True
+        signed = (bool(self.key or self.signed_by) or self.trusted is False) and self.trusted is not True
         lines = [f"[{self.name}]", f"name={self.name}", f"baseurl={baseurl}", f"enabled={1 if self.enabled else 0}",
                  f"gpgcheck={1 if signed else 0}"]
         if self.key:
@@ -212,11 +280,14 @@ class Repository(Resource):
             lines = [f"#{line}" for line in lines]
         return "\n".join(lines)
 
+    def _apk_key_path(self) -> str:
+        return f"/etc/apk/keys/{self.key_name or self.name + '.rsa.pub'}"
+
     def parts(self, manager: str) -> list[Resource]:
         common = {"root": self.root}
         if manager == "apt-get":
             return [File(path=f"/etc/apt/sources.list.d/{self.name}.sources", content=self._deb822(), mode="0644", **common)]
-        if manager in ("dnf", "zypper"):
+        if manager in RPM:
             folder = "/etc/yum.repos.d" if manager == "dnf" else "/etc/zypp/repos.d"
             parts: list[Resource] = [File(path=f"{folder}/{self.name}.repo", content=self._ini(manager), mode="0644", **common)]
             if self.key:
@@ -228,7 +299,7 @@ class Repository(Resource):
             parts = [Line(path="/etc/apk/repositories", line=("" if self.enabled else "#") + u,
                           match=r"^#?" + re.escape(u) + r"$", **common) for u in self.uris]
             if self.key:
-                parts.append(File(path=f"/etc/apk/keys/{self.name}.rsa.pub", content=self.key, mode="0644", **common))
+                parts.append(File(path=self._apk_key_path(), content=self.key, mode="0644", **common))
             return parts
         return []
 
@@ -243,38 +314,70 @@ class Repository(Resource):
                 reads += [Read(f"{m}.{j}.{r.name}", r.command, root=r.root) for r in part.reads()]
         return tuple(reads)
 
+    def _check(self, manager: str) -> None:
+        if manager != "apt-get":
+            for knob, used in (("suites", self.suites), ("components", self.components),
+                               ("architectures", self.architectures), ("types", tuple(self.types) != ("deb",))):
+                if used:
+                    raise Unsupported(f"{knob} only applies to apt repositories; this host uses {manager}")
+        if manager == "apk":
+            for knob, used in (("options", self.options), ("signed_by", self.signed_by),
+                               ("trusted", self.trusted is not None)):
+                if used:
+                    raise Unsupported(f"{knob} isn't supported for apk repositories")
+        if manager == "pacman":
+            if self.key:
+                raise Unsupported("pacman keys are added with pacman-key; not supported yet")
+            if self.signed_by:
+                raise Unsupported("pacman has no per-repository key file; use options (SigLevel)")
+            if self.trusted is False:
+                raise Unsupported("pacman: set signature checking through options (SigLevel)")
+        if manager == "zypper" and len(self.uris) != 1:
+            raise Unsupported("zypper takes exactly one URI per repository")
+
     def current(self, results):
         m = results["manager"]
         if not m.ok or not m.output.strip():
             raise Unsupported("no supported package manager (apt, pacman, dnf, zypper, apk)")
         manager = m.output.strip()
-        if self.key and manager == "pacman":
-            raise Unsupported("pacman keys are added with pacman-key; not supported yet")
-        try:
-            parts = self.parts(manager)
-        except ValueError as e:
-            raise ReadError(str(e)) from None
+        self._check(manager)
+        parts = self.parts(manager)
         states = [p.current({r.name: results[f"{manager}.{j}.{r.name}"] for r in p.reads()}) for j, p in enumerate(parts)]
         return {"manager": manager, "parts": states}
 
-    def _pairs(self, current):
-        return list(zip(self.parts(str(current["manager"])), current["parts"]))
+    def _threaded(self, current):
+        """Parts editing one shared file see the earlier parts' edits, so they don't overwrite each other."""
+        pairs = []
+        latest: dict[str, str] = {}
+        for part, state in zip(self.parts(str(current["manager"])), current["parts"]):
+            path = getattr(part, "path", None)
+            edits = hasattr(part, "wanted")
+            if edits and path in latest:
+                state = {**state, "content": latest[path]}
+            if edits:
+                latest[path] = part.wanted(state["content"])
+            pairs.append((part, state))
+        return pairs
 
     def compare(self, current):
         changes = []
-        for part, state in self._pairs(current):
+        for part, state in self._threaded(current):
             where = getattr(part, "path", part.label)
             changes += [FieldChange(f"{where}:{c.field}", c.before, c.after) for c in part.compare(state)]
         return changes
 
     def fix(self, changes, current):
         cmds: list[str] = []
-        for part, state in self._pairs(current):
+        key_changed = False
+        for part, state in self._threaded(current):
             own = part.compare(state)
             if own:
                 cmds += part.fix(own, state)
+                key_changed = key_changed or getattr(part, "path", "") == self._rpm_key_path()
+        if current["manager"] == "zypper" and key_changed:
+            cmds.append(f"rpm --import {self._rpm_key_path()}")
         return cmds
 
     def diff_text(self, current):
-        texts = [part.diff_text(state) for part, state in self._pairs(current) if part.compare(state)]
+        texts = [part.diff_text(state) for part, state in self._threaded(current) if part.compare(state)]
         return "\n".join(t for t in texts if t) or None

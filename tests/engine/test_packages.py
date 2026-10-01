@@ -57,10 +57,10 @@ def test_apt_install_group_is_one_command():
     cmds = Package.fix_group(group(Package(name="tree"), Package(name="jq", version="1.7.1-3"), Package(name="curl")))
     assert cmds == [
         "apt-get -o DPkg::Lock::Timeout=120 update -q",
-        "DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=120 install -y -q -- tree jq=1.7.1-3 curl",
+        "DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=120 -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold install -y -q --allow-downgrades -- tree jq=1.7.1-3 curl",
     ]
     no_rec = Package.fix_group(group(Package(name="tree", install_recommends=False, refresh=False)))
-    assert no_rec == ["DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=120 install -y -q --no-install-recommends -- tree"]
+    assert no_rec == ["DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=120 -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold install -y -q --no-install-recommends -- tree"]
 
 
 @pytest.mark.parametrize("manager,query,install,remove", [
@@ -77,7 +77,7 @@ def test_other_managers(manager, query, install, remove):
 
 def test_purge_and_version_syntax():
     assert Package.fix_group(group(Package(name="tree", state="absent", purge=True), query="ii |1")) == [
-        "DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=120 purge -y -q -- tree"]
+        "DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=120 -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold purge -y -q -- tree"]
     assert Package.fix_group(group(Package(name="tree", state="absent", purge=True), manager="pacman", query="tree 1-1")) == [
         "pacman -Rns --noconfirm -- tree"]
     assert Package.fix_group(group(Package(name="tree", version="2.1", refresh=False), manager="dnf")) == ["dnf install -y -q -- tree-2.1"]
