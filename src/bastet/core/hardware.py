@@ -306,7 +306,11 @@ def _parts(host: str, link: str, dmi: list[dict], machine: dict, results: dict[s
             items.append(Observed(f"serial:{c['serial'].lower()}", file_name(short, c["serial"]), data, fallback))
         else:
             items.append(Observed(fallback, file_name(host, short, socket), data))
+    serials = [d.get("serial") for d in machine.get("memory", []) if d.get("serial")]
+    shared = {s for s in serials if serials.count(s) > 1}  # one serial on every stick is firmware filler, not a serial
     for d in machine.get("memory", []):
+        if d.get("serial") in shared:
+            d = {k: v for k, v in d.items() if k != "serial"}
         data = _part("memory", link, {"make": d.get("make"), "model": d.get("part"), "serial": d.get("serial"),
                                       "size": d.get("size"), "type": d.get("type"), "speed": d.get("speed"),
                                       "slot": d.get("slot")})

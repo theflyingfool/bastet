@@ -216,3 +216,11 @@ def test_fru_output_used_even_when_ipmitool_exits_nonzero():
     v = view(dict(SERVER, ipmi_fru=(1, SERVER["ipmi_fru"]), dmidecode=SERVER["dmidecode"].split("Handle 0x0050")[0]))
     assert [o.name for o in v.items if o.data["category"] == "psu"] == ["PWS-504P-1R P504PCH12AB3456"]
     assert v.complete["psus"] is True
+
+
+def test_dimms_sharing_one_serial_get_a_file_each():
+    """Some boards (sanrio's ASRock Rack) report one serial for every stick; it isn't a serial then."""
+    dmi = SERVER["dmidecode"].replace("Serial Number: 40A1B2C4", "Serial Number: 40A1B2C3")
+    mem = [o for o in view(dict(SERVER, dmidecode=dmi)).items if o.data["category"] == "memory"]
+    assert [o.key for o in mem] == ["dimm:pve1:dimma1", "dimm:pve1:dimmb1"]
+    assert all("serial" not in o.data for o in mem) and [o.name for o in mem] == ["pve1 DIMMA1 32 GB", "pve1 DIMMB1 32 GB"]
