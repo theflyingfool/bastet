@@ -85,3 +85,13 @@ def test_connect_requires_gathered_key(inventory):
     with pytest.raises(BastetError) as e:
         run_mod.connect(ctx, doc, inventory, yes=True)
     assert "gather" in str(e.value)
+
+
+def test_roles_named_and_empty_role_explained(runner, box, inventory):
+    result = runner.invoke(app, ["check", "box"])
+    assert "roles: files (host box)" in result.output
+    (inventory / "_roles" / "hosts" / "box" / "packages.md").write_text(
+        '---\nbastet: role\nrole: packages\napplies_to: "[[box]]"\n---\n')
+    (inventory / "_roles" / "hosts" / "box" / "files.md").unlink()
+    result = runner.invoke(app, ["check", "box"])
+    assert "box: packages (host box): nothing to manage yet" in result.output and "no roles" not in result.output

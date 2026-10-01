@@ -75,10 +75,15 @@ def _run(names: list[str] | None, *, apply_changes: bool, yes: bool, verbose: bo
         for doc in docs:
             target = None
             try:
-                _, batches = plan_for(ctx, doc, roles)
-                if not any(b.resources for b in batches):
+                applied, batches = plan_for(ctx, doc, roles)
+                names = ", ".join(f"{a.role.name} ({', '.join(sorted({s.label for s in a.sources}))})" for a in applied)
+                if not applied:
                     typer.echo(f"{doc.name}: no roles")
                     continue
+                if not any(b.resources for b in batches):
+                    typer.echo(f"{doc.name}: {names}: nothing to manage yet")
+                    continue
+                typer.echo(f"roles: {names}")
                 runner, target = connect(ctx, doc, Path(tmp), yes=yes)
                 check = run_host(runner, doc.name, batches, apply=False)
                 typer.echo(render_host(check, full=full))

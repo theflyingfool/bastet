@@ -130,3 +130,10 @@ def test_order_across_roles():
     out = batches_for([ap("systemd", {"timezone": "UTC"}), ap("files", {"files": {"/etc/x": {"content": "a"}}}),
                        ap("packages", {"install": ["tree"]}), ap("users", {"groups": {"media": {}}})], info())
     assert [b.name for b in out] == ["packages", "users", "files", "systemd"]
+
+
+def test_full_upgrade_without_packages_is_an_error():
+    with pytest.raises(BastetError) as e:
+        resources(ap("packages", {"full_upgrade": True}))
+    assert "full_upgrade only applies while installing" in str(e.value)
+    assert resources(ap("packages", {})) == []

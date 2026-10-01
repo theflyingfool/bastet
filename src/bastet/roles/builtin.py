@@ -99,6 +99,9 @@ ROLE_KNOBS = ("refresh", "install_recommends", "full_upgrade", "default_release"
 def _packages(v: dict, host: HostInfo) -> list[Batch]:
     base = {k: v[k] for k in ROLE_KNOBS if v.get(k) is not None}
     installs = v.get("install") or []
+    if v.get("full_upgrade") and not installs:
+        raise BastetError("packages.full_upgrade only applies while installing packages; add `install:` "
+                          "(keeping a whole system upgraded on its own isn't a role option yet)")
     names = {p["name"] for p in installs}
     repos = []
     for r in v.get("repositories") or []:
