@@ -93,3 +93,14 @@ def test_slot_ids():
 
 def test_smart_tolerates_empty_entries():
     assert parse_smart('[,{"device":{"name":"/dev/sda"},"serial_number":"S1","model_name":"M"}]')["/dev/sda"]["serial"] == "S1"
+
+
+def test_memory_in_gib_units_and_duplicate_locators():
+    text = ("Handle 0x0011, DMI type 17, 40 bytes\nMemory Device\n\tSize: 4 GiB\n\tLocator: Bottom - on board\n"
+            "\tBank Locator: BANK 0\n\tType: LPDDR3\n\tSpeed: 1867 MT/s\n\n"
+            "Handle 0x0012, DMI type 17, 40 bytes\nMemory Device\n\tSize: 4 GiB\n\tLocator: Bottom - on board\n"
+            "\tBank Locator: BANK 2\n\tType: LPDDR3\n\tSpeed: 1867 MT/s\n")
+    m = machine_from_dmi(parse_dmidecode(text))
+    assert [d["slot"] for d in m["memory"]] == ["Bottom - on board (BANK 0)", "Bottom - on board (BANK 2)"]
+    assert [d["size"] for d in m["memory"]] == ["4 GB", "4 GB"] and m["memory_slots"] == "2 of 2 used"
+    assert memory_size("512 MiB") == "512 MB" and memory_size("16384 MiB") == "16 GB" and memory_size("1 TiB") == "1 TB"

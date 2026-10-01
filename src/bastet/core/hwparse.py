@@ -57,10 +57,10 @@ def _of_type(records: list[dict], dmi_type: int) -> list[dict]:
 
 
 def memory_size(text: str) -> str | None:
-    m = re.match(r"^\s*(\d+)\s*(MB|GB|TB)\s*$", str(text))
+    m = re.match(r"^\s*(\d+)\s*([MGT])i?B\s*$", str(text))
     if not m:
         return None
-    n, unit = int(m.group(1)), m.group(2)
+    n, unit = int(m.group(1)), m.group(2) + "B"
     if unit == "MB" and n >= 1024 and n % 1024 == 0:
         return f"{n // 1024} GB"
     return f"{n} {unit}"
@@ -91,12 +91,16 @@ def machine_from_dmi(records: list[dict]) -> dict:
     if cpus:
         out["cpus"] = cpus
     dimms = _of_type(records, 17)
+    locators = [d.get("Locator", "").strip() for d in dimms]
     memory = []
     for d in dimms:
         size = memory_size(d.get("Size", ""))
         if not size:
             continue
-        entry = {"slot": clean(d.get("Locator")), "size": size, "type": clean(d.get("Type")),
+        slot = clean(d.get("Locator"))
+        if slot and locators.count(d.get("Locator", "").strip()) > 1 and clean(d.get("Bank Locator")):
+            slot = f"{slot} ({d['Bank Locator'].strip()})"
+        entry = {"slot": slot, "size": size, "type": clean(d.get("Type")),
                  "speed": clean(d.get("Configured Memory Speed")) or clean(d.get("Speed")),
                  "part": clean(d.get("Part Number")), "serial": clean(d.get("Serial Number"))}
         memory.append({k: v for k, v in entry.items() if v})
