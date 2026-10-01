@@ -13,3 +13,12 @@ fields:
   network: desired
   ip: desired
   runs_on: yours
+  arch: fact
+  chassis: fact
+  virtualization: fact
+  cpu: fact
+  cpu_cores: fact
+  cpu_threads: fact
+  storage: fact
+  interfaces: fact
+  gateway: fact

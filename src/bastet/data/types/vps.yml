@@ -13,3 +13,11 @@ fields:
   ip: yours
   provider: yours
   location: yours
+  arch: fact
+  chassis: fact
+  virtualization: fact
+  cpu_cores: fact
+  cpu_threads: fact
+  storage: fact
+  interfaces: fact
+  gateway: fact

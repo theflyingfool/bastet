@@ -2,4 +2,18 @@ name: unknown
 description: Type not decided yet; gather will propose one
 physical: false
 minimal: []
-fields: {}
+fields:
+  hostname: fact
+  os: fact
+  kernel: fact
+  arch: fact
+  chassis: fact
+  virtualization: fact
+  cpu: fact
+  cpu_cores: fact
+  cpu_threads: fact
+  ram: fact
+  storage: fact
+  interfaces: fact
+  gateway: fact
+  ssh_host_key: fact
