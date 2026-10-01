@@ -49,3 +49,61 @@ def test_systemd_contract(host):
 def test_command_contract(host):
     converge(host, [Batch("cmd", [Command(name="marker", run="touch /var/tmp/bastet-marker",
                                           unless="test -e /var/tmp/bastet-marker")])])
+
+
+from bastet.engine.packages import Package, Repository  # noqa: E402
+from bastet.engine.users import AuthorizedKey, Group, User, sudoer  # noqa: E402
+
+HASH = "$6$bastetsalt$" + "x" * 86
+KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleExampleExampleExampleExampleExample nick@laptop"
+
+
+def users_batches():
+    return [Batch("users", [
+        Group(name="media", gid=2001),
+        User(name="nick", uid=2000, groups=("media",), shell="/bin/bash", comment="Nick", password_hash=HASH, locked=False),
+        AuthorizedKey(user="nick", key=KEY, options='from="10.0.10.0/24"'),
+        sudoer("nick", user="nick", nopasswd=True),
+    ])]
+
+
+def check_users(runner):
+    assert runner.run("getent passwd nick").stdout.startswith("nick:x:2000:")
+    assert "media" in runner.run("id -Gn nick").stdout
+    assert runner.run("sudo -n getent shadow nick").stdout.split(":")[1] == HASH
+    assert runner.run("sudo -n stat -c '%a %U' /home/nick/.ssh /home/nick/.ssh/authorized_keys").stdout.split() == ["700", "nick", "600", "nick"]
+    assert runner.run("sudo -n cat /home/nick/.ssh/authorized_keys").stdout == f'from="10.0.10.0/24" {KEY}\n'
+    assert "NOPASSWD: ALL" in runner.run("sudo -n sudo -l -U nick").stdout
+
+
+def test_packages_contract(host):
+    converge(host, [Batch("pkgs", [Package(name="tree"), Package(name="jq", install_recommends=False)])])
+    assert host.run("command -v tree && command -v jq").returncode == 0
+    converge(host, [Batch("pkgs", [Package(name="tree", state="absent", purge=True)])])
+    assert host.run("command -v tree").returncode != 0
+
+
+def test_repository_contract(host):
+    converge(host, [
+        Batch("repo", [Repository(name="bastet-backports", uris=("http://deb.debian.org/debian",),
+                                  suites=("trixie-backports",), components=("main",),
+                                  signed_by="/usr/share/keyrings/debian-archive-keyring.gpg")]),
+        Batch("pkg", [Package(name="tree")]),
+    ])
+    assert "trixie-backports" in host.run("apt-cache policy").stdout
+
+
+def test_users_contract(host):
+    converge(host, users_batches())
+    check_users(host)
+
+
+def test_arch_packages_contract(arch_host):
+    converge(arch_host, [Batch("pkgs", [Package(name="tree"), Package(name="jq")])])
+    converge(arch_host, [Batch("pkgs", [Package(name="tree", state="absent", purge=True)])])
+    assert arch_host.run("command -v tree").returncode != 0
+
+
+def test_arch_users_contract(arch_host):
+    converge(arch_host, users_batches())
+    check_users(arch_host)

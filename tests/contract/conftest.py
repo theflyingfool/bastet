@@ -55,3 +55,25 @@ def host(request, contract_image):
         yield PodmanRunner(name, request.param)
     finally:
         subprocess.run(["podman", "rm", "-f", "-t", "0", name], capture_output=True)
+
+
+ARCH_IMAGE = "localhost/bastet-contract:arch"
+
+
+@pytest.fixture(scope="session")
+def arch_image(contract_image) -> str:
+    subprocess.run(["podman", "build", "-q", "-t", ARCH_IMAGE, "-f", str(HERE / "Containerfile.arch"), str(HERE)],
+                   check=True, capture_output=True)
+    return ARCH_IMAGE
+
+
+@pytest.fixture
+def arch_host(arch_image):
+    name = f"bastet-ct-arch-{uuid.uuid4().hex[:8]}"
+    subprocess.run(["podman", "run", "-d", "--name", name, arch_image], check=True, capture_output=True)
+    try:
+        # The test setup syncs the package database once; the engine itself never runs pacman -Sy.
+        subprocess.run(["podman", "exec", name, "pacman", "-Sy", "--noconfirm"], check=True, capture_output=True, timeout=300)
+        yield PodmanRunner(name)
+    finally:
+        subprocess.run(["podman", "rm", "-f", "-t", "0", name], capture_output=True)

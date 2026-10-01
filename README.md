@@ -94,3 +94,6 @@ else `~/.config/bastet/bastet.yml`.
 
 Every engine resource must pass the contract test: apply it to a fresh container, apply again, and the second run
 changes nothing.
+
+The contract suite also runs the package and user resources on an Arch Linux container and needs network access for
+the Debian and Arch package mirrors.
