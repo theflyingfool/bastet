@@ -9,8 +9,9 @@ This page is generated from the Bastet version you run, so it always matches it.
   notes. Bastet only changes them through a command that shows you the diff first and asks.
 - **Bastet's:** everything under `_bastet/`: page summaries, this guide, the dashboard and the Bases views.
   They're rewritten whenever Bastet runs; don't edit them (your changes would be replaced).
-- Bastet commits its own changes to git, as "Bastet". Your uncommitted edits to Bastet files are offered
-  to be committed as you before Bastet writes.
+- Bastet commits its own changes to git, as "Bastet". When a command is about to change your notes,
+  your uncommitted edits to Bastet-managed notes are offered to be committed as you first. Anything you
+  change under `_bastet/` is simply regenerated.
 
 ## Everyday commands
 

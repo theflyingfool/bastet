@@ -143,3 +143,16 @@ def test_guest_addresses_resolved():
     assert guests["media"]["ip"] == "10.0.20.25" and guests["media"]["ip_source"] == "neighbour"
     assert guests["dns"]["ip"] == "10.0.20.36/24" and guests["dns"]["ip_source"] == "config"
     assert guests["ghost"]["ip"] is None
+
+
+def test_subsystem_rule_not_used_when_slot_data_works():
+    # SERVER has a working PhySlot for the X710; its onboard I210 with a chip-maker SVID must stay onboard.
+    lspci = SERVER["lspci"].replace(
+        "Device:\tI210 Gigabit Network Connection [1533]\nDriver:\tigb\n",
+        "Device:\tI210 Gigabit Network Connection [1533]\nSVendor:\tIntel Corporation [8086]\nDriver:\tigb\n").replace(
+        "Device:\tCoffeeLake-S GT2 [UHD Graphics P630] [3e96]\n",
+        "Device:\tCoffeeLake-S GT2 [UHD Graphics P630] [3e96]\nSVendor:\tSuper Micro Computer Inc [15d9]\n")
+    dmi = SERVER["dmidecode"]
+    v = view(dict(SERVER, lspci=lspci, dmidecode=dmi))
+    assert [o.name for o in v.items if o.data["category"] == "nic"] == ["pve1 Ethernet Converged Network Adapter X710-2"]
+    assert [i["name"] for i in v.items[0].data["interfaces"]] == ["eno1"]

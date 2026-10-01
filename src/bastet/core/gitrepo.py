@@ -98,6 +98,14 @@ class GitRepo:
             i += 1
         return paths
 
+    def busy(self) -> bool:
+        """A merge, rebase, cherry-pick or revert is in progress."""
+        for name in ("MERGE_HEAD", "rebase-merge", "rebase-apply", "CHERRY_PICK_HEAD", "REVERT_HEAD"):
+            r = self._git("rev-parse", "--git-path", name, check=False)
+            if r.returncode == 0 and (self.root / r.stdout.strip()).exists():
+                return True
+        return False
+
     def log_entries(self, limit: int = 50) -> list[tuple[str, str, str]]:
         """(date YYYY-MM-DD, author, subject), newest first; [] when there is no history."""
         r = self._git("log", f"-n{limit}", "--format=%as%x1f%an%x1f%s", check=False)

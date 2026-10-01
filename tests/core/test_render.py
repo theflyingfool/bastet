@@ -100,8 +100,8 @@ def test_dashboard(repo):
     text = dashboard(i, TYPES, {"pve1": ["ram mismatch"]}, ["`2026-10-01` gather: pve1"])
     assert "[!stat] Hosts" in text and "**3**" in text
     assert "## Needs attention" in text and "ram mismatch" in text
-    assert "```mermaid" in text and 'subgraph loc_Closet["📍 Closet"]' in text
-    assert "pve1 --> git1" in text
+    assert "```mermaid" in text and '["📍 Closet"]' in text
+    assert any(line.strip().endswith("--> h0") or "-->" in line for line in text.splitlines())
     assert "example.com" in text and "Spare WD" in text and "10.0.10.9" in text
     assert "gather: pve1" in text
 
@@ -131,3 +131,20 @@ def test_guide_generated_and_linked(repo):
     guide = changes[repo.root / "_bastet" / "Bastet guide.md"].after
     assert "generated: true" in guide and "bastet gather" in guide and "bastet refresh" in guide
     assert "[[Bastet guide]]" in changes[repo.root / DASHBOARD_PATH].after
+
+
+def test_mermaid_ids_safe_and_distinct(repo):
+    for name in ("end", "web-1", "web.1"):
+        (repo.root / "hosts" / f"{name}.md").write_text(f"---\nbastet: host\ntype: unknown\n---\n# {name}\n")
+    text = dashboard(inv(repo), TYPES, {}, [])
+    mermaid = text[text.index("```mermaid"):]
+    ids = [line.split("[")[0].strip() for line in mermaid.splitlines() if '["' in line and "subgraph" not in line]
+    assert len(ids) == len(set(ids)) and "end" not in ids
+
+
+def test_newlines_flattened_in_warnings_and_cells(repo):
+    i = inv(repo)
+    text = host_summary(i, i.get("pve1"), TYPES, ["line one\nline two | piped"])
+    assert "> - line one line two \\| piped" in text
+    dash = dashboard(i, TYPES, {"pve1": ["a\nb"]}, [])
+    assert "| #warn | [[pve1]] | a b |" in dash

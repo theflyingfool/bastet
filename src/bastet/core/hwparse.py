@@ -251,7 +251,8 @@ def parse_pve_guests(text: str) -> list[dict]:
     except json.JSONDecodeError:
         return []
     keys = ("vmid", "name", "type", "node", "status")
-    return [{k: g.get(k) for k in keys} for g in data if isinstance(g, dict) and g.get("vmid") is not None]
+    return [{k: g.get(k) for k in keys} for g in data
+            if isinstance(g, dict) and g.get("vmid") is not None and not g.get("template")]
 
 
 def has_ipmi(records: list[dict]) -> bool:
@@ -280,6 +281,7 @@ def board_subsystem_id(devices: list[dict], makers: list[str | None]) -> str | N
         if maker:
             n = _norm(maker)
             wanted.append(_VENDOR_ALIASES.get(n, n))
+    counts: dict[str, int] = {}
     for dev in devices:
         sv = dev.get("SVendor") or ""
         svid = pci_id(sv)
@@ -289,8 +291,9 @@ def board_subsystem_id(devices: list[dict], makers: list[str | None]) -> str | N
         for w in wanted:
             short = min(len(w), len(name), 6)
             if short >= 2 and (w.startswith(name[:short]) or name.startswith(w[:short])):
-                return svid
-    return None
+                counts[svid] = counts.get(svid, 0) + 1
+                break
+    return max(counts, key=lambda k: counts[k]) if counts else None
 
 
 def parse_guest_conf(text: str) -> dict[int, dict]:
@@ -300,7 +303,7 @@ def parse_guest_conf(text: str) -> dict[int, dict]:
     for line in text.splitlines():
         m = re.match(r"^### /etc/pve/(lxc|qemu-server)/(\d+)\.conf$", line.strip())
         if m:
-            current = {"kind": "lxc" if m.group(1) == "lxc" else "qemu", "macs": [], "ip": None}
+            current = {"kind": "lxc" if m.group(1) == "lxc" else "qemu", "macs": [], "ip": None, "_ips": []}
             out[int(m.group(2))] = current
             continue
         if current is None:
@@ -312,10 +315,14 @@ def parse_guest_conf(text: str) -> dict[int, dict]:
                 (v for k, v in opts.items() if re.fullmatch(r"[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}", v)), None)
             if mac:
                 current["macs"].append(mac.lower())
-            if current["kind"] == "lxc" and opts.get("ip") and current["ip"] is None:
-                current["ip"] = opts["ip"]
-        elif re.fullmatch(r"ipconfig\d+", key.strip()) and opts.get("ip") and current["ip"] is None:
-            current["ip"] = opts["ip"]
+            if current["kind"] == "lxc" and opts.get("ip"):
+                current["_ips"].append(opts["ip"])
+        elif re.fullmatch(r"ipconfig\d+", key.strip()) and opts.get("ip"):
+            current["_ips"].append(opts["ip"])
+    for conf in out.values():
+        ips = conf.pop("_ips")
+        static = [ip for ip in ips if ip not in ("dhcp", "manual", "auto")]
+        conf["ip"] = static[0] if static else ("dhcp" if "dhcp" in ips else None)
     return out
 
 
@@ -328,6 +335,8 @@ def parse_neigh(text: str) -> dict[str, str]:
     out: dict[str, str] = {}
     for entry in data if isinstance(data, list) else []:
         if not isinstance(entry, dict) or not entry.get("lladdr") or ":" in str(entry.get("dst", ":")):
+            continue
+        if set(entry.get("state") or []) & {"FAILED", "INCOMPLETE", "NOARP"}:
             continue
         out.setdefault(str(entry["lladdr"]).lower(), str(entry["dst"]))
     return out

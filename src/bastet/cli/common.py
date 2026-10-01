@@ -82,13 +82,25 @@ def refresh_generated(ctx: Context, *, warnings: dict[str, list[str]] | None = N
     """
     if not ctx.repo.is_repo():
         return 0
-    ctx.inventory = load_inventory(ctx.root, ctx.types)
-    changes = generated_changes(ctx.inventory, ctx.types, ctx.repo, warnings=warnings)
-    if not changes:
+    try:
+        if ctx.repo.busy():
+            typer.secho("refresh skipped: a git merge or rebase is in progress in the inventory", fg="yellow", err=True)
+            return 0
+        try:
+            ctx.repo.pull()
+        except BastetError as exc:
+            typer.secho(f"refresh skipped: couldn't sync with the remote ({exc.message})", fg="yellow", err=True)
+            return 0
+        ctx.inventory = load_inventory(ctx.root, ctx.types)
+        changes = generated_changes(ctx.inventory, ctx.types, ctx.repo, warnings=warnings)
+        if not changes:
+            return 0
+        write_changes(changes)
+        ctx.repo.commit([c.path for c in changes], f"refresh: {len(changes)} generated note{'s' if len(changes) != 1 else ''}")
+        if not ctx.repo.push():
+            typer.secho("warning: push failed; the commit is kept locally", fg="yellow", err=True)
+    except Exception as exc:  # refreshing generated notes must never break the command that triggered it
+        typer.secho(f"refresh skipped: {exc.__class__.__name__}: {exc}", fg="yellow", err=True)
         return 0
-    write_changes(changes)
-    ctx.repo.commit([c.path for c in changes], f"refresh: {len(changes)} generated note{'s' if len(changes) != 1 else ''}")
-    if not ctx.repo.push():
-        typer.secho("warning: push failed; the commit is kept locally", fg="yellow", err=True)
     typer.echo(f"Refreshed {len(changes)} generated note{'s' if len(changes) != 1 else ''} in _bastet/.")
     return len(changes)

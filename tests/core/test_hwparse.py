@@ -126,3 +126,29 @@ def test_guest_conf_and_neighbours():
     assert conf[106]["ip"] == "10.0.20.36/24"
     assert parse_neigh(SERVER["neigh"]) == {"bc:24:11:00:01:05": "10.0.20.25"}
     assert parse_guest_conf("### /etc/pve/lxc/9.conf\nnet0: name=eth0,ip=dhcp,hwaddr=AA:BB:CC:DD:EE:FF\n")[9]["ip"] == "dhcp"
+
+
+def test_guest_conf_manual_and_second_nic_static():
+    from bastet.core.hwparse import parse_guest_conf
+    conf = parse_guest_conf("### /etc/pve/lxc/9.conf\nnet0: name=eth0,ip=dhcp,hwaddr=AA:BB:CC:DD:EE:01\n"
+                            "net1: name=eth1,ip=10.0.30.9/24,hwaddr=AA:BB:CC:DD:EE:02\n"
+                            "### /etc/pve/lxc/10.conf\nnet0: name=eth0,ip=manual,hwaddr=AA:BB:CC:DD:EE:03\n")
+    assert conf[9]["ip"] == "10.0.30.9/24"
+    assert conf[10]["ip"] is None
+
+
+def test_templates_and_failed_neighbours_dropped():
+    import json
+    from bastet.core.hwparse import parse_neigh
+    guests = parse_pve_guests(json.dumps([{"vmid": 9000, "name": "tpl", "type": "qemu", "node": "n", "template": 1},
+                                          {"vmid": 101, "name": "a", "type": "lxc", "node": "n"}]))
+    assert [g["name"] for g in guests] == ["a"]
+    neigh = parse_neigh(json.dumps([{"dst": "10.0.0.5", "lladdr": "aa:aa:aa:aa:aa:aa", "state": ["FAILED"]},
+                                    {"dst": "10.0.0.6", "lladdr": "bb:bb:bb:bb:bb:bb", "state": ["STALE"]}]))
+    assert neigh == {"bb:bb:bb:bb:bb:bb": "10.0.0.6"}
+
+
+def test_board_subsystem_prefers_most_used_matching_id():
+    from bastet.core.hwparse import board_subsystem_id
+    devices = [{"SVendor": "Hewlett Packard Enterprise [1590]"}] + [{"SVendor": "Hewlett-Packard Company [103c]"}] * 3
+    assert board_subsystem_id(devices, ["HPE"]) == "103c"

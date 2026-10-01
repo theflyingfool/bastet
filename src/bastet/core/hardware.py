@@ -107,7 +107,11 @@ def observe_hardware(host: str, results: dict[str, ProbeResult], ex: Extracted) 
     # different from the one the board maker stamps on its onboard devices (found by name, else not used).
     board_makers = [machine.get("make"), clean(ex.hints.get("vendor"))]
     board_makers += [r["fields"].get("Manufacturer") for r in dmi if r["type"] == 2]
-    board_svid = board_subsystem_id(pci, board_makers)
+    # Slot data is useful when it points at real devices; boards that list root ports/bridges (class 06xx)
+    # as slot addresses tell us nothing.
+    slot_data_useful = any(d.get("PhySlot") for d in pci) or any(
+        d.get("Slot", "").rsplit(".", 1)[0] in slots and not d["class_code"].startswith("06") for d in pci)
+    board_svid = None if slot_data_useful else board_subsystem_id(pci, board_makers)
     cards: dict[str, list[dict]] = {}
     for dev in pci:
         bus = dev.get("Slot", "").rsplit(".", 1)[0]

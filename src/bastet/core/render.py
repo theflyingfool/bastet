@@ -45,10 +45,18 @@ def short_cpu(model: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def _flat(value: object) -> str:
+    return " ".join(str(value).split())
+
+
+def _oob_type(oob: object) -> str | None:
+    return str(oob.get("type") or "").upper() or None if isinstance(oob, dict) else None
+
+
 def _card(title: str, value: object, sub: object = None) -> list[str]:
-    lines = [f"> > [!stat] {title}", f"> > **{value}**"]
+    lines = [f"> > [!stat] {_flat(title)}", f"> > **{_flat(value)}**"]
     if sub not in (None, ""):
-        lines.append(f"> > {sub}")
+        lines.append(f"> > {_flat(sub)}")
     return lines
 
 
@@ -115,13 +123,13 @@ def host_summary(inv: Inventory, doc: Document, types: dict[str, HostType], warn
             what = str(m["model"])
         cards.append(_card("Machine", what or machine.name, f"serial {m['serial']}" if m.get("serial") else f"[[{machine.name}]]"))
         if m.get("oob_address"):
-            cards.append(_card("Out-of-band", m["oob_address"], (m.get("oob") or {}).get("type", "").upper() or None))
+            cards.append(_card("Out-of-band", m["oob_address"], _oob_type(m.get("oob"))))
     guests = _guests(inv, doc.name)
     if guests or (host_type and host_type.name == "proxmox-node"):
         cards.append(_card("Guests", len(guests), ", ".join(f"[[{g.name}]]" for g in guests) or None))
     body = _grid(cards)
     if warnings:
-        body += "\n> [!warning] Needs attention\n" + "".join(f"> - {w}\n" for w in warnings)
+        body += "\n> [!warning] Needs attention\n" + "".join(f"> - {_cell(w)}\n" for w in warnings)
     return _note({"summary_of": make_link(doc.name), "warnings": list(warnings)}, body)
 
 
@@ -152,7 +160,7 @@ def hardware_summary(inv: Inventory, doc: Document) -> str:
                                              f"{c['threads']} threads" if c.get("threads") else "") if x)
             cards.append(_card("CPU" if len(cpus) == 1 else f"CPU ×{len(cpus)}", short_cpu(c["model"]), counts))
         if d.get("oob_address"):
-            cards.append(_card("Out-of-band", d["oob_address"], (d.get("oob") or {}).get("type", "").upper() or None))
+            cards.append(_card("Out-of-band", d["oob_address"], _oob_type(d.get("oob"))))
     elif category == "drive":
         cards.append(_card("Drive", d.get("model") or doc.name, f"serial {d['serial']}" if d.get("serial") else None))
         cards.append(_card("Size", d.get("size") or "—", " · ".join(str(x) for x in (d.get("media"), d.get("interface")) if x)))
@@ -174,12 +182,8 @@ def hardware_summary(inv: Inventory, doc: Document) -> str:
     return _note({"summary_of": make_link(doc.name)}, _grid(cards))
 
 
-def _mermaid_id(prefix: str, name: str) -> str:
-    return f"{prefix}{re.sub(r'[^A-Za-z0-9_]', '_', name)}"
-
-
 def _label(text: str) -> str:
-    return text.replace('"', "#quot;")
+    return _flat(text).replace('"', "#quot;").replace("<", "#lt;").replace(">", "#gt;")
 
 
 def _where(inv: Inventory) -> str:
@@ -201,23 +205,24 @@ def _where(inv: Inventory) -> str:
     groups: dict[str, list[Document]] = {}
     for h in hosts:
         groups.setdefault(location(h, set()) or "Unplaced", []).append(h)
+    ids = {h.name.lower(): f"h{n}" for n, h in enumerate(hosts)}
     lines = ["```mermaid", "flowchart LR"]
-    for loc in sorted(groups, key=lambda x: (x == "Unplaced", x.lower())):
-        lines.append(f'  subgraph {_mermaid_id("loc_", loc)}["📍 {_label(loc)}"]')
+    for n, loc in enumerate(sorted(groups, key=lambda x: (x == "Unplaced", x.lower()))):
+        lines.append(f'  subgraph loc{n}["📍 {_label(loc)}"]')
         for h in groups[loc]:
             detail = " · ".join(str(x) for x in (h.data.get("type"), _address(h)) if x)
-            lines.append(f'    {_mermaid_id("", h.name)}["{_label(h.name)}<br/><small>{_label(detail)}</small>"]')
+            lines.append(f'    {ids[h.name.lower()]}["{_label(h.name)}<br/><small>{_label(detail)}</small>"]')
         lines.append("  end")
     for h in hosts:
         parent = link_target(h.data.get("runs_on"))
         if parent and parent.lower() in by_name:
-            lines.append(f"  {_mermaid_id('', by_name[parent.lower()].name)} --> {_mermaid_id('', h.name)}")
+            lines.append(f"  {ids[parent.lower()]} --> {ids[h.name.lower()]}")
     lines.append("```")
     return "\n".join(lines) + "\n"
 
 
 def _cell(value: object) -> str:
-    return str(value).replace("|", "\\|")
+    return _flat(value).replace("|", "\\|")
 
 
 def dashboard(inv: Inventory, types: dict[str, HostType], warnings: dict[str, list[str]], recent: list[str]) -> str:
