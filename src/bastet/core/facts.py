@@ -70,6 +70,8 @@ def extract(results: dict[str, ProbeResult]) -> Extracted:
     f = ex.facts
     ex.missing_required = [p.name for p in PROBES if p.required and _text(results, p.name) is None]
 
+    if (text := _text(results, "hostname")) is not None:
+        f["hostname"] = text.split()[0].split(".")[0]
     if (text := _text(results, "os_release")) is not None:
         osr = _os_release(text)
         if osr.get("PRETTY_NAME") or osr.get("NAME"):
@@ -78,8 +80,6 @@ def extract(results: dict[str, ProbeResult]) -> Extracted:
         parts = text.split()
         if len(parts) >= 3:
             f["kernel"], f["arch"] = parts[1], parts[2]
-    if (text := _text(results, "hostname")) is not None:
-        f["hostname"] = text.split()[0].split(".")[0]
 
     hn = _json(results, "hostnamectl")
     hn = hn if isinstance(hn, dict) else {}

@@ -10,6 +10,7 @@ from bastet.core.config import load_config
 from bastet.core.errors import BastetError
 from bastet.core.frontmatter import new_document
 from bastet.core.gitrepo import GitRepo
+from bastet.core.views import HARDWARE_BASE, HARDWARE_BASE_PATH
 from bastet.core.yamlstyle import dump_frontmatter
 
 GITIGNORE = ".bastet/build/\n.obsidian/workspace.json\n.obsidian/workspace-mobile.json\n.trash/\n"
@@ -116,7 +117,11 @@ def initialize(config_file: Path, options: InitOptions, *, keys_dir: Path) -> In
     lab: dict[str, object] = {"bastet": "lab", "cssclasses": ["bastet-dashboard"], "name": options.lab_name}
     if options.domains:
         lab["domains"] = dict(options.domains)
-    files = [(".gitignore", GITIGNORE), ("Homelab.md", new_document(lab, LAB_BODY.format(name=options.lab_name)))]
+    files = [
+        (".gitignore", GITIGNORE),
+        ("Homelab.md", new_document(lab, LAB_BODY.format(name=options.lab_name))),
+        (HARDWARE_BASE_PATH, HARDWARE_BASE),
+    ]
     if options.snippet:
         files.append((".obsidian/snippets/bastet.css", _css()))
 

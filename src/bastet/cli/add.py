@@ -6,6 +6,7 @@ from bastet.cli.common import handles_errors, load_context, write_with_confirmat
 from bastet.core.errors import BastetError
 from bastet.core.inventory import HARDWARE_STATUSES
 from bastet.core.scaffold import new_hardware, new_host, suggested_ip
+from bastet.core.views import ensure_views
 
 add_app = typer.Typer(no_args_is_help=True, help="Add a host or hardware to the inventory. Asks for anything not given.")
 
@@ -100,7 +101,7 @@ def add_host(
     )
     if draft.suggested_ip:
         typer.echo(f"Suggested address: {draft.suggested_ip} (next free in {network})")
-    write_with_confirmation(ctx, [draft.change], f"add host {name}", yes)
+    write_with_confirmation(ctx, [draft.change, *ensure_views(ctx.root)], f"add host {name}", yes)
 
 
 @add_app.command("hardware")
