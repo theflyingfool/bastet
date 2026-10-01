@@ -18,7 +18,7 @@ from bastet.core.hwparse import (
 from bastet.core.inventory import Inventory, markdown_files
 from bastet.core.links import link_target, make_link
 from bastet.core.units import format_size
-from bastet.core.views import HARDWARE_SUMMARY_SECTION, insert_after_title
+from bastet.core.views import ensure_page_embed, summary_embed
 
 DRIVE_TRANSPORTS = {"sata", "sas", "nvme", "ata", "scsi"}
 CARD_CLASSES = {"0300": "gpu", "0302": "gpu", "0380": "gpu", "0100": "hba", "0104": "hba", "0107": "hba", "0200": "nic"}
@@ -268,11 +268,12 @@ def plan_hardware(
             while name.lower() in run.names:
                 name, n = f"{obs.name} {n}", n + 1
             run.names.add(name.lower())
-            body = f"# {name}\n" + HARDWARE_SUMMARY_SECTION
-            changes.append(Change(inv.root / "hardware" / f"{name}.md", None, new_document(obs.data, body)))
+            body = f"# {name}\n\n{summary_embed(name)}\n"
+            data = {**obs.data, "cssclasses": ["bastet-host"]}
+            changes.append(Change(inv.root / "hardware" / f"{name}.md", None, new_document(data, body)))
             continue
         seen.add(doc.path)
-        observed = {k: v for k, v in obs.data.items() if k not in HARDWARE_YOURS | HARDWARE_SPECIAL}
+        observed = {k: v for k, v in obs.data.items() if k not in HARDWARE_YOURS | HARDWARE_SPECIAL | {"cssclasses"}}
         updates, fact_notes = merge_facts(doc, observed, repo, take=take, nature_of=lambda k: "fact", warn=lambda k: True)
         notes.extend(fact_notes)
         current = link_target(doc.data.get("installed_in"))
@@ -283,10 +284,11 @@ def plan_hardware(
         status = doc.data.get("status")
         if status not in (None, "in-service"):
             notes.append(Note(host, "warn", f"{doc.name} has status '{status}' but is installed in {host}; update it if that's wrong"))
+        if not doc.data.get("cssclasses"):
+            updates["cssclasses"] = ["bastet-host"]
         text = doc.path.read_text(encoding="utf-8")
         new_text = set_keys(text, updates, doc.path) if updates else text
-        if "hardware-summary.base" not in doc.body:
-            new_text = insert_after_title(new_text, HARDWARE_SUMMARY_SECTION)
+        new_text = ensure_page_embed(new_text, summary_embed(doc.name))
         if new_text != text:
             changes.append(Change(doc.path, text, new_text))
 

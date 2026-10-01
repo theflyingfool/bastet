@@ -98,6 +98,13 @@ class GitRepo:
             i += 1
         return paths
 
+    def log_entries(self, limit: int = 50) -> list[tuple[str, str, str]]:
+        """(date YYYY-MM-DD, author, subject), newest first; [] when there is no history."""
+        r = self._git("log", f"-n{limit}", "--format=%as%x1f%an%x1f%s", check=False)
+        if r.returncode != 0:
+            return []
+        return [tuple(line.split("\x1f", 2)) for line in r.stdout.splitlines() if line.count("\x1f") >= 2]
+
     def _rel(self, path: Path) -> str:
         return Path(path).resolve().relative_to(self.root.resolve()).as_posix()
 

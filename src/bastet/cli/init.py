@@ -3,7 +3,7 @@ from pathlib import Path
 
 import typer
 
-from bastet.cli.common import handles_errors
+from bastet.cli.common import handles_errors, load_context, refresh_generated
 from bastet.core.config import config_path, data_dir, inventory_dir, load_config
 from bastet.core.initialize import InitOptions, initialize
 
@@ -74,5 +74,6 @@ def init(
     result = initialize(cfg_file, options, keys_dir=cfg_file.parent / "ssh")
     for action in result.actions:
         typer.echo(action)
+    refresh_generated(load_context())
     typer.echo(f"\nBastet's public key ({result.public_key}):")
     typer.echo(result.public_key.read_text(encoding="utf-8").strip())

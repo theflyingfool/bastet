@@ -10,6 +10,7 @@ from bastet.core.errors import BastetError
 from bastet.core.gitrepo import GitRepo
 from bastet.core.hosttypes import HostType, load_host_types
 from bastet.core.inventory import Inventory, load_inventory
+from bastet.core.render import generated_changes
 
 
 def handles_errors(fn):
@@ -72,3 +73,22 @@ def write_with_confirmation(ctx: Context, changes: list[Change], message: str, y
     if not ctx.repo.push():
         typer.secho("warning: push failed; the commit is kept locally", fg="yellow", err=True)
     return True
+
+
+def refresh_generated(ctx: Context, *, warnings: dict[str, list[str]] | None = None) -> int:
+    """Rewrite Bastet's generated notes (summaries, dashboard, views) from the files; commit them as `refresh:`.
+
+    Only files under _bastet/ are touched, so no confirmation is needed.
+    """
+    if not ctx.repo.is_repo():
+        return 0
+    ctx.inventory = load_inventory(ctx.root, ctx.types)
+    changes = generated_changes(ctx.inventory, ctx.types, ctx.repo, warnings=warnings)
+    if not changes:
+        return 0
+    write_changes(changes)
+    ctx.repo.commit([c.path for c in changes], f"refresh: {len(changes)} generated note{'s' if len(changes) != 1 else ''}")
+    if not ctx.repo.push():
+        typer.secho("warning: push failed; the commit is kept locally", fg="yellow", err=True)
+    typer.echo(f"Refreshed {len(changes)} generated note{'s' if len(changes) != 1 else ''} in _bastet/.")
+    return len(changes)

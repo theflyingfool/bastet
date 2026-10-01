@@ -1,18 +1,10 @@
 """Bastet-owned Obsidian views (Bases) and the page sections that embed them."""
 
+import re
 from pathlib import Path
 
 from bastet.core.changes import Change
 
-HOST_COLUMNS = (
-    "type", "os", "ip", "address", "cpu", "cpu_cores", "cpu_threads", "ram", "storage",
-    "chassis", "virtualization", "runs_on", "location",
-)
-HARDWARE_COLUMNS = (
-    "category", "make", "model", "serial", "size", "media", "interface", "health", "pool",
-    "memory_slots", "bios", "oob_address", "slot", "driver", "status", "installed_in",
-    "location", "purchased", "warranty_until",
-)
 HARDWARE_LIST_COLUMNS = ("file.name", "category", "model", "serial", "size", "status")
 
 
@@ -29,31 +21,22 @@ def _base(filter_expr: str, views: list[tuple[str, str, tuple[str, ...]]]) -> st
 
 
 HARDWARE_BASE_PATH = "_bastet/hardware-here.base"
-HOST_SUMMARY_BASE_PATH = "_bastet/host-summary.base"
-HARDWARE_SUMMARY_BASE_PATH = "_bastet/hardware-summary.base"
-
 HARDWARE_BASE = _base(
     "installed_in == this",
-    [("cards", "Cards", HARDWARE_LIST_COLUMNS), ("table", "Table", HARDWARE_LIST_COLUMNS)],
+    [("table", "Table", HARDWARE_LIST_COLUMNS), ("cards", "Cards", HARDWARE_LIST_COLUMNS)],
 )
-HOST_SUMMARY_BASE = _base(
-    "file.path == this.file.path",
-    [("cards", "Summary", HOST_COLUMNS), ("table", "Table", HOST_COLUMNS)],
-)
-HARDWARE_SUMMARY_BASE = _base(
-    "file.path == this.file.path",
-    [("cards", "Summary", HARDWARE_COLUMNS), ("table", "Table", HARDWARE_COLUMNS)],
-)
-
-VIEWS = {
-    HARDWARE_BASE_PATH: HARDWARE_BASE,
-    HOST_SUMMARY_BASE_PATH: HOST_SUMMARY_BASE,
-    HARDWARE_SUMMARY_BASE_PATH: HARDWARE_SUMMARY_BASE,
-}
+VIEWS = {HARDWARE_BASE_PATH: HARDWARE_BASE}
 
 HARDWARE_SECTION = "\n## Hardware\n\n![[hardware-here.base]]\n"
-HOST_SUMMARY_SECTION = "\n## Summary\n\n![[host-summary.base]]\n"
-HARDWARE_SUMMARY_SECTION = "\n## Summary\n\n![[hardware-summary.base]]\n"
+_LEGACY_SUMMARY = re.compile(r"## Summary\n\n!\[\[(?:host|hardware)-summary\.base\]\]")
+
+
+def summary_name(page: str) -> str:
+    return f"{page} summary"
+
+
+def summary_embed(page: str) -> str:
+    return f"![[{summary_name(page)}]]"
 
 
 def ensure_views(root: Path) -> list[Change]:
@@ -88,3 +71,12 @@ def insert_after_title(text: str, section: str) -> str:
     block = section.strip("\n").split("\n")
     tail = [""] if insert_at < len(lines) and lines[insert_at].strip() else []
     return "\n".join(lines[:insert_at] + [""] + block + tail + lines[insert_at:])
+
+
+def ensure_page_embed(text: str, embed: str) -> str:
+    """Put `embed` right under the page title: replaces Bastet's earlier Bases summary block, else inserts it once."""
+    if embed in text:
+        return text
+    if _LEGACY_SUMMARY.search(text):
+        return _LEGACY_SUMMARY.sub(embed.replace("\\", "\\\\"), text, count=1)
+    return insert_after_title(text, "\n" + embed + "\n")

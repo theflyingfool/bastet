@@ -14,7 +14,7 @@ def test_add_host_yes_writes_and_commits(runner, inventory):
     assert result.exit_code == 0, result.output
     assert "+++ b/hosts/edge1.md" in result.output
     assert (inventory / "hosts" / "edge1.md").read_text().startswith("---\nbastet: host\n")
-    assert authors(inventory)[0] == "Bastet add host edge1"
+    assert "Bastet add host edge1" in authors(inventory)
 
 
 def test_add_host_declined_writes_nothing(runner, inventory):
@@ -41,7 +41,7 @@ def test_add_host_commits_pending_edits_as_user(runner, inventory):
     result = runner.invoke(app, ["add", "host", "edge1", "--type", "vps", "--provider", "linode", "--ip", "203.0.113.10"], input="y\ny\n")
     assert result.exit_code == 0, result.output
     assert "hosts/pve1.md" in result.output
-    log = authors(inventory)
+    log = [line for line in authors(inventory) if not line.startswith("Bastet refresh:")]
     assert log[0] == "Bastet add host edge1"
     assert log[1].startswith("Tester ")
 
@@ -60,7 +60,7 @@ def test_unreachable_remote_warns_and_continues(runner, inventory, tmp_path):
     result = runner.invoke(app, ["add", "host", "edge1", "--type", "vps", "--provider", "linode", "--ip", "203.0.113.10", "-y"])
     assert result.exit_code == 0, result.output
     assert "warning" in result.output and (inventory / "hosts" / "edge1.md").exists()
-    assert authors(inventory)[0] == "Bastet add host edge1"
+    assert "Bastet add host edge1" in authors(inventory)
 
 
 def test_pending_personal_notes_left_alone(runner, inventory):

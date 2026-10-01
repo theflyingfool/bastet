@@ -39,3 +39,12 @@ def test_cli_init_declined_writes_nothing(runner, tmp_path, monkeypatch):
     result = runner.invoke(app, ["init"], input=answers)
     assert result.exit_code == 0
     assert not cfg.exists() and not (tmp_path / "Lab").exists()
+
+
+def test_cli_init_builds_dashboard(runner, tmp_path, monkeypatch):
+    cfg = tmp_path / "c" / "bastet.yml"
+    monkeypatch.setenv("BASTET_CONFIG", str(cfg))
+    result = runner.invoke(app, ["init", "--inventory", str(tmp_path / "Homelab"), "-y"])
+    assert result.exit_code == 0, result.output
+    assert "![[bastet dashboard]]" in (tmp_path / "Homelab" / "Homelab.md").read_text()
+    assert (tmp_path / "Homelab" / "_bastet" / "bastet dashboard.md").exists()

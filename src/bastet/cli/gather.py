@@ -8,7 +8,8 @@ from pathlib import Path
 
 import typer
 
-from bastet.cli.common import Context, handles_errors, load_context, write_with_confirmation
+from bastet.cli.common import Context, handles_errors, load_context, refresh_generated, write_with_confirmation
+from bastet.core.render import lab_embed_changes
 from bastet.core import hostkeys
 from bastet.core.bootstrap import setup_command
 from bastet.core.collect import Snapshot, collect, save_snapshot
@@ -19,7 +20,6 @@ from bastet.core.frontmatter import Document
 from bastet.core.gatherplan import Note, plan_update
 from bastet.core.hardware import RunState, observe_hardware, plan_hardware
 from bastet.core.remote import LocalRunner, SshRunner, SshTarget, run_interactive
-from bastet.core.views import ensure_views
 
 
 def local_runner() -> LocalRunner:
@@ -136,6 +136,7 @@ def gather(
 
     take_fields = set(take) | ({"ssh_host_key"} if accept_new_hostkey else set())
     changes, notes, gathered = [], [], []
+    host_warnings: dict[str, list[str]] = {}
     run_state = RunState()
     with tempfile.TemporaryDirectory(prefix="bastet-") as tmp:
         for doc in docs:
@@ -174,6 +175,7 @@ def gather(
                     name = shlex.quote(str(guest["name"]))
                     notes.append(Note(doc.name, "info", f"runs {kind} {guest['vmid']} {name}, not in the inventory "
                                       f"(bastet add host {name} --type {kind} --on {shlex.quote(doc.name)})"))
+            host_warnings[doc.name] = [n.message for n in notes if n.host == doc.name and n.severity == "warn"]
             host_changes = ([update.change] if update.change else []) + hw_changes
             if not host_changes:
                 typer.echo(f"{doc.name}: up to date")
@@ -185,4 +187,6 @@ def gather(
         mark = "⚠" if note.severity == "warn" else "·"
         typer.secho(f"{mark} {note.host}: {note.message}", fg="yellow" if note.severity == "warn" else None)
     if changes:
-        write_with_confirmation(ctx, [*changes, *ensure_views(ctx.root)], f"gather: {', '.join(gathered)}", yes)
+        if not write_with_confirmation(ctx, [*changes, *lab_embed_changes(inv)], f"gather: {', '.join(gathered)}", yes):
+            return
+    refresh_generated(ctx, warnings=host_warnings)

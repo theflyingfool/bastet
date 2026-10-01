@@ -74,7 +74,7 @@ def test_gather_local_laptop_writes_facts(runner, laptop, tmp_path):
     assert "os: Arch Linux" in text and "ram: 16 GB" in text and "cpu_cores: 4" in text
     assert "![[hardware-here.base]]" in text
     assert (laptop / "_bastet" / "hardware-here.base").exists()
-    assert git(laptop, "log", "-1", "--format=%an %s").strip() == "Bastet gather: hp-13"
+    assert "Bastet gather: hp-13" in git(laptop, "log", "--format=%an %s").splitlines()
     snaps = list((tmp_path / "data" / "bastet" / "snapshots" / "hp-13").glob("*.json"))
     assert len(snaps) == 1 and json.loads(snaps[0].read_text())["host"] == "hp-13"
 
@@ -224,7 +224,7 @@ def test_gather_server_creates_hardware_files(runner, server):
     host = (server / "hosts" / "pve1.md").read_text()
     assert "pools:\n  - name: tank\n    state: ONLINE\n" in host
     assert "git1" in result.output and "media" in result.output and "not in the inventory" in result.output
-    files = git(server, "show", "--name-only", "--format=", "HEAD").split()
+    files = git(server, "log", "-1", "--name-only", "--format=", "--grep=^gather").split()
     assert "hosts/pve1.md" in files and any(f.startswith("hardware/") for f in files)
 
 
@@ -262,3 +262,18 @@ def test_guests_on_other_nodes_ignored_and_names_quoted(runner, server, monkeypa
     result = runner.invoke(app, ["gather", "pve1", "-y", "--accept-new-hostkey"])
     assert "elsewhere" not in result.output
     assert "bastet add host 'my box'" in result.output
+
+
+
+def test_gather_stores_warnings_in_summary_and_refresh_keeps_them(runner, laptop):
+    runner.invoke(app, ["gather", "-y"])
+    p = laptop / "hosts" / "hp-13.md"
+    p.write_text(p.read_text().replace("ram: 16 GB", "ram: 32 GB"))
+    git(laptop, "commit", "-q", "-am", "upgraded ram")
+    runner.invoke(app, ["gather", "-y"])
+    summary = (laptop / "_bastet" / "summary" / "hp-13 summary.md").read_text()
+    assert "warnings:" in summary and "ram" in summary and "[!warning]" in summary
+    runner.invoke(app, ["refresh"])
+    assert "ram" in (laptop / "_bastet" / "summary" / "hp-13 summary.md").read_text()
+    dash = (laptop / "_bastet" / "bastet dashboard.md").read_text()
+    assert "Needs attention" in dash and "[[hp-13]]" in dash

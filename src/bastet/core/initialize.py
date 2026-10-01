@@ -16,6 +16,8 @@ from bastet.core.yamlstyle import dump_frontmatter
 GITIGNORE = ".bastet/build/\n.obsidian/workspace.json\n.obsidian/workspace-mobile.json\n.trash/\n"
 LAB_BODY = """# {name}
 
+![[bastet dashboard]]
+
 Lab-wide settings live in this page's properties: domains, networks, and so on.
 The overview appears here once Bastet generates it.
 """

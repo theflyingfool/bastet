@@ -156,11 +156,11 @@ def test_same_key_twice_in_one_run_is_claimed_once(repo):
 
 def test_hardware_files_get_summary_and_existing_ones_get_it_once(repo):
     changes, _ = run(repo, "pve1")
-    assert all("![[hardware-summary.base]]" in c.after for c in changes)
+    assert all(f"![[{c.path.stem} summary]]" in c.after and "bastet-host" in c.after for c in changes)
     machine = [c for c in changes if "Supermicro" in c.path.name][0]
     assert "oob_address: 10.0.10.9" in machine.after
     old = [c for c in changes if "WD-WCC4E1234567" in c.path.name][0]
-    old.after = old.after.replace("\n## Summary\n\n![[hardware-summary.base]]\n", "")
+    old.after = old.after.replace(f"\n![[{old.path.stem} summary]]\n", "")
     apply(repo, changes)
     again, _ = run(repo, "pve1")
-    assert [c.path for c in again] == [old.path] and "![[hardware-summary.base]]" in again[0].after
+    assert [c.path for c in again] == [old.path] and f"![[{old.path.stem} summary]]" in again[0].after

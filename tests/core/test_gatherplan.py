@@ -143,4 +143,4 @@ def test_merge_facts_direct(repo):
 def test_summary_inserted_under_title_for_any_host(repo):
     p = host(repo, "---\nbastet: host\ntype: vps\nprovider: linode\nip: 203.0.113.10\n---\n# v\nnotes\n")
     after = plan(p, VPS, repo, "vps").change.after
-    assert "# v\n\n## Summary\n\n![[host-summary.base]]\n\nnotes\n" in after
+    assert "# v\n\n![[h summary]]\n\nnotes\n" in after

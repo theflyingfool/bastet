@@ -35,3 +35,6 @@ app.command()(init)
 from bastet.cli.gather import gather  # noqa: E402
 
 app.command()(gather)
+from bastet.cli.refresh import refresh  # noqa: E402
+
+app.command()(refresh)

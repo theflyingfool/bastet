@@ -5,7 +5,8 @@ from bastet.cli.app import app
 
 
 def head_author(root: Path) -> str:
-    return subprocess.run(["git", "-C", str(root), "log", "-1", "--format=%an %s"], capture_output=True, text=True).stdout.strip()
+    lines = subprocess.run(["git", "-C", str(root), "log", "--format=%an %s"], capture_output=True, text=True).stdout.splitlines()
+    return next(line for line in lines if not line.startswith("Bastet refresh:"))
 
 
 def test_interactive_vps(runner, inventory):
