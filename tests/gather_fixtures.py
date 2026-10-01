@@ -425,3 +425,5 @@ SERVER.update({
         {"ifname": "docker0", "linkinfo": {"info_kind": "bridge"}},
     ]),
 })
+
+RACK["ethtool"] = ""

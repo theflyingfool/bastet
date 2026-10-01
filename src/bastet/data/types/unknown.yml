@@ -18,3 +18,6 @@ fields:
   gateway: fact
   ssh_host_key: fact
   bastet_tools: fact
+  bridges: fact
+  bonds: fact
+  vlans: fact

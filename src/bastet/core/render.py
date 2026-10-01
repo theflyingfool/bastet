@@ -130,6 +130,10 @@ def host_summary(
                 ports += _port_names(item.data.get("ports"))
         if ports:
             cards.append(_card("Ports", len(ports), ", ".join(ports)))
+    bridges = d.get("bridges")
+    if isinstance(bridges, list) and bridges:
+        names = [str(b.get("name")) for b in bridges if isinstance(b, dict)]
+        cards.append(_card("Bridges", len(names), ", ".join(names)))
     guests = _guests(inv, doc.name)
     if guests or (host_type and host_type.name == "proxmox-node"):
         cards.append(_card("Guests", len(guests), ", ".join(f"[[{g.name}]]" for g in guests) or None))
@@ -176,6 +180,25 @@ def hardware_summary(inv: Inventory, doc: Document) -> str:
             cards.append(_card("Network", len(onboard), ", ".join(onboard)))
         if d.get("oob_address"):
             cards.append(_card("Out-of-band", d["oob_address"], _oob_type(d.get("oob"))))
+        if d.get("boot") or d.get("tpm") or d.get("secure_boot"):
+            sub = " · ".join(str(x) for x in (d.get("tpm"), f"Secure Boot {d['secure_boot']}" if d.get("secure_boot") else "") if x)
+            cards.append(_card("Firmware", str(d.get("boot") or "—").upper(), sub))
+    elif category == "cpu":
+        counts = " · ".join(x for x in (f"{d['cores']} cores" if d.get("cores") else "",
+                                         f"{d['threads']} threads" if d.get("threads") else "") if x)
+        cards.append(_card("CPU", short_cpu(d.get("model") or doc.name), counts))
+        if d.get("socket"):
+            cards.append(_card("Socket", d["socket"], f"serial {d['serial']}" if d.get("serial") else None))
+    elif category == "memory":
+        cards.append(_card("Memory", d.get("size") or "—", " · ".join(str(x) for x in (d.get("type"), d.get("speed")) if x)))
+        cards.append(_card("Slot", d.get("slot") or "—", " ".join(str(x) for x in (d.get("make"), d.get("model")) if x)))
+    elif category == "psu":
+        cards.append(_card("PSU", d.get("model") or doc.name, d.get("make")))
+        if d.get("max_power"):
+            cards.append(_card("Power", d["max_power"], f"serial {d['serial']}" if d.get("serial") else None))
+    elif category == "usb":
+        cards.append(_card("USB", d.get("model") or doc.name, d.get("make")))
+        cards.append(_card("ID", d.get("usb_id") or "—", f"serial {d['serial']}" if d.get("serial") else None))
     elif category == "drive":
         cards.append(_card("Drive", d.get("model") or doc.name, f"serial {d['serial']}" if d.get("serial") else None))
         cards.append(_card("Size", d.get("size") or "—", " · ".join(str(x) for x in (d.get("media"), d.get("interface")) if x)))

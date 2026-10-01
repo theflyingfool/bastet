@@ -23,3 +23,6 @@ fields:
   gateway: fact
   pools: fact
   bastet_tools: fact
+  bridges: fact
+  bonds: fact
+  vlans: fact

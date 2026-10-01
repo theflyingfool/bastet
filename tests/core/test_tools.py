@@ -54,3 +54,10 @@ def test_bmc_detected_by_bmc_graphics_or_ipmi_device():
     plain = dict(RACK, dmidecode=no_smbios, lspci=RACK["lspci"].replace("ASPEED Technology, Inc. [1a03]", "Intel Corporation [8086]"))
     assert needed_tools(results(plain), TYPES["proxmox-node"]) == []
     assert needed_tools(results(dict(plain, ipmi_dev="/dev/ipmi0")), TYPES["proxmox-node"]) == ["ipmitool"]
+
+
+def test_ethtool_for_physical_hosts_with_nics():
+    assert "ethtool" in needed_tools(results(dict(SERVER, ethtool=(127, ""))), TYPES["proxmox-node"])
+    assert "ethtool" not in needed_tools(results(dict(SERVER, ethtool=(127, ""), net_sysfs="lo\t\t\n")), TYPES["proxmox-node"])
+    assert "ethtool" not in needed_tools(results(dict(VPS, ethtool=(127, ""))), TYPES["vps"])
+    assert "ethtool" in install_script("pacman", ["ethtool"])

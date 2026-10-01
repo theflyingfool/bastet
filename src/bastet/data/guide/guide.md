@@ -34,7 +34,8 @@ This page is generated from the Bastet version you run, so it always matches it.
 
 ## Host switches you can set
 
-- `gather: false` skips the host when you run `bastet gather` for everything (naming it still gathers it).
+- `gather: true` is on every host file. Set it to `false` to skip the host when you run `bastet gather` for
+  everything (naming it still gathers it).
 - `install_tools: false` stops gather from installing its helper tools on that host. What gather has
   installed is listed in the host's `bastet_tools`.
 
@@ -47,8 +48,10 @@ the file and reality agree again.
 
 ## Hardware
 
-Physical hosts get a file per machine, drive and add-in card under `hardware/`, linked to the host with
-`installed_in`. Hardware that moves keeps its file; hardware that disappears is reported, never deleted.
+Physical hosts get a file per machine, drive, add-in card, CPU, memory stick, power supply and removable USB
+device under `hardware/`, linked to the host with `installed_in`. Built-in parts (integrated graphics, built-in
+USB devices) and firmware (BIOS, BMC, microcode, TPM, Secure Boot) are listed on the machine's file; each port
+shows its fastest supported speed. Bridges, bonds and VLANs are on the host's file. Hardware that moves keeps its file; hardware that disappears is reported, never deleted.
 Set `status:` (`spare`, `failed`, `retired`, `sold`) yourself.
 
 ## Reading the pages

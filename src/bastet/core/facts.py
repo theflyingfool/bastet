@@ -3,6 +3,7 @@ import re
 from dataclasses import dataclass, field
 
 from bastet.core.collect import PROBES, ProbeResult
+from bastet.core.hwparse import parse_links
 from bastet.core.units import format_size, ram_label
 
 CHASSIS_FROM_SMBIOS = {
@@ -164,6 +165,7 @@ def extract(results: dict[str, ProbeResult]) -> Extracted:
             if isinstance(route, dict) and route.get("dst") == "default" and route.get("gateway"):
                 f["gateway"] = route["gateway"]
                 break
+    f.update(parse_links(_text(results, "ip_link") or ""))
     return ex
 
 

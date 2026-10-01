@@ -37,7 +37,7 @@ def test_new_vps(tmp_path):
     assert draft.change.before is None
     assert draft.change.after == (
         "---\nbastet: host\ncssclasses:\n  - bastet-host\ntype: vps\n"
-        "provider: linode\nip: 203.0.113.10\n---\n# edge1\n\n![[edge1 summary]]\n"
+        "provider: linode\nip: 203.0.113.10\ngather: true\n---\n# edge1\n\n![[edge1 summary]]\n"
     )
     assert draft.suggested_ip is None
 

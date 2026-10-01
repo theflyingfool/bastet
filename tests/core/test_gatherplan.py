@@ -144,3 +144,17 @@ def test_summary_inserted_under_title_for_any_host(repo):
     p = host(repo, "---\nbastet: host\ntype: vps\nprovider: linode\nip: 203.0.113.10\n---\n# v\nnotes\n")
     after = plan(p, VPS, repo, "vps").change.after
     assert "# v\n\n![[h summary]]\n\nnotes\n" in after
+
+
+def test_gather_switch_added_once(repo):
+    p = host(repo, "---\nbastet: host\ntype: laptop\n---\n# h\n")
+    first = plan(p, LAPTOP, repo, "laptop").change.after
+    assert first.count("gather: true") == 1
+    p.write_text(first)
+    repo.commit([p], "gather", as_bastet=True)
+    assert plan(p, LAPTOP, repo, "laptop").change is None
+
+
+def test_gather_switch_left_alone_when_set(repo):
+    p = host(repo, "---\nbastet: host\ntype: laptop\ngather: false\n---\n# h\n")
+    assert "gather: false" in plan(p, LAPTOP, repo, "laptop").change.after

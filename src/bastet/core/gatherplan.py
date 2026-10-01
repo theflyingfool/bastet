@@ -90,6 +90,8 @@ def plan_update(
         nature_of=host_type.fields.get,
         warn=lambda key: host_type.physical and key in HARDWARE_KEYS,
     )
+    if "gather" not in doc.data:
+        updates["gather"] = True
 
     proposal = propose_type(ex)
     current_type = doc.data.get("type")

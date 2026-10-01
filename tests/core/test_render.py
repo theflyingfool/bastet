@@ -171,3 +171,24 @@ def test_ports_shown_on_host_and_machine_pages(repo):
     assert "[!stat] Ports" in host and "**4**" in host and "eno1, eno2, enp1s0f0, enp1s0f1" in host
     machine = hardware_summary(i, i.get("Supermicro SYS-5019C-MR S123456X"))
     assert "[!stat] Network" in machine and "eno1, eno2" in machine
+
+
+def test_new_category_summaries_and_cards(repo):
+    (repo.root / "hardware" / "cpu.md").write_text('---\nbastet: hardware\ncategory: cpu\nmodel: AMD Ryzen 9 5950X 16-Core Processor\ncores: 16\nthreads: 32\nsocket: AM4\nstatus: in-service\ninstalled_in: "[[pve1]]"\n---\n')
+    (repo.root / "hardware" / "psu.md").write_text('---\nbastet: hardware\ncategory: psu\nmodel: PWS-504P-1R\nmax_power: 500 W\nstatus: in-service\ninstalled_in: "[[pve1]]"\n---\n')
+    (repo.root / "hardware" / "dimm.md").write_text('---\nbastet: hardware\ncategory: memory\nmodel: M391A4G43MB1-CTD\nsize: 32 GB\ntype: DDR4\nslot: DIMMA1\nstatus: in-service\ninstalled_in: "[[pve1]]"\n---\n')
+    (repo.root / "hardware" / "stick.md").write_text('---\nbastet: hardware\ncategory: usb\nmodel: ConBee II\nusb_id: 1cf1:0030\nstatus: in-service\ninstalled_in: "[[pve1]]"\n---\n')
+    h = repo.root / "hosts" / "pve1.md"
+    h.write_text(h.read_text().replace("chassis: server\n", "chassis: server\nbridges:\n  - name: vmbr0\n    ports:\n      - eno1\n"))
+    m = repo.root / "hardware" / "Supermicro SYS-5019C-MR S123456X.md"
+    m.write_text(m.read_text().replace("oob_address:", "boot: uefi\ntpm: TPM 2.0\nsecure_boot: disabled\noob_address:"))
+    i = inv(repo)
+    cpu = hardware_summary(i, i.get("cpu"))
+    assert "[!stat] CPU" in cpu and "AMD Ryzen 9 5950X 16-Core" in cpu and "16 cores · 32 threads" in cpu
+    assert "500 W" in hardware_summary(i, i.get("psu"))
+    assert "[!stat] Memory" in hardware_summary(i, i.get("dimm")) and "DIMMA1" in hardware_summary(i, i.get("dimm"))
+    assert "1cf1:0030" in hardware_summary(i, i.get("stick"))
+    machine = hardware_summary(i, i.get("Supermicro SYS-5019C-MR S123456X"))
+    assert "[!stat] Firmware" in machine and "UEFI" in machine and "Secure Boot disabled" in machine
+    host = host_summary(i, i.get("pve1"), TYPES, [])
+    assert "[!stat] Bridges" in host and "vmbr0" in host

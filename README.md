@@ -33,12 +33,16 @@ No agent, no Python and no Ansible are needed on hosts.
 | `/sys/class/dmi/id/*` | kernel | optional | chassis type and vendor when systemd tools are missing |
 | `/run/systemd/container`, `/proc/1/environ` | base system | optional | recognises containers when `systemd-detect-virt` is missing |
 | `pveversion` | Proxmox VE | optional | recognises Proxmox nodes |
-| `dmidecode` (as root) | dmidecode | optional | machine make/model/serial, board, BIOS, CPUs, each DIMM (slot, size, speed, part, serial), PCIe slots |
+| `dmidecode` (as root) | dmidecode | optional | machine make/model/serial, board, BIOS, CPUs, each DIMM (slot, size, speed, part, serial), PCIe slots, power supplies |
 | `smartctl` (as root) | smartmontools | optional | drive model, serial, firmware, health (SATA, SAS and NVMe) |
 | `lspci` | pciutils | optional | add-in cards (GPU, HBA, NIC) and which slot they're in |
 | `/sys/class/net`, `/dev/disk/by-id` | kernel, udev | optional | NIC link speeds and PCI addresses; ZFS member disks |
-| `ipmitool` (as root) | ipmitool | optional | BMC/IPMI address and MAC (gather loads the `ipmi_devintf`/`ipmi_si` kernel modules first; offered when the board has a BMC: SMBIOS IPMI record, `/dev/ipmi*`, or BMC graphics such as ASPEED) |
+| `ipmitool` (as root) | ipmitool | optional | BMC/IPMI address and MAC, BMC firmware, power supplies from the FRU data (gather loads the `ipmi_devintf`/`ipmi_si` kernel modules first; offered when the board has a BMC: SMBIOS IPMI record, `/dev/ipmi*`, or BMC graphics such as ASPEED) |
 | `zpool` | OpenZFS | optional | pools and their member drives |
+| `ethtool` | ethtool | optional | each port's fastest supported speed and NIC firmware |
+| `ip -d link` | iproute2 | optional | bridges, bonds and VLANs (guest ports left out) |
+| `/sys/bus/usb` | kernel | optional | USB devices (removable ones get files; hubs left out) |
+| `/proc/cpuinfo`, `/sys/firmware`, `/sys/class/tpm` | kernel | optional | CPU microcode, UEFI or BIOS boot, Secure Boot, TPM version |
 | `pvesh`, `/etc/pve` guest configs (as root) | Proxmox VE | optional | guests on a Proxmox node, with their static IPs and MACs |
 | `ip neigh` | iproute2 | optional | addresses the node currently sees for its guests (DHCP guests) |
 
@@ -47,15 +51,15 @@ from, gather asks for your sudo password once (not with `-y`, which never asks).
 and gather says so.
 
 **Installing missing tools.** When a host lacks a tool gather would use (only where it's useful: e.g.
-`dmidecode`/`pciutils`/`smartmontools` on physical hosts, `ipmitool` only if the board has a BMC; never on
+`dmidecode`/`pciutils`/`smartmontools` on physical hosts, `ethtool` on physical hosts with PCI NICs, `ipmitool` only if the board has a BMC; never on
 VPS/VM/LXC), gather can install it with the host's package manager (apt, pacman, dnf, zypper or apk) and
 records it in the host's `bastet_tools`. Control it in `bastet.yml`:
 
     gather:
       install_tools: ask      # ask (default; -y never installs) | always | never
 
-and per host with `install_tools: false` in the host file. Hosts with `gather: false` are skipped by a
-plain `bastet gather` (naming the host still gathers it).
+and per host with `install_tools: false` in the host file. Every host file carries `gather: true`; set it to
+`false` and a plain `bastet gather` skips the host (naming the host still gathers it).
 
 The first gather can set up a `bastet` user on each host, from your own SSH login (it asks first). That user has
 key login only (no password) and passwordless sudo. Setting it up needs `useradd`, `usermod`, `install`, `getent`

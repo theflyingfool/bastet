@@ -15,6 +15,7 @@ PACKAGES = {
     "pciutils": {"apt-get": "pciutils", "pacman": "pciutils", "dnf": "pciutils", "zypper": "pciutils", "apk": "pciutils"},
     "smartmontools": {"apt-get": "smartmontools", "pacman": "smartmontools", "dnf": "smartmontools", "zypper": "smartmontools", "apk": "smartmontools"},
     "ipmitool": {"apt-get": "ipmitool", "pacman": "ipmitool", "dnf": "ipmitool", "zypper": "ipmitool", "apk": "ipmitool"},
+    "ethtool": {"apt-get": "ethtool", "pacman": "ethtool", "dnf": "ethtool", "zypper": "ethtool", "apk": "ethtool"},
 }
 INSTALL = {
     "apt-get": "apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends {pkgs}",
@@ -64,6 +65,9 @@ def needed_tools(results: dict[str, ProbeResult], host_type: HostType) -> list[s
         devices = parse_lspci(pci.output) if pci is not None and pci.ok else []
         if _missing(results, "ipmi") and has_bmc(records, devices, dev.output if dev is not None and dev.ok else None):
             need.append("ipmitool")
+        net = results.get("net_sysfs")
+        if _missing(results, "ethtool") and net is not None and net.ok and "/0000:" in net.output:
+            need.append("ethtool")
     return need
 
 

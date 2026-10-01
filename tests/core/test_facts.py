@@ -92,3 +92,11 @@ def test_container_without_systemd_detected_and_host_values_dropped():
     assert e.facts["chassis"] == "container" and e.facts["virtualization"] == "lxc"
     assert "storage" not in e.facts and "cpu_cores" not in e.facts and "cpu_threads" not in e.facts
     assert propose_type(e) == "lxc"
+
+
+def test_bridges_bonds_vlans_facts():
+    from gather_fixtures import SERVER
+    f = ex(SERVER).facts
+    assert f["bridges"] == [{"name": "vmbr0", "ports": ["eno1"]}] and f["bonds"][0]["mode"] == "802.3ad"
+    assert f["vlans"] == [{"name": "vmbr0.20", "id": 20, "parent": "vmbr0"}]
+    assert "bridges" not in ex(LAPTOP).facts

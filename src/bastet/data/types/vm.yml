@@ -24,3 +24,6 @@ fields:
   gateway: fact
   vmid: fact
   bastet_tools: fact
+  bridges: fact
+  bonds: fact
+  vlans: fact
