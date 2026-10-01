@@ -60,3 +60,36 @@ def test_ssh_timeout_is_unreachable(monkeypatch):
 def test_ssh_success(monkeypatch):
     monkeypatch.setattr(remote.subprocess, "run", fake_run(0, stdout="ok\n"))
     assert SshRunner(T).run("echo ok").stdout == "ok\n"
+
+
+from bastet.core.remote import close_master, control_path  # noqa: E402
+
+
+def test_ssh_args_keepalive_count_and_no_multiplexing_by_default():
+    joined = " ".join(ssh_args(T))
+    assert "ServerAliveCountMax=3" in joined and "ControlMaster" not in joined
+
+
+def test_ssh_args_multiplexed():
+    t = SshTarget("203.0.113.10", "bastet", Path("/k/id"), Path("/t/kh"), control_path=Path("/run/user/1000/bastet/%C"))
+    args = ssh_args(t)
+    joined = " ".join(args)
+    assert "ControlMaster=auto" in joined and "ControlPath=/run/user/1000/bastet/%C" in joined
+    assert "ControlPersist=60s" in joined and args[-1] == "bastet@203.0.113.10"
+
+
+def test_control_path_dir_is_private(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    p = control_path()
+    assert p == tmp_path / "bastet" / "%C" and (tmp_path / "bastet").stat().st_mode & 0o777 == 0o700
+
+
+def test_close_master_sends_exit(monkeypatch):
+    calls = []
+    monkeypatch.setattr("bastet.core.remote.subprocess.run", lambda args, **kw: calls.append(args))
+    t = SshTarget("203.0.113.10", "bastet", None, None, control_path=Path("/c/%C"))
+    close_master(t)
+    assert calls and calls[0][-3:] == ["-O", "exit", "bastet@203.0.113.10"]
+    calls.clear()
+    close_master(SshTarget("h", "bastet", None, None))
+    assert calls == []

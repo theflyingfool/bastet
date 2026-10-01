@@ -1,4 +1,6 @@
+import os
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -30,10 +32,14 @@ class SshTarget:
     key: Path | None
     known_hosts: Path | None
     port: int = 22
+    control_path: Path | None = None
 
 
 def ssh_args(target: SshTarget, *, interactive: bool = False) -> list[str]:
     args = ["ssh", "-p", str(target.port), "-o", "ConnectTimeout=15", "-o", "ServerAliveInterval=15"]
+    args += ["-o", "ServerAliveCountMax=3"]
+    if target.control_path is not None:
+        args += ["-o", "ControlMaster=auto", "-o", f"ControlPath={target.control_path}", "-o", "ControlPersist=60s"]
     args += ["-t"] if interactive else ["-o", "BatchMode=yes"]
     if target.key is not None:
         args += ["-i", str(target.key), "-o", "IdentitiesOnly=yes"]
@@ -45,6 +51,25 @@ def ssh_args(target: SshTarget, *, interactive: bool = False) -> list[str]:
         ]
     args.append(f"{target.user}@{target.address}")
     return args
+
+
+def control_path() -> Path:
+    """Where multiplexed connections live: one socket per host (%C), in a private directory."""
+    base = Path(os.environ.get("XDG_RUNTIME_DIR") or tempfile.gettempdir()) / "bastet"
+    base.mkdir(mode=0o700, parents=True, exist_ok=True)
+    base.chmod(0o700)
+    return base / "%C"
+
+
+def close_master(target: SshTarget) -> None:
+    """Close a multiplexed connection at the end of a run; failures don't matter."""
+    if target.control_path is None:
+        return
+    args = ssh_args(target)
+    try:
+        subprocess.run([*args[:-1], "-O", "exit", args[-1]], capture_output=True, timeout=15)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
 
 
 class SshRunner:
