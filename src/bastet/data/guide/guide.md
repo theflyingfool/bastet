@@ -38,6 +38,13 @@ This page is generated from the Bastet version you run, so it always matches it.
 - `install_tools: false` stops gather from installing its helper tools on that host. What gather has
   installed is listed in the host's `bastet_tools`.
 
+## Drift
+
+Your files are the source of truth. When something changes outside Bastet (say, a guest's IP edited in
+Proxmox), Bastet reports it as **drift**: in gather's output, in a Drift box on that host's page, and in
+the dashboard's "Needs attention". Bastet never changes your file to match. The drift stays listed until
+the file and reality agree again.
+
 ## Hardware
 
 Physical hosts get a file per machine, drive and add-in card under `hardware/`, linked to the host with

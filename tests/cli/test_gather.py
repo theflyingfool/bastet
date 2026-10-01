@@ -370,3 +370,48 @@ def test_gather_false_skipped_unless_named(runner, laptop):
     assert "hp-13: skipped (gather: false)" in result.output and "os:" not in p.read_text()
     runner.invoke(app, ["gather", "hp-13", "-y"])
     assert "os: Arch Linux" in p.read_text()
+
+
+def _git1(inventory, extra=""):
+    add_host(inventory, "git1", f'---\nbastet: host\ntype: lxc\nruns_on: "[[pve1]]"\nip: 10.0.20.99/24\n{extra}---\n# git1\n')
+
+
+def test_guest_drift_reported_inline_on_page_and_dashboard_not_adopted(runner, server):
+    _git1(server, "vmid: 104\n")
+    result = runner.invoke(app, ["gather", "pve1", "-y", "--accept-new-hostkey"])
+    assert result.exit_code == 0, result.output
+    assert "git1: drift" in result.output and "10.0.20.99/24" in result.output and "10.0.20.21/24" in result.output
+    assert "ip: 10.0.20.99/24" in (server / "hosts" / "git1.md").read_text()
+    summary = (server / "_bastet" / "summary" / "git1 summary.md").read_text()
+    assert "drift:" in summary and "[!danger] Drift" in summary
+    dash = (server / "_bastet" / "bastet dashboard.md").read_text()
+    assert "[[git1]]" in dash and "drift" in dash.lower()
+    runner.invoke(app, ["refresh"])
+    assert "drift:" in (server / "_bastet" / "summary" / "git1 summary.md").read_text()
+
+
+def test_guest_drift_clears_when_they_agree_and_vmid_added(runner, server):
+    _git1(server)
+    p = server / "hosts" / "git1.md"
+    p.write_text(p.read_text().replace("10.0.20.99/24", "10.0.20.21/24"))
+    git(server, "commit", "-q", "-am", "fix ip")
+    result = runner.invoke(app, ["gather", "pve1", "-y", "--accept-new-hostkey"])
+    assert "git1: drift" not in result.output
+    assert "vmid: 104" in p.read_text()
+    summary = (server / "_bastet" / "summary" / "git1 summary.md").read_text()
+    assert "[!danger]" not in summary
+
+
+def test_guest_on_another_node_is_drift(runner, server):
+    _git1(server, "vmid: 104\n")
+    p = server / "hosts" / "git1.md"
+    p.write_text(p.read_text().replace('runs_on: "[[pve1]]"', 'runs_on: "[[pve9]]"'))
+    git(server, "commit", "-q", "-am", "moved?")
+    result = runner.invoke(app, ["gather", "pve1", "-y", "--accept-new-hostkey"])
+    assert "git1: drift" in result.output and "pve9" in result.output and "pve1" in result.output
+
+
+def test_renamed_guest_matched_by_vmid_is_not_offered_as_new(runner, server):
+    add_host(server, "oldname", '---\nbastet: host\ntype: lxc\nruns_on: "[[pve1]]"\nip: 10.0.20.21/24\nvmid: 104\n---\n# oldname\n')
+    result = runner.invoke(app, ["gather", "pve1", "--accept-new-hostkey"], input="n\ny\n")
+    assert "git1 (lxc 104" not in result.output

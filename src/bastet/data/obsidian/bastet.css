@@ -43,3 +43,4 @@ a.tag[href="#down"]     { background: rgba(var(--color-red-rgb), .18);    color:
 a.tag[href="#security"] { background: rgba(var(--color-purple-rgb), .18); color: var(--color-purple); }
 a.tag[href="#manual"]   { background: rgba(var(--color-blue-rgb), .16);   color: var(--color-blue); }
 a.tag[href="#spare"]    { background: rgba(var(--color-cyan-rgb), .16);   color: var(--color-cyan); }
+a.tag[href="#drift"]    { background: rgba(var(--color-red-rgb), .22);    color: var(--color-red); }

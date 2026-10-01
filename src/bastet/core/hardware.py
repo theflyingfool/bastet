@@ -221,6 +221,7 @@ def observe_hardware(host: str, results: dict[str, ProbeResult], ex: Extracted) 
     for guest in view.guests:
         conf = confs.get(int(guest["vmid"])) if str(guest.get("vmid", "")).isdigit() else None
         guest["ip"], guest["ip_source"] = None, None
+        guest["conf_ip"] = conf["ip"] if conf else None
         if conf and conf["ip"] and conf["ip"] != "dhcp":
             guest["ip"], guest["ip_source"] = conf["ip"], "config"
         elif conf:

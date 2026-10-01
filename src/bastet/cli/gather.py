@@ -9,6 +9,7 @@ from pathlib import Path
 import typer
 
 from bastet.cli.common import Context, handles_errors, load_context, refresh_generated, write_with_confirmation
+from bastet.core.guests import guest_drift
 from bastet.core.render import lab_embed_changes
 from bastet.core.scaffold import new_host
 from bastet.core.tools import install_script, needed_tools
@@ -215,6 +216,7 @@ def gather(
     changes, notes, gathered = [], [], []
     host_warnings: dict[str, list[str]] = {}
     found_guests: list[tuple[str, dict]] = []
+    guest_drift_by_host: dict[str, list[str]] = {}
     run_state = RunState()
     with tempfile.TemporaryDirectory(prefix="bastet-") as tmp:
         for doc in docs:
@@ -249,10 +251,17 @@ def gather(
             if privilege is not None and privilege.output.strip() == "none":
                 notes.append(Note(doc.name, "warn", "root-only facts skipped (no sudo): machine serial, DIMMs, BIOS, drive health, BMC, guests"))
             node_names = {doc.name.lower(), str(extracted.facts.get("hostname", "")).lower()}
+            here = [g for g in (view.guests if view else []) if str(g.get("node", "")).lower() in node_names]
+            drift, vmid_changes = guest_drift(inv, doc, here)
+            for guest_name, items in drift.items():
+                guest_drift_by_host[guest_name] = items
+                notes.extend(Note(guest_name, "warn", f"drift — {item}") for item in items)
+            changes.extend(vmid_changes)
             for guest in view.guests if view else []:
                 if str(guest.get("node", "")).lower() not in node_names:
                     continue
-                if guest.get("name") and inv.get(str(guest["name"])) is None:
+                known_vmid = str(guest.get("vmid")) in {str(d.data.get("vmid")) for d in inv.of_kind("host")}
+                if guest.get("name") and inv.get(str(guest["name"])) is None and not known_vmid:
                     found_guests.append((doc.name, guest))
             host_warnings[doc.name] = [n.message for n in notes if n.host == doc.name and n.severity == "warn"]
             host_changes = ([update.change] if update.change else []) + hw_changes
@@ -273,4 +282,4 @@ def gather(
             message += f"; add {len(added)} guest{'s' if len(added) != 1 else ''}"
         if not write_with_confirmation(ctx, [*changes, *lab_embed_changes(inv)], message, yes):
             return
-    refresh_generated(ctx, warnings=host_warnings)
+    refresh_generated(ctx, warnings=host_warnings, drift=guest_drift_by_host)

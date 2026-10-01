@@ -148,3 +148,13 @@ def test_newlines_flattened_in_warnings_and_cells(repo):
     assert "> - line one line two \\| piped" in text
     dash = dashboard(i, TYPES, {"pve1": ["a\nb"]}, [])
     assert "| #warn | [[pve1]] | a b |" in dash
+
+
+def test_installed_snippet_is_kept_current(repo):
+    snippet = repo.root / ".obsidian" / "snippets" / "bastet.css"
+    snippet.parent.mkdir(parents=True)
+    snippet.write_text("/* old */\n")
+    changes = {c.path: c for c in generated_changes(inv(repo), TYPES, repo)}
+    assert '#drift' in changes[snippet].after
+    snippet.unlink()
+    assert snippet not in {c.path for c in generated_changes(inv(repo), TYPES, repo)}

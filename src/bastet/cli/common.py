@@ -75,7 +75,9 @@ def write_with_confirmation(ctx: Context, changes: list[Change], message: str, y
     return True
 
 
-def refresh_generated(ctx: Context, *, warnings: dict[str, list[str]] | None = None) -> int:
+def refresh_generated(
+    ctx: Context, *, warnings: dict[str, list[str]] | None = None, drift: dict[str, list[str]] | None = None
+) -> int:
     """Rewrite Bastet's generated notes (summaries, dashboard, views) from the files; commit them as `refresh:`.
 
     Only files under _bastet/ are touched, so no confirmation is needed.
@@ -92,7 +94,7 @@ def refresh_generated(ctx: Context, *, warnings: dict[str, list[str]] | None = N
             typer.secho(f"refresh skipped: couldn't sync with the remote ({exc.message})", fg="yellow", err=True)
             return 0
         ctx.inventory = load_inventory(ctx.root, ctx.types)
-        changes = generated_changes(ctx.inventory, ctx.types, ctx.repo, warnings=warnings)
+        changes = generated_changes(ctx.inventory, ctx.types, ctx.repo, warnings=warnings, drift=drift)
         if not changes:
             return 0
         write_changes(changes)

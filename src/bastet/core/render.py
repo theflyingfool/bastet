@@ -93,7 +93,9 @@ def _address(doc: Document) -> str | None:
     return doc.data.get("address") or (ip or None)
 
 
-def host_summary(inv: Inventory, doc: Document, types: dict[str, HostType], warnings: list[str]) -> str:
+def host_summary(
+    inv: Inventory, doc: Document, types: dict[str, HostType], warnings: list[str], drift: list[str] | None = None
+) -> str:
     d = doc.data
     host_type = types.get(str(d.get("type")))
     cards: list[list[str]] = []
@@ -128,9 +130,15 @@ def host_summary(inv: Inventory, doc: Document, types: dict[str, HostType], warn
     if guests or (host_type and host_type.name == "proxmox-node"):
         cards.append(_card("Guests", len(guests), ", ".join(f"[[{g.name}]]" for g in guests) or None))
     body = _grid(cards)
+    drift = list(drift or [])
+    if drift:
+        body += "\n> [!danger] Drift: Proxmox disagrees with this file\n" + "".join(f"> - {_cell(d)}\n" for d in drift)
     if warnings:
         body += "\n> [!warning] Needs attention\n" + "".join(f"> - {_cell(w)}\n" for w in warnings)
-    return _note({"summary_of": make_link(doc.name), "warnings": list(warnings)}, body)
+    front = {"summary_of": make_link(doc.name), "warnings": list(warnings)}
+    if drift:
+        front["drift"] = drift
+    return _note(front, body)
 
 
 def _memory_total(memory: object) -> str | None:
@@ -225,23 +233,33 @@ def _cell(value: object) -> str:
     return _flat(value).replace("|", "\\|")
 
 
-def dashboard(inv: Inventory, types: dict[str, HostType], warnings: dict[str, list[str]], recent: list[str]) -> str:
+def dashboard(
+    inv: Inventory,
+    types: dict[str, HostType],
+    warnings: dict[str, list[str]],
+    recent: list[str],
+    drift: dict[str, list[str]] | None = None,
+) -> str:
     hosts = inv.of_kind("host")
     hardware = inv.of_kind("hardware")
     physical = [h for h in hosts if types.get(str(h.data.get("type"))) and types[str(h.data.get("type"))].physical]
     drives = [h for h in hardware if h.data.get("category") == "drive"]
     spares = [h for h in hardware if h.data.get("status") == "spare"]
     flagged = {name: ws for name, ws in warnings.items() if ws}
-    total = sum(len(ws) for ws in flagged.values())
+    drifted = {name: ds for name, ds in (drift or {}).items() if ds}
+    total = sum(len(ws) for ws in flagged.values()) + sum(len(ds) for ds in drifted.values())
 
     out = ["How this vault works: [[Bastet guide]]\n\n", _grid([
         _card("Hosts", len(hosts), f"{len(physical)} physical · {len(hosts) - len(physical)} virtual"),
         _card("Hardware", len(hardware), f"{len(drives)} drive{'s' if len(drives) != 1 else ''}"),
         _card("Spares", len(spares), ", ".join(f"[[{s.name}]]" for s in spares[:3]) or None),
-        _card("Warnings", total, ", ".join(f"[[{n}]]" for n in sorted(flagged)) or "none"),
+        _card("Warnings", total, ", ".join(f"[[{n}]]" for n in sorted(set(flagged) | set(drifted))) or "none"),
     ])]
-    if flagged:
+    if flagged or drifted:
         out.append("\n## Needs attention\n\n| | Host | What |\n|---|---|---|\n")
+        for name in sorted(drifted):
+            for d in drifted[name]:
+                out.append(f"| #drift | [[{name}]] | drift: {_cell(d)} |\n")
         for name in sorted(flagged):
             for w in flagged[name]:
                 out.append(f"| #warn | [[{name}]] | {_cell(w)} |\n")
@@ -284,7 +302,7 @@ def _recent(repo: GitRepo) -> list[str]:
     return entries
 
 
-def _stored_warnings(root: Path, host: str) -> list[str]:
+def _stored(root: Path, host: str, key: str) -> list[str]:
     path = summary_path(root, host)
     if not path.exists():
         return []
@@ -292,18 +310,25 @@ def _stored_warnings(root: Path, host: str) -> list[str]:
         doc = parse_document(path.read_text(encoding="utf-8"), path)
     except BastetError:
         return []
-    value = doc.data.get("warnings") if doc else None
+    value = doc.data.get(key) if doc else None
     return [str(w) for w in value] if isinstance(value, list) else []
 
 
 def generated_changes(
-    inv: Inventory, types: dict[str, HostType], repo: GitRepo, *, warnings: dict[str, list[str]] | None = None
+    inv: Inventory,
+    types: dict[str, HostType],
+    repo: GitRepo,
+    *,
+    warnings: dict[str, list[str]] | None = None,
+    drift: dict[str, list[str]] | None = None,
 ) -> list[Change]:
     """Every Bastet-owned generated file that differs from what the inventory says it should be."""
     root = inv.root
     warnings = warnings or {}
+    drift = drift or {}
     changes = list(ensure_views(root))
     by_host: dict[str, list[str]] = {}
+    drift_by_host: dict[str, list[str]] = {}
 
     def want(path: Path, text: str) -> None:
         before = path.read_text(encoding="utf-8") if path.exists() else None
@@ -311,13 +336,18 @@ def generated_changes(
             changes.append(Change(path, before, text))
 
     for doc in inv.of_kind("host"):
-        current = warnings[doc.name] if doc.name in warnings else _stored_warnings(root, doc.name)
+        current = warnings[doc.name] if doc.name in warnings else _stored(root, doc.name, "warnings")
+        current_drift = drift[doc.name] if doc.name in drift else _stored(root, doc.name, "drift")
         by_host[doc.name] = current
-        want(summary_path(root, doc.name), host_summary(inv, doc, types, current))
+        drift_by_host[doc.name] = current_drift
+        want(summary_path(root, doc.name), host_summary(inv, doc, types, current, current_drift))
     for doc in inv.of_kind("hardware"):
         want(summary_path(root, doc.name), hardware_summary(inv, doc))
-    want(root / DASHBOARD_PATH, dashboard(inv, types, by_host, _recent(repo)))
+    want(root / DASHBOARD_PATH, dashboard(inv, types, by_host, _recent(repo), drift_by_host))
     want(root / GUIDE_PATH, guide())
+    snippet = root / ".obsidian" / "snippets" / "bastet.css"
+    if snippet.exists():  # only keep it current where the user installed it
+        want(snippet, (resources.files("bastet") / "data" / "obsidian" / "bastet.css").read_text(encoding="utf-8"))
     return changes
 
 
