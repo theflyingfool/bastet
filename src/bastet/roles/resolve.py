@@ -112,6 +112,9 @@ def _merge_values(role: RoleDef, a: dict, b: dict, clash=None) -> dict:
 
 def resolve(inv: Inventory, host: Document, types: dict[str, HostType], roles: dict[str, RoleDef]) -> list[Applied]:
     applied: list[Applied] = []
+    host_type = types.get(str(host.data.get("type")))
+    if host_type is not None and not host_type.managed:
+        return applied  # configured elsewhere (e.g. the UniFi controller); roles never reach it
     for name, sources in sources_for(inv, host, types).items():
         role = roles.get(name)
         if role is None:

@@ -79,6 +79,10 @@ def _run(names: list[str] | None, *, apply_changes: bool, yes: bool, verbose: bo
     with tempfile.TemporaryDirectory(prefix="bastet-") as tmp:
         for doc in docs:
             target = None
+            host_type = ctx.types.get(str(doc.data.get("type")))
+            if host_type is not None and not host_type.managed:
+                typer.echo(f"{doc.name}: configured through {host_type.managed_by or 'something else'}; Bastet doesn't apply roles to it")
+                continue
             try:
                 applied, batches = plan_for(ctx, doc, roles, updates)
                 names = ", ".join(f"{a.role.name} ({', '.join(sorted({s.label for s in a.sources}))})" for a in applied)

@@ -2,6 +2,8 @@ name: unifi-ap
 description: UniFi access point; configured through the UniFi controller
 physical: true
 gather: true
+managed: false
+managed_by: the UniFi controller
 minimal: [ip]
 fields:
   hostname: yours

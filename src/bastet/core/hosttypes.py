@@ -17,6 +17,8 @@ class HostType(BaseModel):
     description: str = ""
     physical: bool = False
     gather: bool = True
+    managed: bool = True
+    managed_by: str = ""
     minimal: list[str] = []
     fields: dict[str, Nature] = {}
     roles: dict[str, dict] = {}

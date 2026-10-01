@@ -121,3 +121,18 @@ def test_role_file_pointing_nowhere_is_reported(runner, box, inventory):
         '---\nbastet: role\nrole: packages\napplies_to: "[[web-servrs]]"\n---\n')
     result = runner.invoke(app, ["check", "box"])
     assert "web-servrs" in result.output and "stray.md" in result.output
+
+
+def test_unifi_devices_are_not_role_managed(runner, box, inventory, monkeypatch):
+    (inventory / "hosts" / "ap1.md").write_text("---\nbastet: host\ntype: unifi-ap\nip: 10.10.0.3\n---\n# ap1\n")
+    lab = inventory / "_roles" / "lab"
+    lab.mkdir(parents=True)
+    (lab / "systemd.md").write_text('---\nbastet: role\nrole: systemd\napplies_to: "[[Homelab]]"\ntimezone: UTC\n---\n')
+
+    def connect(ctx, doc, tmp, yes):
+        assert doc.name != "ap1", "UniFi devices must not be connected to by check"
+        return AsRootLocally(), None
+
+    monkeypatch.setattr(run_mod, "connect", connect)
+    result = runner.invoke(app, ["check", "ap1", "box"])
+    assert "ap1: configured through the UniFi controller" in result.output
