@@ -75,7 +75,7 @@ def test_root_probe_command_is_quoted_safely():
 def test_new_probes_present():
     names = {p.name for p in PROBES}
     assert {"privilege", "dmidecode", "smart", "lspci", "net_sysfs", "ipmi", "zpool", "disk_ids", "pve_guests"} <= names
-    assert {p.name for p in PROBES if p.root} == {"dmidecode", "smart", "ipmi", "pve_guests"}
+    assert {p.name for p in PROBES if p.root} == {"dmidecode", "smart", "ipmi", "pve_guests", "pve_guest_conf"}
 
 
 def test_smart_probe_skips_standby_disks_and_builds_valid_json():

@@ -58,6 +58,14 @@ PROBES: tuple[Probe, ...] = (
     Probe("zpool", "zpool status -P", "zpool (OpenZFS)"),
     Probe("disk_ids", "ls -l /dev/disk/by-id/", "/dev/disk/by-id"),
     Probe("pve_guests", "pvesh get /cluster/resources --type vm --output-format json", "pvesh (Proxmox VE)", root=True),
+    Probe(
+        "pve_guest_conf",
+        "for f in /etc/pve/lxc/*.conf /etc/pve/qemu-server/*.conf; do [ -f \"$f\" ] || continue; "
+        "printf '### %s\\n' \"$f\"; awk '/^\\[/{exit} /^(net[0-9]+|ipconfig[0-9]+):/{print}' \"$f\"; done",
+        "/etc/pve guest configs (Proxmox VE)",
+        root=True,
+    ),
+    Probe("neigh", "ip -j neigh show", "ip (iproute2)"),
 )
 
 

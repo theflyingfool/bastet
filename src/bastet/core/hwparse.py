@@ -291,3 +291,43 @@ def board_subsystem_id(devices: list[dict], makers: list[str | None]) -> str | N
             if short >= 2 and (w.startswith(name[:short]) or name.startswith(w[:short])):
                 return svid
     return None
+
+
+def parse_guest_conf(text: str) -> dict[int, dict]:
+    """Proxmox guest configs (current section only): vmid -> kind, MACs, configured IP (static, 'dhcp' or None)."""
+    out: dict[int, dict] = {}
+    current: dict | None = None
+    for line in text.splitlines():
+        m = re.match(r"^### /etc/pve/(lxc|qemu-server)/(\d+)\.conf$", line.strip())
+        if m:
+            current = {"kind": "lxc" if m.group(1) == "lxc" else "qemu", "macs": [], "ip": None}
+            out[int(m.group(2))] = current
+            continue
+        if current is None:
+            continue
+        key, _, value = line.partition(":")
+        opts = dict(part.split("=", 1) for part in value.strip().split(",") if "=" in part)
+        if re.fullmatch(r"net\d+", key.strip()):
+            mac = opts.get("hwaddr") or next(
+                (v for k, v in opts.items() if re.fullmatch(r"[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}", v)), None)
+            if mac:
+                current["macs"].append(mac.lower())
+            if current["kind"] == "lxc" and opts.get("ip") and current["ip"] is None:
+                current["ip"] = opts["ip"]
+        elif re.fullmatch(r"ipconfig\d+", key.strip()) and opts.get("ip") and current["ip"] is None:
+            current["ip"] = opts["ip"]
+    return out
+
+
+def parse_neigh(text: str) -> dict[str, str]:
+    """MAC -> IPv4 address from `ip -j neigh` (what the node currently sees on its bridges)."""
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return {}
+    out: dict[str, str] = {}
+    for entry in data if isinstance(data, list) else []:
+        if not isinstance(entry, dict) or not entry.get("lladdr") or ":" in str(entry.get("dst", ":")):
+            continue
+        out.setdefault(str(entry["lladdr"]).lower(), str(entry["dst"]))
+    return out

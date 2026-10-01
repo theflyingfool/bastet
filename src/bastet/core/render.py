@@ -6,6 +6,7 @@ so regenerating an unchanged inventory changes nothing.
 """
 
 import re
+from importlib import resources
 from pathlib import Path
 
 from bastet.core.changes import Change
@@ -25,6 +26,12 @@ DASHBOARD_NAME = "bastet dashboard"
 DASHBOARD_PATH = f"_bastet/{DASHBOARD_NAME}.md"
 DASHBOARD_EMBED = f"![[{DASHBOARD_NAME}]]"
 RECENT = 6
+GUIDE_PATH = "_bastet/Bastet guide.md"
+
+
+def guide() -> str:
+    text = (resources.files("bastet") / "data" / "guide" / "guide.md").read_text(encoding="utf-8")
+    return _note({}, text)
 
 
 def summary_path(root: Path, page: str) -> Path:
@@ -222,7 +229,7 @@ def dashboard(inv: Inventory, types: dict[str, HostType], warnings: dict[str, li
     flagged = {name: ws for name, ws in warnings.items() if ws}
     total = sum(len(ws) for ws in flagged.values())
 
-    out = [_grid([
+    out = ["How this vault works: [[Bastet guide]]\n\n", _grid([
         _card("Hosts", len(hosts), f"{len(physical)} physical · {len(hosts) - len(physical)} virtual"),
         _card("Hardware", len(hardware), f"{len(drives)} drive{'s' if len(drives) != 1 else ''}"),
         _card("Spares", len(spares), ", ".join(f"[[{s.name}]]" for s in spares[:3]) or None),
@@ -305,6 +312,7 @@ def generated_changes(
     for doc in inv.of_kind("hardware"):
         want(summary_path(root, doc.name), hardware_summary(inv, doc))
     want(root / DASHBOARD_PATH, dashboard(inv, types, by_host, _recent(repo)))
+    want(root / GUIDE_PATH, guide())
     return changes
 
 

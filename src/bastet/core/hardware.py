@@ -12,7 +12,7 @@ from bastet.core.frontmatter import Document, new_document, set_keys
 from bastet.core.gatherplan import Note, merge_facts
 from bastet.core.gitrepo import GitRepo
 from bastet.core.hwparse import (
-    base_device, board_subsystem_id, clean, has_ipmi, machine_from_dmi, pci_id, slot_designations, parse_disk_ids, parse_dmidecode, parse_ipmi_lan, parse_lspci,
+    base_device, board_subsystem_id, clean, parse_guest_conf, parse_neigh, has_ipmi, machine_from_dmi, pci_id, slot_designations, parse_disk_ids, parse_dmidecode, parse_ipmi_lan, parse_lspci,
     parse_net_sysfs, parse_pve_guests, parse_smart, parse_zpool, slots_in_use, strip_ids,
 )
 from bastet.core.inventory import Inventory, markdown_files
@@ -212,6 +212,17 @@ def observe_hardware(host: str, results: dict[str, ProbeResult], ex: Extracted) 
         view.items.append(Observed(f"serial:{drive_serial.lower()}", file_name(drive_model, drive_serial), drive))
 
     view.guests = parse_pve_guests(_text(results, "pve_guests") or "")
+    confs = parse_guest_conf(_text(results, "pve_guest_conf") or "")
+    neighbours = parse_neigh(_text(results, "neigh") or "")
+    for guest in view.guests:
+        conf = confs.get(int(guest["vmid"])) if str(guest.get("vmid", "")).isdigit() else None
+        guest["ip"], guest["ip_source"] = None, None
+        if conf and conf["ip"] and conf["ip"] != "dhcp":
+            guest["ip"], guest["ip_source"] = conf["ip"], "config"
+        elif conf:
+            seen = next((neighbours[m] for m in conf["macs"] if m in neighbours), None)
+            if seen:
+                guest["ip"], guest["ip_source"] = seen, "neighbour"
     seen: dict[str, Observed] = {}
     unique = []
     for item in view.items:

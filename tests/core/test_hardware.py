@@ -50,7 +50,7 @@ def test_server_card_pools_guests():
         {"name": "enp1s0f1", "mac": "3c:fd:fe:00:00:11"},
     ]
     assert v.pools == [{"name": "tank", "state": "ONLINE"}]
-    assert [g["name"] for g in v.guests] == ["git1", "media"]
+    assert [g["name"] for g in v.guests] == ["git1", "media", "dns", "ghost"]
     assert v.complete == {"drives": True, "cards": True} and not v.skipped_root
 
 
@@ -135,3 +135,11 @@ def test_bmc_without_ipmitool_gives_a_hint():
     v = view(RACK, host="sanrio")
     assert any("ipmitool" in n for n in v.hints)
     assert not any("ipmitool" in n for n in view(SERVER).hints)
+
+
+def test_guest_addresses_resolved():
+    guests = {g["name"]: g for g in view(SERVER).guests}
+    assert guests["git1"]["ip"] == "10.0.20.21/24" and guests["git1"]["ip_source"] == "config"
+    assert guests["media"]["ip"] == "10.0.20.25" and guests["media"]["ip_source"] == "neighbour"
+    assert guests["dns"]["ip"] == "10.0.20.36/24" and guests["dns"]["ip_source"] == "config"
+    assert guests["ghost"]["ip"] is None

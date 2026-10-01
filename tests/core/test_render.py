@@ -124,3 +124,10 @@ def test_recent_changes_ignore_refresh_commits(repo):
     repo.commit([c.path for c in first], "refresh: views")
     text = (repo.root / DASHBOARD_PATH).read_text()
     assert "gather: pve1" in text and "refresh:" not in text
+
+
+def test_guide_generated_and_linked(repo):
+    changes = {c.path: c for c in generated_changes(inv(repo), TYPES, repo)}
+    guide = changes[repo.root / "_bastet" / "Bastet guide.md"].after
+    assert "generated: true" in guide and "bastet gather" in guide and "bastet refresh" in guide
+    assert "[[Bastet guide]]" in changes[repo.root / DASHBOARD_PATH].after

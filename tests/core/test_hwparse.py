@@ -77,6 +77,8 @@ def test_pve_guests():
     assert parse_pve_guests(SERVER["pve_guests"]) == [
         {"vmid": 104, "name": "git1", "type": "lxc", "node": "pve1", "status": "running"},
         {"vmid": 105, "name": "media", "type": "qemu", "node": "pve1", "status": "stopped"},
+        {"vmid": 106, "name": "dns", "type": "qemu", "node": "pve1", "status": "running"},
+        {"vmid": 107, "name": "ghost", "type": "qemu", "node": "pve1", "status": "stopped"},
     ]
 
 
@@ -114,3 +116,13 @@ def test_board_subsystem_vendor_by_name():
     assert board_subsystem_id([{"SVendor": "Super Micro Computer Inc [15d9]"}], ["Supermicro"]) == "15d9"
     assert board_subsystem_id([{"SVendor": "Hewlett-Packard Company [103c]"}], ["HP"]) == "103c"
     assert board_subsystem_id(devices, ["Unknown Vendor"]) is None
+
+
+def test_guest_conf_and_neighbours():
+    from bastet.core.hwparse import parse_guest_conf, parse_neigh
+    conf = parse_guest_conf(SERVER["pve_guest_conf"])
+    assert conf[104] == {"kind": "lxc", "macs": ["bc:24:11:00:01:04"], "ip": "10.0.20.21/24"}
+    assert conf[105] == {"kind": "qemu", "macs": ["bc:24:11:00:01:05"], "ip": None}
+    assert conf[106]["ip"] == "10.0.20.36/24"
+    assert parse_neigh(SERVER["neigh"]) == {"bc:24:11:00:01:05": "10.0.20.25"}
+    assert parse_guest_conf("### /etc/pve/lxc/9.conf\nnet0: name=eth0,ip=dhcp,hwaddr=AA:BB:CC:DD:EE:FF\n")[9]["ip"] == "dhcp"

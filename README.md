@@ -39,7 +39,8 @@ No agent, no Python and no Ansible are needed on hosts.
 | `/sys/class/net`, `/dev/disk/by-id` | kernel, udev | optional | NIC link speeds and PCI addresses; ZFS member disks |
 | `ipmitool` (as root) | ipmitool | optional | BMC/IPMI address and MAC |
 | `zpool` | OpenZFS | optional | pools and their member drives |
-| `pvesh` (as root) | Proxmox VE | optional | guests on a Proxmox node |
+| `pvesh`, `/etc/pve` guest configs (as root) | Proxmox VE | optional | guests on a Proxmox node, with their static IPs and MACs |
+| `ip neigh` | iproute2 | optional | addresses the node currently sees for its guests (DHCP guests) |
 
 Root-only tools run through passwordless sudo (the `bastet` user has it). When gathering the computer you run Bastet
 from, gather asks for your sudo password once (not with `-y`, which never asks). Without root, those facts are skipped

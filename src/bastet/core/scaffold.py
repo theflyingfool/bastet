@@ -62,6 +62,7 @@ def new_host(
     provider: str | None = None,
     address: str | None = None,
     connection: str | None = None,
+    extra: dict | None = None,
 ) -> HostDraft:
     _check_name(inv, name)
     if type_name not in types:
@@ -92,6 +93,7 @@ def new_host(
         data["address"] = address
     if connection:
         data["connection"] = connection
+    data.update(extra or {})
     missing = [f for f in types[type_name].minimal if f not in data]
     if missing:
         needs = ", ".join(f"{f} ({OPTION_FOR.get(f, '--' + f)})" for f in missing)

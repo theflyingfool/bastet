@@ -10,6 +10,7 @@ import typer
 
 from bastet.cli.common import Context, handles_errors, load_context, refresh_generated, write_with_confirmation
 from bastet.core.render import lab_embed_changes
+from bastet.core.scaffold import new_host
 from bastet.core import hostkeys
 from bastet.core.bootstrap import setup_command
 from bastet.core.collect import Snapshot, collect, save_snapshot
@@ -111,6 +112,42 @@ def _collect(ctx: Context, doc: Document, tmp: Path, *, yes: bool, accept: bool)
     return collect(ssh_runner(own), doc.name), hostkey
 
 
+def _guest_command(node: str, guest: dict) -> str:
+    kind = "lxc" if guest.get("type") == "lxc" else "vm"
+    return f"bastet add host {shlex.quote(str(guest['name']))} --type {kind} --on {shlex.quote(node)}"
+
+
+def _offer_guests(ctx: Context, found: list[tuple[str, dict]], yes: bool) -> list:
+    """List guests found on Proxmox nodes that aren't in the inventory; with confirmation, draft host files for all."""
+    typer.echo(f"\n{len(found)} guest{'s' if len(found) != 1 else ''} aren't in the inventory:")
+    for node, g in found:
+        kind = "lxc" if g.get("type") == "lxc" else "vm"
+        where = {"config": g.get("ip"), "neighbour": f"seen at {g.get('ip')}"}.get(g.get("ip_source"), "address unknown")
+        typer.echo(f"  {g['name']} ({kind} {g['vmid']} on {node}, {where})")
+    typer.echo("To add only some, answer N and run, for example:")
+    for node, g in found[:3]:
+        typer.echo(f"  {_guest_command(node, g)}")
+    if yes or not typer.confirm(f"Add all {len(found)} to the inventory? (y adds every one listed)", default=False):
+        return []
+    drafts, names = [], set()
+    for node, g in found:
+        name, kind = str(g["name"]), "lxc" if g.get("type") == "lxc" else "vm"
+        if name.lower() in names:
+            continue
+        names.add(name.lower())
+        ip, address = (g["ip"], None) if g.get("ip_source") == "config" else ("dhcp", g.get("ip"))
+        try:
+            draft = new_host(ctx.inventory, ctx.types, name, kind, on=node, ip=ip, address=address,
+                             extra={"vmid": g["vmid"]})
+        except BastetError as exc:
+            typer.secho(f"  skipped {name}: {exc}", fg="yellow")
+            continue
+        drafts.append(draft.change)
+        if not address and ip == "dhcp":
+            typer.secho(f"  {name}: no address known; set address: (a DNS name or IP) before gathering it", fg="yellow")
+    return drafts
+
+
 @handles_errors
 def gather(
     hosts: list[str] | None = typer.Argument(None, help="Hosts to gather (default: all hosts)."),
@@ -137,6 +174,7 @@ def gather(
     take_fields = set(take) | ({"ssh_host_key"} if accept_new_hostkey else set())
     changes, notes, gathered = [], [], []
     host_warnings: dict[str, list[str]] = {}
+    found_guests: list[tuple[str, dict]] = []
     run_state = RunState()
     with tempfile.TemporaryDirectory(prefix="bastet-") as tmp:
         for doc in docs:
@@ -171,10 +209,7 @@ def gather(
                 if str(guest.get("node", "")).lower() not in node_names:
                     continue
                 if guest.get("name") and inv.get(str(guest["name"])) is None:
-                    kind = "lxc" if guest.get("type") == "lxc" else "vm"
-                    name = shlex.quote(str(guest["name"]))
-                    notes.append(Note(doc.name, "info", f"runs {kind} {guest['vmid']} {name}, not in the inventory "
-                                      f"(bastet add host {name} --type {kind} --on {shlex.quote(doc.name)})"))
+                    found_guests.append((doc.name, guest))
             host_warnings[doc.name] = [n.message for n in notes if n.host == doc.name and n.severity == "warn"]
             host_changes = ([update.change] if update.change else []) + hw_changes
             if not host_changes:
@@ -186,7 +221,12 @@ def gather(
     for note in notes:
         mark = "⚠" if note.severity == "warn" else "·"
         typer.secho(f"{mark} {note.host}: {note.message}", fg="yellow" if note.severity == "warn" else None)
+    added = _offer_guests(ctx, found_guests, yes) if found_guests else []
+    changes.extend(added)
     if changes:
-        if not write_with_confirmation(ctx, [*changes, *lab_embed_changes(inv)], f"gather: {', '.join(gathered)}", yes):
+        message = f"gather: {', '.join(gathered)}" if gathered else "gather"
+        if added:
+            message += f"; add {len(added)} guest{'s' if len(added) != 1 else ''}"
+        if not write_with_confirmation(ctx, [*changes, *lab_embed_changes(inv)], message, yes):
             return
     refresh_generated(ctx, warnings=host_warnings)

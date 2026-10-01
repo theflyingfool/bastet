@@ -289,6 +289,8 @@ errors: No known data errors
     "pve_guests": json.dumps([
         {"id": "lxc/104", "vmid": 104, "name": "git1", "type": "lxc", "node": "pve1", "status": "running"},
         {"id": "qemu/105", "vmid": 105, "name": "media", "type": "qemu", "node": "pve1", "status": "stopped"},
+        {"id": "qemu/106", "vmid": 106, "name": "dns", "type": "qemu", "node": "pve1", "status": "running"},
+        {"id": "qemu/107", "vmid": 107, "name": "ghost", "type": "qemu", "node": "pve1", "status": "stopped"},
     ]),
 }
 
@@ -355,4 +357,21 @@ IPMI Device Information
         {"ifname": "wlp44s0", "link_type": "ether", "address": "a8:a1:59:00:00:03", "addr_info": []},
     ]),
     "ipmi": (127, ""),
+})
+
+
+SERVER.update({
+    "pve_guest_conf": (
+        "### /etc/pve/lxc/104.conf\n"
+        "net0: name=eth0,bridge=vmbr0,firewall=1,hwaddr=BC:24:11:00:01:04,ip=10.0.20.21/24,type=veth\n"
+        "### /etc/pve/qemu-server/105.conf\n"
+        "net0: virtio=BC:24:11:00:01:05,bridge=vmbr0,firewall=1\n"
+        "### /etc/pve/qemu-server/106.conf\n"
+        "net0: virtio=BC:24:11:00:01:06,bridge=vmbr0\n"
+        "ipconfig0: ip=10.0.20.36/24,gw=10.0.20.1\n"
+    ),
+    "neigh": json.dumps([
+        {"dst": "10.0.20.25", "dev": "vmbr0", "lladdr": "bc:24:11:00:01:05", "state": ["REACHABLE"]},
+        {"dst": "fe80::1", "dev": "vmbr0", "lladdr": "bc:24:11:00:01:05", "state": ["STALE"]},
+    ]),
 })

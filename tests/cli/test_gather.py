@@ -223,7 +223,7 @@ def test_gather_server_creates_hardware_files(runner, server):
     assert "Supermicro SYS-5019C-MR S123456X.md" in hw and len(hw) == 5
     host = (server / "hosts" / "pve1.md").read_text()
     assert "pools:\n  - name: tank\n    state: ONLINE\n" in host
-    assert "git1" in result.output and "media" in result.output and "not in the inventory" in result.output
+    assert "git1" in result.output and "media" in result.output and "aren't in the inventory" in result.output
     files = git(server, "log", "-1", "--name-only", "--format=", "--grep=^gather").split()
     assert "hosts/pve1.md" in files and any(f.startswith("hardware/") for f in files)
 
@@ -277,3 +277,24 @@ def test_gather_stores_warnings_in_summary_and_refresh_keeps_them(runner, laptop
     assert "ram" in (laptop / "_bastet" / "summary" / "hp-13 summary.md").read_text()
     dash = (laptop / "_bastet" / "bastet dashboard.md").read_text()
     assert "Needs attention" in dash and "[[hp-13]]" in dash
+
+
+def test_found_guests_added_when_confirmed(runner, server):
+    result = runner.invoke(app, ["gather", "pve1", "--accept-new-hostkey"], input="y\ny\n")
+    assert result.exit_code == 0, result.output
+    assert "Add all 4" in result.output and "bastet add host git1 --type lxc --on pve1" in result.output
+    git1 = (server / "hosts" / "git1.md").read_text()
+    assert "type: lxc" in git1 and 'runs_on: "[[pve1]]"' in git1 and "ip: 10.0.20.21/24" in git1 and "vmid: 104" in git1
+    media = (server / "hosts" / "media.md").read_text()
+    assert "type: vm" in media and "ip: dhcp" in media and "address: 10.0.20.25" in media
+    ghost = (server / "hosts" / "ghost.md").read_text()
+    assert "ip: dhcp" in ghost and "address:" not in ghost
+    assert "ghost" in result.output and "set address" in result.output
+
+
+def test_found_guests_not_added_on_no_or_yes_flag(runner, server):
+    result = runner.invoke(app, ["gather", "pve1", "--accept-new-hostkey"], input="n\ny\n")
+    assert result.exit_code == 0, result.output
+    assert not (server / "hosts" / "git1.md").exists()
+    result = runner.invoke(app, ["gather", "pve1", "-y"])
+    assert "Add all" not in result.output and not (server / "hosts" / "git1.md").exists()
