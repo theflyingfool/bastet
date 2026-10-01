@@ -18,10 +18,12 @@ def test_core_does_not_import_cli_or_typer():
     import sys
 
     import bastet.core
+    import bastet.engine
 
-    for mod in pkgutil.walk_packages(bastet.core.__path__, "bastet.core."):
-        importlib.import_module(mod.name)
-    loaded = [m for m in sys.modules if m.startswith("bastet.core")]
+    for package in (bastet.core, bastet.engine):
+        for mod in pkgutil.walk_packages(package.__path__, package.__name__ + "."):
+            importlib.import_module(mod.name)
+    loaded = [m for m in sys.modules if m.startswith(("bastet.core", "bastet.engine"))]
     for name in loaded:
         module = sys.modules[name]
         source = getattr(module, "__file__", None)
