@@ -46,3 +46,59 @@ def test_pinned_keys_only_the_recorded_one():
     rsa_only = parse_keyscan("h ssh-rsa QUFBQQ==\n")
     assert pinned(record(keys[1]), keys) == rsa_only
     assert pinned("ssh-ed25519 SHA256:nope", keys) == []
+
+
+import pytest
+
+import bastet.core.hostkeys as hk
+from bastet.core.errors import Unreachable
+
+ED = "h ssh-ed25519 QkJCQg=="
+RSA = "h ssh-rsa QUFBQQ=="
+BANNER = "# h:22 SSH-2.0-OpenSSH_10.0"
+
+
+def fake_keyscan(monkeypatch, by_type: dict[str, str], *, answered=True):
+    calls = []
+
+    def run(cmd, *a, **k):
+        types = cmd[cmd.index("-t") + 1]
+        calls.append(types)
+        out = (BANNER + "\n" if answered else "") + "\n".join(by_type.get(t, "") for t in types.split(","))
+        return subprocess.CompletedProcess(cmd, 0, out, "")
+
+    monkeypatch.setattr(hk.shutil, "which", lambda name: "/usr/bin/ssh-keyscan")
+    monkeypatch.setattr(hk.subprocess, "run", run)
+    return calls
+
+
+def test_scan_new_host_asks_for_ed25519_only(monkeypatch):
+    calls = fake_keyscan(monkeypatch, {"ed25519": ED, "rsa": RSA})
+    keys = hk.scan("h")
+    assert calls == ["ed25519"] and [k.type for k in keys] == ["ssh-ed25519"]
+
+
+def test_scan_falls_back_when_no_ed25519(monkeypatch):
+    calls = fake_keyscan(monkeypatch, {"rsa": RSA})
+    assert [k.type for k in hk.scan("h")] == ["ssh-rsa"]
+    assert calls == ["ed25519", "ecdsa,rsa"]
+
+
+def test_scan_recorded_type_only(monkeypatch):
+    calls = fake_keyscan(monkeypatch, {"ed25519": ED, "rsa": RSA})
+    hk.scan("h", recorded="ssh-rsa SHA256:x")
+    assert calls == ["rsa"]
+
+
+def test_scan_recorded_type_gone_scans_all_so_change_is_visible(monkeypatch):
+    calls = fake_keyscan(monkeypatch, {"ed25519": ED})
+    keys = hk.scan("h", recorded="ssh-rsa SHA256:x")
+    assert calls == ["rsa", "ed25519,ecdsa,rsa"] and keys[0].type == "ssh-ed25519"
+
+
+def test_nothing_answered_is_one_attempt_with_clear_message(monkeypatch):
+    calls = fake_keyscan(monkeypatch, {}, answered=False)
+    with pytest.raises(Unreachable) as e:
+        hk.scan("h")
+    assert calls == ["ed25519"]
+    assert "nothing answered on port 22" in str(e.value) and "fail2ban" in str(e.value)

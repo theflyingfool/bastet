@@ -26,8 +26,8 @@ def ssh_runner(target: SshTarget) -> SshRunner:
     return SshRunner(target)
 
 
-def scan_keys(address: str) -> list[hostkeys.HostKey]:
-    return hostkeys.scan(address)
+def scan_keys(address: str, recorded: str | None = None) -> list[hostkeys.HostKey]:
+    return hostkeys.scan(address, recorded=recorded)
 
 
 def interactive(target: SshTarget, command: str) -> int:
@@ -49,10 +49,10 @@ def _collect(ctx: Context, doc: Document, tmp: Path, *, yes: bool, accept: bool)
     address = doc.data.get("address") or _fixed_ip(doc.data.get("ip"))
     if not address:
         raise BastetError("no address to connect to; set `address:` (e.g. laptop.local) or a fixed `ip:`", file=doc.path)
-    keys = scan_keys(str(address))
+    recorded = doc.data.get("ssh_host_key")
+    keys = scan_keys(str(address), recorded=str(recorded) if recorded else None)
     best = hostkeys.preferred(keys)
     offered = hostkeys.record(best)
-    recorded = doc.data.get("ssh_host_key")
     status = hostkeys.check(recorded, keys)
     if status == "changed" and not accept:
         raise BastetError(

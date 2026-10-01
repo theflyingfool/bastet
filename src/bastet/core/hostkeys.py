@@ -39,20 +39,56 @@ def parse_keyscan(output: str) -> list[HostKey]:
     return keys
 
 
-def scan(address: str, *, port: int = 22, timeout: int = 10) -> list[HostKey]:
-    if shutil.which("ssh-keyscan") is None:
-        raise BastetError("ssh-keyscan not found; install the OpenSSH client")
+KEYSCAN_TYPES = {
+    "ssh-ed25519": "ed25519",
+    "sk-ssh-ed25519@openssh.com": "ed25519-sk",
+    "sk-ecdsa-sha2-nistp256@openssh.com": "ecdsa-sk",
+    "ssh-rsa": "rsa",
+    "rsa-sha2-256": "rsa",
+    "rsa-sha2-512": "rsa",
+}
+ALL_TYPES = "ed25519,ecdsa,rsa"
+
+
+def _keyscan_type(key_type: str) -> str:
+    if key_type.startswith("ecdsa-sha2-"):
+        return "ecdsa"
+    return KEYSCAN_TYPES.get(key_type, ALL_TYPES)
+
+
+def _keyscan(address: str, port: int, timeout: int, types: str) -> tuple[list[HostKey], bool]:
+    """One ssh-keyscan connection per requested type; also reports whether SSH answered at all."""
     try:
         r = subprocess.run(
-            ["ssh-keyscan", "-T", str(timeout), "-p", str(port), address],
+            ["ssh-keyscan", "-T", str(timeout), "-p", str(port), "-t", types, address],
             capture_output=True, text=True, timeout=timeout + 10,
         )
     except subprocess.TimeoutExpired:
-        raise Unreachable(f"{address}: no answer on port {port}") from None
+        return [], False
+    answered = any(line.startswith("#") and "SSH-" in line for line in (r.stdout + r.stderr).splitlines())
     keys = parse_keyscan(r.stdout)
-    if not keys:
-        raise Unreachable(f"{address}: no SSH host keys on port {port} (host down, or SSH not running?)")
-    return keys
+    return keys, answered or bool(keys)
+
+
+def scan(address: str, *, port: int = 22, timeout: int = 10, recorded: str | None = None) -> list[HostKey]:
+    """Ask for as few key types as possible: each type is a separate connection that never logs in,
+    which intrusion-prevention tools (fail2ban, sshguard) may count against us."""
+    if shutil.which("ssh-keyscan") is None:
+        raise BastetError("ssh-keyscan not found; install the OpenSSH client")
+    if recorded:
+        attempts = [_keyscan_type(str(recorded).split()[0]), ALL_TYPES]
+    else:
+        attempts = ["ed25519", "ecdsa,rsa"]
+    for types in dict.fromkeys(attempts):
+        keys, answered = _keyscan(address, port, timeout, types)
+        if keys:
+            return keys
+        if not answered:
+            raise Unreachable(
+                f"{address}: nothing answered on port {port} within {timeout}s "
+                "(host down, firewall, or a ban such as fail2ban?)"
+            )
+    raise Unreachable(f"{address}: SSH answered on port {port} but offered no usable host key")
 
 
 def preferred(keys: list[HostKey]) -> HostKey:

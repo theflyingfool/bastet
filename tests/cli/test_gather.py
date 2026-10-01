@@ -41,7 +41,7 @@ def laptop(inventory, monkeypatch):
     add_host(inventory, "hp-13", "---\nbastet: host\ntype: laptop\nip: dhcp\nconnection: local\n---\n# hp-13\n")
     monkeypatch.setattr(gather_mod, "local_runner", lambda: FakeRunner(LAPTOP, "local"))
 
-    def no_network(address):
+    def no_network(address, recorded=None):
         raise Unreachable(f"{address}: offline in tests")
 
     monkeypatch.setattr(gather_mod, "scan_keys", no_network)
@@ -51,7 +51,7 @@ def laptop(inventory, monkeypatch):
 @pytest.fixture
 def vps(inventory, monkeypatch):
     add_host(inventory, "vps1", "---\nbastet: host\ntype: vps\nprovider: linode\nip: 203.0.113.10\n---\n# vps1\n")
-    monkeypatch.setattr(gather_mod, "scan_keys", lambda address: KEYS)
+    monkeypatch.setattr(gather_mod, "scan_keys", lambda address, recorded=None: KEYS)
 
     def runner(target):
         if target.user == "bastet":
@@ -141,7 +141,7 @@ def test_changed_hostkey_stops(runner, vps):
 def test_unreachable_host_does_not_stop_others(runner, laptop, monkeypatch):
     add_host(laptop, "vps1", "---\nbastet: host\ntype: vps\nprovider: linode\nip: 203.0.113.10\n---\n# vps1\n")
 
-    def down(address):
+    def down(address, recorded=None):
         raise Unreachable(f"{address}: no SSH host keys")
 
     monkeypatch.setattr(gather_mod, "scan_keys", down)
@@ -164,7 +164,7 @@ def test_unknown_host_name(runner, inventory):
 
 def test_accepted_key_replaces_recorded_and_pins_only_one(runner, vps, monkeypatch):
     evil = parse_keyscan(f"h ssh-rsa {base64.b64encode(b'evil').decode()}\n")
-    monkeypatch.setattr(gather_mod, "scan_keys", lambda address: KEYS + evil)
+    monkeypatch.setattr(gather_mod, "scan_keys", lambda address, recorded=None: KEYS + evil)
     seen = {}
     real_write = gather_mod.hostkeys.write_known_hosts
 
@@ -185,7 +185,7 @@ def test_accepted_key_replaces_recorded_and_pins_only_one(runner, vps, monkeypat
 def test_unexpected_error_on_one_host_does_not_stop_others(runner, laptop, monkeypatch):
     add_host(laptop, "vps1", "---\nbastet: host\ntype: vps\nprovider: linode\nip: 203.0.113.10\n---\n# vps1\n")
 
-    def boom(address):
+    def boom(address, recorded=None):
         raise RuntimeError("something odd")
 
     monkeypatch.setattr(gather_mod, "scan_keys", boom)
