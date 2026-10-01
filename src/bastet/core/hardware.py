@@ -216,6 +216,8 @@ def plan_hardware(
 
     for obs in view.items:
         doc = index.get(obs.key)
+        if doc is None and obs.data.get("category") in MACHINE_CATEGORIES:
+            doc = index.get(f"machine:{host.lower()}")
         if doc is None:
             name, n = obs.name, 2
             while name.lower() in taken:

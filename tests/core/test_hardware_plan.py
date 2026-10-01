@@ -109,3 +109,13 @@ def test_yours_fields_untouched_and_name_collision(repo):
     changes2, notes = run(repo, "pve1")
     assert not [c for c in changes2 if c.path == p]
     assert any("status 'spare'" in n.message for n in notes)
+
+
+def test_serial_learned_later_updates_the_same_machine_file(repo):
+    no_root = dict(SERVER, privilege="none", dmidecode=(126, ""), smart=(126, ""), ipmi=(126, ""), pve_guests=(126, ""))
+    changes, _ = run(repo, "pve1", no_root)
+    apply(repo, changes)
+    changes2, _ = run(repo, "pve1")
+    machine = [c for c in changes2 if "Supermicro" in c.path.name]
+    assert len(machine) == 1 and machine[0].before is not None
+    assert machine[0].path.name == "pve1 Supermicro SYS-5019C-MR.md" and "serial: S123456X" in machine[0].after
