@@ -85,3 +85,12 @@ else `~/.config/bastet/bastet.yml`.
 | `bastet gather [HOST…]` | Collects facts and writes them into host files after a diff; `--take FIELD` accepts a value you'd set by hand |
 | `bastet refresh` | Regenerates page summaries and the dashboard (`_bastet/`) from your files; `show`, `add` and `gather` do this too |
 | `bastet show [NAME]` | Lists the inventory and problems, or one object and what links to it |
+
+## Development
+
+    uv run pytest                                   # unit tests (no network, no hosts)
+    BASTET_CONTRACT=1 uv run pytest tests/contract  # engine contract tests: a throwaway Debian 13
+                                                    # systemd container per test (needs podman)
+
+Every engine resource must pass the contract test: apply it to a fresh container, apply again, and the second run
+changes nothing.
