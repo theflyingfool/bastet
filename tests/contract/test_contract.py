@@ -10,11 +10,11 @@ DEMO_UNIT = "[Unit]\nDescription=Bastet contract demo\n[Service]\nExecStart=/bin
 
 def converge(runner, batches):
     check = run_host(runner, "ct", batches, apply=False)
-    assert all(i.status == "would-change" for i in check.items), render_host(check, full=True)
+    assert all(i.status == "would-change" or i.resource.report_only() for i in check.items), render_host(check, full=True)
     first = run_host(runner, "ct", batches, apply=True)
     assert first.ok, render_host(first, full=True)
     second = run_host(runner, "ct", batches, apply=True)
-    assert all(i.status == "compliant" for i in second.items) and not second.triggers, render_host(second, full=True)
+    assert all(i.status in ("compliant", "attention") for i in second.items) and not second.triggers, render_host(second, full=True)
     return first
 
 
@@ -139,3 +139,20 @@ def test_roles_contract(host):
     assert host.run("systemctl is-active bastet-demo.service").stdout.strip() == "active"
     assert host.run("command -v tree").returncode == 0
     assert "NOPASSWD: ALL" in host.run("sudo -n sudo -l -U nick").stdout
+
+
+from bastet.engine.packages import Unaccounted, Updates  # noqa: E402
+
+
+def test_updates_and_unaccounted_contract(host):
+    check = run_host(host, "ct", [Batch("p", [Updates(policy="auto"), Unaccounted(tracked=("systemd",))])], apply=False)
+    unacc = next(i for i in check.items if i.resource.identity == "unaccounted")
+    assert unacc.status == "attention" and "sudo" in unacc.diff
+    run_host(host, "ct", [Batch("p", [Updates(policy="auto")])], apply=True)
+    again = run_host(host, "ct", [Batch("p", [Updates(policy="auto")])], apply=False)
+    assert again.items[0].status == "compliant", render_host(again, full=True)
+
+
+def test_arch_updates_reported(arch_host):
+    check = run_host(arch_host, "ct", [Batch("p", [Updates(), Unaccounted()])], apply=False)
+    assert all(i.status in ("compliant", "attention") for i in check.items), render_host(check, full=True)

@@ -1,3 +1,3 @@
 FROM docker.io/library/archlinux:latest
-RUN pacman -Sy --noconfirm && pacman -S --noconfirm --needed sudo && pacman -Scc --noconfirm
+RUN pacman -Sy --noconfirm && pacman -S --noconfirm --needed sudo pacman-contrib && pacman -Scc --noconfirm
 CMD ["sleep", "infinity"]

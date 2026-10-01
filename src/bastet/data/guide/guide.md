@@ -47,6 +47,8 @@ A role is a menu of options for one thing: `systemd` (time, hostname, locale, se
 over outer ones), then the host. Lists add up across levels. Every option is listed, with its default, on the
 role's page in `_bastet/roles/`. `bastet check` shows what would change; `bastet apply` changes it after asking.
 
+The packages role also reports pending updates (and installs them per `updates:`; `bastet apply --updates` for manual hosts), whether a reboot is needed, and packages installed outside Bastet: anything explicitly installed that isn't in the system set, a role, or `allowed:`.
+
 ## Drift
 
 Your files are the source of truth. When something changes outside Bastet (say, a guest's IP edited in

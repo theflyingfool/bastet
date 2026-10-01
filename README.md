@@ -45,6 +45,7 @@ No agent, no Python and no Ansible are needed on hosts.
 | `/proc/cpuinfo`, `/sys/firmware`, `/sys/class/tpm` | kernel | optional | CPU microcode, UEFI or BIOS boot, Secure Boot, TPM version |
 | `pvesh`, `/etc/pve` guest configs (as root) | Proxmox VE | optional | guests on a Proxmox node, with their static IPs and MACs |
 | `ip neigh` | iproute2 | optional | addresses the node currently sees for its guests (DHCP guests) |
+| `checkupdates` | pacman-contrib | optional | Arch: pending updates without touching the package database |
 
 Root-only tools run through passwordless sudo (the `bastet` user has it). When gathering the computer you run Bastet
 from, gather asks for your sudo password once (not with `-y`, which never asks). Without root, those facts are skipped
@@ -87,7 +88,7 @@ else `~/.config/bastet/bastet.yml`.
 | `bastet show [NAME]` | Lists the inventory and problems, or one object and what links to it |
 | `bastet add role <role> <host\|group\|lab>` | Writes a role file under `_roles/` after showing the diff |
 | `bastet check [HOST…]` | Shows what differs between each host and its roles; changes nothing |
-| `bastet apply [HOST…] [-y]` | Shows the check, asks, applies the changes and verifies them |
+| `bastet apply [HOST…] [-y] [--updates]` | Shows the check, asks, applies the changes and verifies them; `--updates` also installs pending updates on hosts whose policy is manual |
 
 ## Development
 
