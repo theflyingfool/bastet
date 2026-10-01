@@ -121,3 +121,20 @@ def test_matching_hand_pinned_key_gives_no_note(repo):
     p = host(repo, "---\nbastet: host\ntype: vps\nprovider: linode\nip: 203.0.113.10\nssh_host_key: ecdsa-sha2-nistp256 SHA256:x\n---\n# v\n")
     up = plan(p, VPS, repo, "vps", hostkey="ecdsa-sha2-nistp256 SHA256:x")
     assert not [n for n in up.notes if "ssh_host_key" in n.message]
+
+
+def test_virtual_hosts_get_no_hardware_section(repo):
+    p = host(repo, "---\nbastet: host\ntype: vps\nprovider: linode\nip: 203.0.113.10\n---\n# v\n")
+    assert "hardware-here.base" not in plan(p, VPS, repo, "vps").change.after
+
+
+def test_merge_facts_direct(repo):
+    from bastet.core.gatherplan import merge_facts
+
+    p = host(repo, "---\nbastet: hardware\nmodel: Old\nsize: 4 TB\n---\n")
+    doc = parse_document(p.read_text(), p)
+    updates, notes = merge_facts(doc, {"model": "New", "size": "4 TB", "firmware": "1.0"}, repo,
+                                 take=set(), nature_of=lambda k: "fact", warn=lambda k: True)
+    assert updates == {"firmware": "1.0"}
+    [n] = notes
+    assert n.severity == "warn" and "model" in n.message

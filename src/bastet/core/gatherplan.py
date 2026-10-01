@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from bastet.core.attribution import last_setter
@@ -25,6 +26,45 @@ class HostUpdate:
     notes: list[Note] = field(default_factory=list)
 
 
+def merge_facts(
+    doc: Document,
+    observed: dict,
+    repo: GitRepo,
+    *,
+    take: set[str],
+    nature_of: Callable[[str], str | None],
+    warn: Callable[[str], bool],
+) -> tuple[dict, list[Note]]:
+    """Per-field merge: desired fields reported, facts added or updated, hand-set values kept and attributed."""
+    updates: dict[str, object] = {}
+    notes: list[Note] = []
+    for key, value in observed.items():
+        nature = nature_of(key)
+        current = doc.data.get(key)
+        if nature == "desired":
+            if current is not None and not same_value(key, current, value):
+                notes.append(Note(doc.name, "info", f"{key}: desired {current!r}, host has {value!r} (apply will handle desired fields later)"))
+            continue
+        if nature != "fact":
+            continue
+        if current is None or key in take:
+            if current is None or not same_value(key, current, value):
+                updates[key] = value
+            continue
+        if same_value(key, current, value):
+            continue
+        setter = last_setter(repo, doc.path, key)
+        if setter is not None and setter.author == BASTET_NAME:
+            updates[key] = value
+            continue
+        who = setter.describe() if setter is not None else "set by you"
+        notes.append(Note(
+            doc.name, "warn" if warn(key) else "info",
+            f"{key}: file says {current!r} ({who}), observed {value!r}; keeping yours. Use --take {key} to accept the observed value",
+        ))
+    return updates, notes
+
+
 def plan_update(
     doc: Document,
     ex: Extracted,
@@ -45,34 +85,11 @@ def plan_update(
             observed["interfaces"] = [
                 {k: v for k, v in i.items() if k != "addresses"} for i in observed["interfaces"] if isinstance(i, dict)
             ]
-    updates: dict[str, object] = {}
-    notes: list[Note] = []
-
-    for key, value in observed.items():
-        nature = host_type.fields.get(key)
-        current = doc.data.get(key)
-        if nature == "desired":
-            if current is not None and not same_value(key, current, value):
-                notes.append(Note(doc.name, "info", f"{key}: desired {current!r}, host has {value!r} (apply will handle desired fields later)"))
-            continue
-        if nature != "fact":
-            continue
-        if current is None or key in take:
-            if current is None or not same_value(key, current, value):
-                updates[key] = value
-            continue
-        if same_value(key, current, value):
-            continue
-        setter = last_setter(repo, doc.path, key)
-        if setter is not None and setter.author == BASTET_NAME:
-            updates[key] = value
-            continue
-        who = setter.describe() if setter is not None else "set by you"
-        severity = "warn" if host_type.physical and key in HARDWARE_KEYS else "info"
-        notes.append(Note(
-            doc.name, severity,
-            f"{key}: file says {current!r} ({who}), observed {value!r}; keeping yours. Use --take {key} to accept the observed value",
-        ))
+    updates, notes = merge_facts(
+        doc, observed, repo, take=take,
+        nature_of=host_type.fields.get,
+        warn=lambda key: host_type.physical and key in HARDWARE_KEYS,
+    )
 
     proposal = propose_type(ex)
     current_type = doc.data.get("type")
@@ -88,7 +105,7 @@ def plan_update(
         notes.append(Note(doc.name, "info", f"type is {current_type!r} but this host looks like a {proposal}"))
 
     new_text = set_keys(text, updates, doc.path) if updates else text
-    if not has_hardware_section(doc.body):
+    if host_type.physical and not has_hardware_section(doc.body):
         new_text = new_text.rstrip("\n") + "\n" + HARDWARE_SECTION
     change = Change(doc.path, text, new_text) if new_text != text else None
     return HostUpdate(change, notes)
