@@ -98,6 +98,19 @@ class GitRepo:
             i += 1
         return paths
 
+    def _rel(self, path: Path) -> str:
+        return Path(path).resolve().relative_to(self.root.resolve()).as_posix()
+
+    def file_at(self, ref: str, path: Path) -> str | None:
+        r = self._git("show", f"{ref}:{self._rel(path)}", check=False)
+        return r.stdout if r.returncode == 0 else None
+
+    def file_log(self, path: Path) -> list[tuple[str, str, str]]:
+        r = self._git("log", "--format=%H%x1f%an%x1f%as", "--", self._rel(path), check=False)
+        if r.returncode != 0:
+            return []
+        return [tuple(line.split("\x1f")) for line in r.stdout.splitlines() if line.count("\x1f") == 2]
+
     def commit(self, paths: Iterable[Path], message: str, *, as_bastet: bool = True) -> bool:
         rel = [str(Path(p).resolve().relative_to(self.root.resolve())) for p in paths]
         if not rel:
