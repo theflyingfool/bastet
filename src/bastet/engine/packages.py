@@ -389,9 +389,10 @@ def _per_manager(cases: dict[str, str]) -> str:
 
 
 PENDING = _per_manager({
-    "apt-get": "apt-get -o DPkg::Lock::Timeout=120 update -q >/dev/null 2>&1; apt list --upgradable 2>/dev/null",
-    "pacman": "command -v checkupdates >/dev/null || exit 127; checkupdates 2>/dev/null; true",
-    "dnf": "dnf check-update -q --refresh 2>/dev/null; true",
+    "apt-get": ("apt-get -o DPkg::Lock::Timeout=120 update -q >/dev/null 2>&1 || echo '@@RC refresh-failed'; "
+                "apt list --upgradable 2>/dev/null; echo @@HELD@@; apt-mark showhold 2>/dev/null"),
+    "pacman": "command -v checkupdates >/dev/null || exit 127; checkupdates 2>/dev/null; echo \"@@RC $?\"",
+    "dnf": "dnf check-update -q --refresh 2>/dev/null; echo \"@@RC $?\"",
     "zypper": "zypper --non-interactive --quiet refresh >/dev/null 2>&1; zypper --non-interactive --quiet list-updates 2>/dev/null; true",
     "apk": "apk update -q >/dev/null 2>&1; apk version -l '<' 2>/dev/null; true",
 })
@@ -410,11 +411,26 @@ def _manager(results) -> str:
     return m.output.strip()
 
 
+_RC = re.compile(r"^@@RC (\S+)$", re.M)
+CHECK_OK = {"pacman": ("0", "2"), "dnf": ("0", "100")}
+
+
+def _check_rc(manager: str, text: str) -> None:
+    """Fail loudly when the update check itself failed, instead of reading 'nothing pending'."""
+    for rc in _RC.findall(text):
+        if rc == "refresh-failed":
+            raise ReadError("couldn't refresh the package lists (apt-get update failed); is the network or mirror up?")
+        if manager in CHECK_OK and rc not in CHECK_OK[manager]:
+            raise ReadError(f"couldn't check for updates ({manager} exit {rc}); is the network or mirror up?")
+
+
 def _pending(manager: str, text: str) -> tuple[list[str], list[str]]:
     names, security = [], []
+    text, _, held_text = text.partition("@@HELD@@")
+    held = {line.strip() for line in held_text.splitlines() if line.strip()}
     for line in text.splitlines():
         line = line.strip()
-        if not line:
+        if not line or line.startswith("@@") or "[ignored]" in line:
             continue
         if manager == "apt-get":
             if "/" not in line or line.startswith("Listing"):
@@ -437,7 +453,7 @@ def _pending(manager: str, text: str) -> tuple[list[str], list[str]]:
             m = _APK_NAME.match(line.split()[0])
             if m:
                 names.append(m.group(1))
-    return names, security
+    return [n for n in names if n not in held], [n for n in security if n not in held]
 
 
 def _dnf_security(text: str) -> list[str]:
@@ -458,6 +474,8 @@ class Updates(Resource):
     exclude: tuple[str, ...] = ()
     apply_updates: bool = False
     dpkg_options: tuple[str, ...] = DPKG_DEFAULT
+    extra_args: tuple[str, ...] = ()
+    rest: bool = False  # the non-security remainder under a security policy, reported only
 
     def __post_init__(self):
         if self.policy not in ("manual", "auto", "security"):
@@ -465,11 +483,11 @@ class Updates(Resource):
 
     @property
     def identity(self) -> str:
-        return "updates"
+        return "updates:rest" if self.rest else "updates"
 
     @property
     def label(self) -> str:
-        return "updates"
+        return "updates (non-security)" if self.rest else "updates"
 
     def report_only(self) -> bool:
         return self.policy == "manual" and not self.apply_updates
@@ -486,6 +504,9 @@ class Updates(Resource):
             raise Unsupported(f"{manager} has no separate security updates; use updates: auto or manual")
         if manager == "pacman" and results["pending"].missing:
             raise Unsupported("checking for updates on Arch needs checkupdates (install pacman-contrib)")
+        if self.policy == "security" and manager == "zypper" and self.exclude:
+            raise Unsupported("zypper's security patches can't exclude packages; drop updates_exclude or use auto")
+        _check_rc(manager, results["pending"].output)
         names, security = _pending(manager, results["pending"].output)
         if manager in ("dnf",):
             security = _dnf_security(results["security"].output)
@@ -495,6 +516,8 @@ class Updates(Resource):
         return {"manager": manager, "pending": keep(names), "security": keep(security)}
 
     def _target(self, current) -> tuple[str, ...]:
+        if self.rest:
+            return tuple(n for n in current["pending"] if n not in current["security"])
         return current["security"] if self.policy == "security" else current["pending"]
 
     def compare(self, current):
@@ -506,6 +529,9 @@ class Updates(Resource):
         return "\n".join(names[:40] + ([f"… {len(names) - 40} more"] if len(names) > 40 else [])) or None
 
     def fix(self, changes, current):
+        return [c + "".join(f" {_q(a)}" for a in self.extra_args) for c in self._commands(current)]
+
+    def _commands(self, current):
         manager = current["manager"]
         names = " ".join(_q(n) for n in self._target(current))
         apt = f"DEBIAN_FRONTEND=noninteractive {APT}" + "".join(f" -o Dpkg::Options::={o}" for o in self.dpkg_options)

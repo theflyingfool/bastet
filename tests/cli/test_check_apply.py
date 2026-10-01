@@ -114,3 +114,10 @@ def test_apply_updates_flag_reaches_roles(runner, box, monkeypatch):
     monkeypatch.setattr(run_mod, "host_info", spy)
     runner.invoke(app, ["apply", "box", "--updates", "-y"])
     assert seen["updates"] is True
+
+
+def test_role_file_pointing_nowhere_is_reported(runner, box, inventory):
+    (inventory / "_roles" / "hosts" / "box" / "stray.md").write_text(
+        '---\nbastet: role\nrole: packages\napplies_to: "[[web-servrs]]"\n---\n')
+    result = runner.invoke(app, ["check", "box"])
+    assert "web-servrs" in result.output and "stray.md" in result.output

@@ -13,6 +13,8 @@ options:
         mode: {type: string, description: 'Quoted, e.g. "0644"'}
         validate: {type: string, description: "Command checking the new file first; %s is its path"}
         secret: {type: bool, description: "Never show the contents"}
+        restart: {type: list, items: {type: string}, description: "Units to restart when this changes"}
+        reload: {type: list, items: {type: string}, description: "Units to reload (or restart) when this changes"}
   directories:
     type: map
     description: "Directories by absolute path"
@@ -32,21 +34,37 @@ options:
     items:
       type: object
       fields:
-        path: {type: string}
-        marker: {type: string}
-        block: {type: string}
+        path: {type: string, required: true}
+        marker: {type: string, required: true}
+        block: {type: string, required: true}
         comment: {type: string, description: "Comment character for the markers (default #)"}
         validate: {type: string}
+        secret: {type: bool, description: "Never show the contents"}
+        restart: {type: list, items: {type: string}, description: "Units to restart when this changes"}
+        reload: {type: list, items: {type: string}, description: "Units to reload (or restart) when this changes"}
   lines:
     type: list
     description: "One line inside a file"
     items:
       type: object
       fields:
-        path: {type: string}
-        line: {type: string}
+        path: {type: string, required: true}
+        line: {type: string, required: true}
         match: {type: string, description: "Regex for the line to replace"}
         validate: {type: string}
+        secret: {type: bool, description: "Never show the contents"}
+        restart: {type: list, items: {type: string}, description: "Units to restart when this changes"}
+        reload: {type: list, items: {type: string}, description: "Units to reload (or restart) when this changes"}
+  commands:
+    type: list
+    description: "Escape hatch: run a command unless a check command succeeds (use a real option when one exists)"
+    items:
+      type: object
+      fields:
+        name: {type: string, required: true}
+        run: {type: string, required: true, description: "The command"}
+        unless: {type: string, required: true, description: "Skip when this command exits 0"}
+        root: {type: bool, description: "Run as root (default true)"}
 examples:
   - title: A file, a directory and a link
     yaml: |

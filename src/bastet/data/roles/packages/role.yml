@@ -14,7 +14,7 @@ options:
       type: object
       shorthand: name
       fields:
-        name: {type: string}
+        name: {type: string, required: true}
         version: {type: string, description: "Exact version (not on pacman); rpm accepts a version without release"}
         install_recommends: {type: bool}
         default_release: {type: string}
@@ -31,8 +31,11 @@ options:
       type: object
       shorthand: name
       fields:
-        name: {type: string}
+        name: {type: string, required: true}
         purge: {type: bool, description: "Also remove config (apt purge, pacman -Rns, apk --purge)"}
+        manager: {type: string, choices: [apt-get, pacman, dnf, zypper, apk], description: "Fail unless the host uses this manager"}
+        dpkg_options: {type: list, items: {type: string}}
+        allow_change_held: {type: bool}
         extra_args: {type: list, items: {type: string}}
   repositories:
     type: list
@@ -40,8 +43,8 @@ options:
     items:
       type: object
       fields:
-        name: {type: string}
-        uris: {type: list, items: {type: string}}
+        name: {type: string, required: true}
+        uris: {type: list, items: {type: string}, required: true}
         suites: {type: list, items: {type: string}, description: "apt only"}
         components: {type: list, items: {type: string}, description: "apt only"}
         types: {type: list, items: {type: string}, description: "apt only (deb, deb-src)"}

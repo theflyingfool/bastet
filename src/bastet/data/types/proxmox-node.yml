@@ -28,3 +28,4 @@ fields:
 roles:
   systemd:
     ntp_service: chrony
+    manage_hostname: false

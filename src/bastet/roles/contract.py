@@ -12,7 +12,7 @@ from bastet.core.errors import BastetError
 
 TYPES = ("string", "int", "bool", "list", "map", "object")
 RESERVED = {"bastet", "role", "applies_to", "priority", "cssclasses", "tags", "aliases"}
-OPTION_KEYS = {"type", "description", "default", "choices", "items", "fields", "shorthand", "secret"}
+OPTION_KEYS = {"type", "description", "default", "choices", "items", "fields", "shorthand", "secret", "required"}
 
 
 @dataclass
@@ -25,6 +25,7 @@ class Option:
     fields: dict[str, Option] = field(default_factory=dict)
     shorthand: str | None = None
     secret: bool = False
+    required: bool = False
 
 
 @dataclass
@@ -44,7 +45,7 @@ def _option(where: str, raw: object, path: Path) -> Option:
         raise BastetError(f"{where}: unknown keys {sorted(unknown)}", file=path)
     opt = Option(type=raw["type"], description=str(raw.get("description", "")), default=raw.get("default"),
                  choices=tuple(raw["choices"]) if "choices" in raw else None, shorthand=raw.get("shorthand"),
-                 secret=bool(raw.get("secret", False)))
+                 secret=bool(raw.get("secret", False)), required=bool(raw.get("required", False)))
     if opt.type in ("list", "map"):
         if "items" not in raw:
             raise BastetError(f"{where}: a {opt.type} option needs items", file=path)
@@ -106,6 +107,9 @@ def check_value(opt: Option, value: object, where: str) -> object:
         unknown = sorted(str(k) for k in set(value) - set(opt.fields))
         if unknown:
             raise BastetError(f"{where}: unknown field {', '.join(unknown)} (known: {', '.join(opt.fields)})")
+        missing = [k for k, f in opt.fields.items() if f.required and value.get(k) is None]
+        if missing:
+            raise BastetError(f"{where}: needs {', '.join(missing)}")
         return {k: check_value(opt.fields[k], v, f"{where}.{k}") for k, v in value.items() if v is not None}
     if opt.choices is not None and value not in opt.choices:
         raise BastetError(f"{where}: {value!r} isn't one of {', '.join(map(str, opt.choices))}")

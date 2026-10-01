@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from bastet.core.errors import BastetError
+from bastet.engine.command import Command
 from bastet.engine.files import Block, Directory, File, Line, Symlink
 from bastet.engine.model import Trigger
 from bastet.engine.packages import Package, Reboot, Repository, Unaccounted, Updates
 from bastet.engine.run import Batch
-from bastet.engine.systemd import Hostname, Locale, TimeSettings, Unit, drop_in, restart
+from bastet.engine.systemd import Hostname, Locale, TimeSettings, Unit, drop_in, reload, restart
 from bastet.engine.templates import render_template
 from bastet.engine.users import AuthorizedKey, Group, User, sudoer
 from bastet.roles.resolve import Applied
@@ -50,6 +51,8 @@ def _systemd(v: dict, host: HostInfo) -> list[Batch]:
         raise BastetError("systemd.ntp_servers needs ntp_service: timesyncd or chrony")
     if service == "chrony" and fallback:
         raise BastetError("systemd.fallback_ntp_servers only applies to timesyncd")
+    if (servers or fallback) and ntp is not True:
+        raise BastetError("systemd.ntp_servers needs ntp: true (otherwise the servers would never be used)")
     if not host.container and service != "keep" and ntp is not None:
         if service == "timesyncd":
             unit, other = "systemd-timesyncd.service", "chronyd.service"
@@ -113,11 +116,17 @@ def _packages(v: dict, host: HostInfo) -> list[Batch]:
     for p in v.get("remove") or []:
         if p["name"] in names:
             raise BastetError(f"packages: {p['name']} is in both install and remove")
-        keep = {k: base[k] for k in ("extra_args", "dpkg_options", "allow_change_held") if k in base}
+        keep = {k: base[k] for k in ("extra_args", "dpkg_options", "allow_change_held") if k in base}  # per-entry knobs override
         removes.append(Package(**_kw({**keep, "state": "absent", **p})))
-    extras = [Updates(policy=v.get("updates") or "manual", exclude=tuple(v.get("updates_exclude") or ()),
-                      apply_updates=host.apply_updates,
-                      **({"dpkg_options": tuple(v["dpkg_options"])} if v.get("dpkg_options") else {}))]
+    policy = v.get("updates") or "manual"
+    common = {"exclude": tuple(v.get("updates_exclude") or ()), "extra_args": tuple(v.get("extra_args") or ()),
+              **({"dpkg_options": tuple(v["dpkg_options"])} if v.get("dpkg_options") else {})}
+    if policy == "security" and host.apply_updates:
+        extras = [Updates(policy="auto", **common)]
+    elif policy == "security":
+        extras = [Updates(policy="security", **common), Updates(policy="manual", rest=True, **common)]
+    else:
+        extras = [Updates(policy=policy, apply_updates=host.apply_updates, **common)]
     if not host.container:
         extras.append(Reboot())
     if v.get("report_unaccounted", True):
@@ -126,7 +135,29 @@ def _packages(v: dict, host: HostInfo) -> list[Batch]:
     return [Batch("packages", [*repos, *removes, *[Package(**_kw({**base, **p})) for p in installs], *extras])]
 
 
+BASTET_USER = "bastet"
+NO_LOGIN = ("/usr/sbin/nologin", "/sbin/nologin", "/bin/false", "/usr/bin/false")
+
+
+def _guard_bastet(v: dict) -> None:
+    """Refuse role values that would lock Bastet out of the host it manages (spec 12)."""
+    def stop(what: str):
+        raise BastetError(f"users: {what} would lock Bastet out of this host; the bastet account is managed by Bastet itself")
+    me = (v.get("users") or {}).get(BASTET_USER) or {}
+    if me.get("expires") not in (None, "never"):
+        stop("an expiry date on the bastet user")
+    if me.get("locked"):
+        stop("locking the bastet user")
+    if me.get("shell") in NO_LOGIN:
+        stop("a no-login shell for the bastet user")
+    if any(k.get("state") == "absent" for k in me.get("keys") or []):
+        stop("removing a key from the bastet user")
+    if me.get("sudo") or BASTET_USER in (v.get("sudoers") or {}):
+        stop("a sudoers rule for bastet (/etc/sudoers.d/bastet)")
+
+
 def _users(v: dict, host: HostInfo) -> list[Batch]:
+    _guard_bastet(v)
     groups = [Group(name=name, **_kw(g)) for name, g in (v.get("groups") or {}).items()]
     users, keys, sudo = [], [], []
     for name, u in (v.get("users") or {}).items():
@@ -138,6 +169,12 @@ def _users(v: dict, host: HostInfo) -> list[Batch]:
         users.append(User(name=name, **_kw(u)))
     sudo += [sudoer(name, **_kw(s)) for name, s in (v.get("sudoers") or {}).items()]
     return [Batch("users", [*groups, *users, *keys, *sudo])]
+
+
+def _triggers(d: dict) -> dict:
+    """Pop restart/reload unit lists from a role entry and turn them into on-change triggers."""
+    units = [restart(u) for u in d.pop("restart", None) or []] + [reload(u) for u in d.pop("reload", None) or []]
+    return {"on_change": tuple(units)} if units else {}
 
 
 def _absolute(path: str, where: str) -> str:
@@ -158,10 +195,13 @@ def _files(v: dict, host: HostInfo) -> list[Batch]:
             f["content"] = render_template(host.root, template, {"host": host.data, "name": host.name, "lab": host.lab})
         if "content" not in f:
             raise BastetError(f"files.files.{path}: needs content or template")
-        res.append(File(path=path, **f))
+        res.append(File(path=path, **_triggers(f), **f))
     res += [Symlink(path=_absolute(p, "files.links"), target=t) for p, t in (v.get("links") or {}).items()]
-    res += [Block(**b) for b in v.get("blocks") or []]
-    res += [Line(**line) for line in v.get("lines") or []]
+    res += [Block(**_triggers(dict(b)), **{k: x for k, x in b.items() if k not in ("restart", "reload")})
+            for b in v.get("blocks") or []]
+    res += [Line(**_triggers(dict(line)), **{k: x for k, x in line.items() if k not in ("restart", "reload")})
+            for line in v.get("lines") or []]
+    res += [Command(**c) for c in v.get("commands") or []]
     return [Batch("files", res)]
 
 
@@ -176,6 +216,11 @@ def batches_for(applied: list[Applied], host: HostInfo) -> list[Batch]:
             raise BastetError(f"role {a.role.name} has no implementation yet")
         try:
             batches += builder(a.values, host)
-        except (TypeError, ValueError) as exc:
+        except (TypeError, ValueError, KeyError) as exc:
             raise BastetError(f"{a.role.name}: {exc}") from None
+    # Everything Bastet installs is accounted for, whichever role installs it.
+    present = sorted({r.name for b in batches for r in b.resources if isinstance(r, Package) and r.state == "present"})
+    for b in batches:
+        b.resources = [replace(r, tracked=tuple(dict.fromkeys((*r.tracked, *present)))) if isinstance(r, Unaccounted) else r
+                       for r in b.resources]
     return batches

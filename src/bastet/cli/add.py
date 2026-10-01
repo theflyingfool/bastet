@@ -15,7 +15,7 @@ from bastet.core.scaffold import new_hardware, new_host, suggested_ip
 
 add_app = typer.Typer(no_args_is_help=True, help="Add a host or hardware to the inventory. Asks for anything not given.")
 
-HARDWARE_CATEGORIES = ("drive", "nic", "gpu", "hba", "server", "psu", "other")
+HARDWARE_CATEGORIES = ("drive", "nic", "gpu", "hba", "transceiver", "cpu", "memory", "psu", "usb", "server", "other")
 
 
 def _choose(label: str, options: list[tuple[str, str]], *, default: str | None = None, allow_blank: bool = False) -> str | None:

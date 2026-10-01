@@ -70,6 +70,10 @@ def _run(names: list[str] | None, *, apply_changes: bool, yes: bool, verbose: bo
     ctx = load_context()
     roles = load_roles()
     docs = _hosts(ctx, names)
+    for problem in ctx.inventory.problems:  # a role file that applies nowhere would otherwise be silently ignored
+        f = problem.error.file
+        if f is not None and "_roles" in Path(f).parts:
+            typer.secho(f"{Path(f).relative_to(ctx.root)}: {problem}", fg="yellow")
     full = verbose or len(docs) == 1
     failed = False
     with tempfile.TemporaryDirectory(prefix="bastet-") as tmp:

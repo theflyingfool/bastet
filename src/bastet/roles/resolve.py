@@ -69,7 +69,11 @@ def sources_for(inv: Inventory, host: Document, types: dict[str, HostType]) -> d
         elif kind == "host" and target.name.lower() == host.name.lower():
             rank, label = (3,), f"host {host.name}"
         elif kind == "group" and target.name.lower() in dist:
-            rank = (2, -dist[target.name.lower()], int(target.data.get("priority") or 0))
+            try:
+                priority = int(target.data.get("priority") or 0)
+            except (TypeError, ValueError):
+                raise BastetError("priority must be a whole number", file=target.path, key="priority") from None
+            rank = (2, -dist[target.name.lower()], priority)
             label = f"group {target.name}"
         else:
             continue

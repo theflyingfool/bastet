@@ -33,7 +33,7 @@ options:
             type: object
             shorthand: key
             fields:
-              key: {type: string}
+              key: {type: string, required: true}
               options: {type: string, description: 'e.g. from="10.0.10.0/24",no-agent-forwarding'}
               path: {type: string, description: "Custom authorized_keys path"}
               state: {type: string, choices: [present, absent], description: "absent revokes the key"}

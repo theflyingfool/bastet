@@ -27,9 +27,9 @@ options:
     items:
       type: object
       fields:
-        unit: {type: string, description: "e.g. gitea.service"}
-        name: {type: string, description: "File name without .conf"}
-        content: {type: string, description: "The drop-in's contents"}
+        unit: {type: string, required: true, description: "e.g. gitea.service"}
+        name: {type: string, required: true, description: "File name without .conf"}
+        content: {type: string, required: true, description: "The drop-in's contents"}
         restart: {type: bool, default: true, description: "Restart the unit when the drop-in changes"}
 examples:
   - title: Lab-wide time, synced with timesyncd

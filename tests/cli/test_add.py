@@ -70,3 +70,8 @@ def test_pending_personal_notes_left_alone(runner, inventory):
     assert result.exit_code == 0, result.output
     status = subprocess.run(["git", "-C", str(inventory), "status", "--porcelain"], capture_output=True, text=True).stdout
     assert "journal.md" in status and "pve1.md" not in status
+
+
+def test_hardware_categories_cover_what_bastet_records():
+    from bastet.cli.add import HARDWARE_CATEGORIES
+    assert {"transceiver", "cpu", "memory", "usb"} <= set(HARDWARE_CATEGORIES)
