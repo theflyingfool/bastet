@@ -3,7 +3,7 @@ description: Virtual private server at a provider
 physical: false
 minimal: [provider, ip]
 fields:
-  hostname: fact
+  hostname: yours
   os: fact
   kernel: fact
   cpu: fact

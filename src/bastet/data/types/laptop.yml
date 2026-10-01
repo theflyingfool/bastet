@@ -3,7 +3,7 @@ description: Laptop or workstation; may be the machine Bastet runs on
 physical: true
 minimal: []
 fields:
-  hostname: fact
+  hostname: yours
   os: fact
   kernel: fact
   cpu: fact

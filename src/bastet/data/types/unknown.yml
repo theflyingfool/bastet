@@ -3,7 +3,7 @@ description: Type not decided yet; gather will propose one
 physical: false
 minimal: []
 fields:
-  hostname: fact
+  hostname: yours
   os: fact
   kernel: fact
   arch: fact

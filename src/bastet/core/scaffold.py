@@ -98,6 +98,7 @@ def new_host(
     if missing:
         needs = ", ".join(f"{f} ({OPTION_FOR.get(f, '--' + f)})" for f in missing)
         raise BastetError(f"host type '{type_name}' needs {needs}")
+    data.setdefault("hostname", name)
     data.setdefault("gather", True)
     path = inv.root / "hosts" / f"{name}.md"
     body = f"# {name}\n\n{summary_embed(name)}\n" + (HARDWARE_SECTION if types[type_name].physical else "")

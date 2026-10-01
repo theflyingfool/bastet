@@ -158,3 +158,15 @@ def test_gather_switch_added_once(repo):
 def test_gather_switch_left_alone_when_set(repo):
     p = host(repo, "---\nbastet: host\ntype: laptop\ngather: false\n---\n# h\n")
     assert "gather: false" in plan(p, LAPTOP, repo, "laptop").change.after
+
+
+def test_hostname_filled_once_then_left_alone(repo):
+    p = host(repo, "---\nbastet: host\ntype: laptop\n---\n# h\n")
+    first = plan(p, LAPTOP, repo, "laptop").change.after
+    assert "hostname: hp-13" in first
+    renamed = first.replace("hostname: hp-13", "hostname: spectre")
+    p.write_text(renamed)
+    repo.commit([p], "rename", as_bastet=False)
+    update = plan(p, LAPTOP, repo, "laptop")
+    assert update.change is None or "hostname: spectre" in update.change.after
+    assert not [n for n in update.notes if "hostname" in n.message]

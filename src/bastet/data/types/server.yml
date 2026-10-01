@@ -3,7 +3,7 @@ description: Physical Linux server
 physical: true
 minimal: [ip]
 fields:
-  hostname: fact
+  hostname: yours
   os: fact
   kernel: fact
   cpu: fact

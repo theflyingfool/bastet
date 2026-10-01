@@ -3,7 +3,7 @@ description: Proxmox VE node on physical hardware
 physical: true
 minimal: [ip]
 fields:
-  hostname: fact
+  hostname: yours
   os: fact
   kernel: fact
   cpu: fact

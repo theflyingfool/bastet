@@ -3,7 +3,7 @@ description: LXC container on a Proxmox node
 physical: false
 minimal: [runs_on, ip]
 fields:
-  hostname: fact
+  hostname: yours
   os: fact
   kernel: fact
   ssh_host_key: fact

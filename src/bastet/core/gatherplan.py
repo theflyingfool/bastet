@@ -92,6 +92,8 @@ def plan_update(
     )
     if "gather" not in doc.data:
         updates["gather"] = True
+    if "hostname" not in doc.data and ex.facts.get("hostname"):
+        updates = {"hostname": ex.facts["hostname"], **updates}  # first, where it reads naturally
 
     proposal = propose_type(ex)
     current_type = doc.data.get("type")
