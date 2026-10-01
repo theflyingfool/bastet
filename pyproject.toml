@@ -1,0 +1,26 @@
+[project]
+name = "bastet"
+version = "0.1.0"
+description = "A human-readable, Markdown-based homelab inventory and orchestrator"
+requires-python = ">=3.12"
+dependencies = [
+    "typer>=0.12",
+    "pydantic>=2.7",
+    "pyyaml>=6.0",
+]
+
+[project.scripts]
+bastet = "bastet.cli.app:app"
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/bastet"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
