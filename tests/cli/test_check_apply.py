@@ -1,0 +1,87 @@
+import pytest
+
+import bastet.cli.run as run_mod
+from bastet.cli.app import app
+from bastet.core.errors import BastetError, Unreachable
+from bastet.core.remote import LocalRunner
+from conftest import git
+
+
+class AsRootLocally(LocalRunner):
+    """Runs scripts as the current user, as if it were root, so role files can target temp paths."""
+
+    def run(self, script, *, timeout=120):
+        return super().run(script.replace('if [ "$(id -u)" = 0 ]; then SUDO=""', 'if true; then SUDO=""'), timeout=timeout)
+
+
+@pytest.fixture
+def box(inventory, monkeypatch, tmp_path):
+    out = tmp_path / "out"
+    (inventory / "hosts" / "box.md").write_text("---\nbastet: host\ntype: laptop\nconnection: local\nhostname: box\n---\n# box\n")
+    roles = inventory / "_roles" / "hosts" / "box"
+    roles.mkdir(parents=True)
+    (roles / "files.md").write_text(
+        f'---\nbastet: role\nrole: files\napplies_to: "[[box]]"\nfiles:\n  {out}/motd:\n    content: "hi\\n"\n---\n')
+    git(inventory, "add", ".")
+    git(inventory, "commit", "-q", "-m", "box")
+    monkeypatch.setattr(run_mod, "connect", lambda ctx, doc, tmp, yes: (AsRootLocally(), None))
+    return out
+
+
+def test_check_reports_and_changes_nothing(runner, box):
+    result = runner.invoke(app, ["check", "box"])
+    assert result.exit_code == 0, result.output
+    assert "HOST: box" in result.output and "(absent) → create" in result.output and "1 to change" in result.output
+    assert not (box / "motd").exists()
+
+
+def test_apply_yes_then_check_is_clean(runner, box):
+    result = runner.invoke(app, ["apply", "box", "-y"])
+    assert result.exit_code == 0, result.output
+    assert (box / "motd").read_text() == "hi\n" and "1 changed" in result.output
+    again = runner.invoke(app, ["check", "box"])
+    assert "✓ compliant" in again.output and "0 to change" in again.output
+
+
+def test_apply_asks_and_respects_no(runner, box):
+    result = runner.invoke(app, ["apply", "box"], input="n\n")
+    assert result.exit_code == 0 and "nothing applied" in result.output and not (box / "motd").exists()
+
+
+def test_role_error_exit_1(runner, box, inventory):
+    (inventory / "_roles" / "hosts" / "box" / "files.md").write_text(
+        '---\nbastet: role\nrole: files\napplies_to: "[[box]]"\nfile:\n  /x: {}\n---\n')
+    result = runner.invoke(app, ["check", "box"])
+    assert result.exit_code == 1 and "files has no option 'file'" in result.output
+
+
+def test_unreachable_host_reported_and_others_continue(runner, box, inventory, monkeypatch):
+    (inventory / "hosts" / "box2.md").write_text("---\nbastet: host\ntype: laptop\nconnection: local\n---\n# box2\n")
+    other = inventory / "_roles" / "hosts" / "box2"
+    other.mkdir(parents=True)
+    (other / "files.md").write_text(f'---\nbastet: role\nrole: files\napplies_to: "[[box2]]"\nfiles:\n  {box}/two:\n    content: "2"\n---\n')
+
+    def connect(ctx, doc, tmp, yes):
+        if doc.name == "box":
+            raise Unreachable("box: nothing answered on port 22")
+        return AsRootLocally(), None
+
+    monkeypatch.setattr(run_mod, "connect", connect)
+    result = runner.invoke(app, ["apply", "box", "box2", "-y"])
+    assert result.exit_code == 1 and "nothing answered" in result.output and (box / "two").read_text() == "2"
+
+
+def test_host_without_roles(runner, inventory, monkeypatch):
+    (inventory / "hosts" / "plain.md").write_text("---\nbastet: host\ntype: laptop\nconnection: local\n---\n# plain\n")
+    monkeypatch.setattr(run_mod, "connect", lambda ctx, doc, tmp, yes: (AsRootLocally(), None))
+    result = runner.invoke(app, ["check", "plain"])
+    assert result.exit_code == 0 and "plain: no roles" in result.output
+
+
+def test_connect_requires_gathered_key(inventory):
+    from bastet.cli.common import load_context
+    ctx = load_context()
+    doc = ctx.inventory.get("pve1")
+    with pytest.raises(BastetError) as e:
+        run_mod.connect(ctx, doc, inventory, yes=True)
+    assert "gather" in str(e.value)

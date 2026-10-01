@@ -1,0 +1,124 @@
+"""bastet check / bastet apply: make hosts match the desired state their roles describe (spec 9.2)."""
+
+import os
+import tempfile
+from pathlib import Path
+
+import typer
+
+from bastet.cli.common import Context, handles_errors, load_context, refresh_generated
+from bastet.cli.gather import _fixed_ip, local_runner, scan_keys, ssh_runner, sudo_validate
+from bastet.core import hostkeys
+from bastet.core.errors import BastetError
+from bastet.core.frontmatter import Document
+from bastet.core.remote import SshTarget, close_master, control_path
+from bastet.engine.report import render_host
+from bastet.engine.run import Batch, run_host
+from bastet.roles.builtin import HostInfo, batches_for
+from bastet.roles.contract import RoleDef, load_roles
+from bastet.roles.resolve import Applied, resolve
+
+
+def host_info(ctx: Context, doc: Document) -> HostInfo:
+    lab = ctx.inventory.lab
+    return HostInfo(name=doc.name, type=str(doc.data.get("type", "")), data=dict(doc.data), root=ctx.root,
+                    lab=dict(lab.data) if lab else {})
+
+
+def plan_for(ctx: Context, doc: Document, roles: dict[str, RoleDef]) -> tuple[list[Applied], list[Batch]]:
+    applied = resolve(ctx.inventory, doc, ctx.types, roles)
+    return applied, batches_for(applied, host_info(ctx, doc))
+
+
+def connect(ctx: Context, doc: Document, tmp: Path, *, yes: bool):
+    if doc.data.get("connection") == "local":
+        if not yes and os.geteuid() != 0:
+            sudo_validate()
+        return local_runner(), None
+    address = doc.data.get("address") or _fixed_ip(doc.data.get("ip"))
+    if not address:
+        raise BastetError("no address to connect to; set `address:` or a fixed `ip:`", file=doc.path)
+    recorded = doc.data.get("ssh_host_key")
+    if not recorded:
+        raise BastetError("no confirmed host key yet; run `bastet gather` on this host first", file=doc.path)
+    keys = scan_keys(str(address), recorded=str(recorded))
+    if hostkeys.check(str(recorded), keys) != "match":
+        raise BastetError("the host's key doesn't match ssh_host_key; run `bastet gather` "
+                          "(with --accept-new-hostkey after a reinstall)", file=doc.path, key="ssh_host_key")
+    key = ctx.config.ssh.key
+    if key is None:
+        raise BastetError("no Bastet SSH key configured; run `bastet init`")
+    known = hostkeys.write_known_hosts(hostkeys.pinned(str(recorded), keys), str(address), 22, tmp / doc.name)
+    target = SshTarget(str(address), "bastet", key, known, control_path=control_path())
+    return ssh_runner(target), target
+
+
+def _hosts(ctx: Context, names: list[str] | None) -> list[Document]:
+    if names:
+        docs = []
+        for name in names:
+            doc = ctx.inventory.get(name)
+            if doc is None or doc.data.get("bastet") != "host":
+                raise BastetError(f"no host named '{name}' in the inventory")
+            docs.append(doc)
+        return docs
+    return [d for d in ctx.inventory.of_kind("host") if d.data.get("state", "present") != "destroyed"]
+
+
+def _run(names: list[str] | None, *, apply_changes: bool, yes: bool, verbose: bool) -> None:
+    ctx = load_context()
+    roles = load_roles()
+    docs = _hosts(ctx, names)
+    full = verbose or len(docs) == 1
+    failed = False
+    with tempfile.TemporaryDirectory(prefix="bastet-") as tmp:
+        for doc in docs:
+            target = None
+            try:
+                _, batches = plan_for(ctx, doc, roles)
+                if not any(b.resources for b in batches):
+                    typer.echo(f"{doc.name}: no roles")
+                    continue
+                runner, target = connect(ctx, doc, Path(tmp), yes=yes)
+                check = run_host(runner, doc.name, batches, apply=False)
+                typer.echo(render_host(check, full=full))
+                pending = check.count("would-change")
+                if not apply_changes or not pending:
+                    failed |= check.count("failed") > 0
+                    continue
+                if not yes and not typer.confirm(f"Apply {pending} change(s) to {doc.name}?", default=False):
+                    typer.echo(f"{doc.name}: nothing applied")
+                    continue
+                done = run_host(runner, doc.name, batches, apply=True)
+                typer.echo(render_host(done, full=full))
+                failed |= not done.ok
+            except BastetError as exc:
+                where = f" ({exc.file.name}{':' + exc.key if exc.key else ''})" if exc.file else ""
+                typer.secho(f"{doc.name}: {exc.message}{where}", fg="red")
+                failed = True
+            finally:
+                if target is not None:
+                    close_master(target)
+    refresh_generated(ctx)
+    if failed:
+        raise typer.Exit(1)
+
+
+@handles_errors
+def check(
+    hosts: list[str] | None = typer.Argument(None, help="Hosts to check (default: all hosts)."),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show compliant items for every host."),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Don't ask for the local sudo password."),
+) -> None:
+    """Show what differs between each host and the desired state its roles describe. Changes nothing."""
+    _run(hosts, apply_changes=False, yes=yes, verbose=verbose)
+
+
+@handles_errors
+def apply(
+    hosts: list[str] | None = typer.Argument(None, help="Hosts to apply to (default: all hosts)."),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Don't ask; apply every change."),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show compliant items for every host."),
+) -> None:
+    """Make each host match its roles: shows the check first, asks, applies, and verifies."""
+    _run(hosts, apply_changes=True, yes=yes, verbose=verbose)
