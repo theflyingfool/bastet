@@ -196,7 +196,10 @@ class Locale(Resource):
         return {"lang": self.lang, "keymap": self.keymap}
 
     def reads(self):
-        return (Read("localectl", "command -v localectl >/dev/null || exit 127; localectl status"),)
+        return (
+            Read("localectl", "command -v localectl >/dev/null || exit 127; localectl status"),
+            Read("update_locale", "command -v update-locale"),
+        )
 
     def current(self, results):
         r = results["localectl"]
@@ -207,13 +210,19 @@ class Locale(Resource):
         lang = re.search(r"LANG=(\S+)", r.output)
         keymap = re.search(r"VC Keymap:\s*(\S+)", r.output)
         km = keymap.group(1) if keymap else None
-        return {"lang": lang.group(1) if lang else ABSENT, "keymap": km if km not in (None, "(unset)", "n/a") else ABSENT}
+        # Debian forbids localectl's setters (even for root) and sets these through update-locale and console-setup.
+        debian = "update_locale" in results and results["update_locale"].ok and bool(results["update_locale"].output.strip())
+        if debian and self.keymap is not None:
+            raise Unsupported("Debian sets the console keymap through console-setup (/etc/default/keyboard); not supported yet")
+        return {"lang": lang.group(1) if lang else ABSENT, "keymap": km if km not in (None, "(unset)", "n/a") else ABSENT,
+                "tool": "update-locale" if debian else "localectl"}
 
     def fix(self, changes, current):
         cmds = []
         for c in changes:
             if c.field == "lang":
-                cmds.append(f"localectl set-locale {_q('LANG=' + str(c.after))}")
+                setter = "update-locale" if current.get("tool") == "update-locale" else "localectl set-locale"
+                cmds.append(f"{setter} {_q('LANG=' + str(c.after))}")
             elif c.field == "keymap":
                 cmds.append(f"localectl set-keymap {_q(str(c.after))}")
         return cmds

@@ -73,7 +73,18 @@ def test_hostname():
 def test_locale():
     loc = Locale(lang="en_US.UTF-8", keymap="us")
     cur = loc.current({"localectl": ok("   System Locale: LANG=C.UTF-8\n                  LC_TIME=en_GB.UTF-8\n       VC Keymap: (unset)\n      X11 Layout: us")})
-    assert cur == {"lang": "C.UTF-8", "keymap": "(absent)"}
+    assert cur == {"lang": "C.UTF-8", "keymap": "(absent)", "tool": "localectl"}
     assert loc.fix(loc.compare(cur), cur) == ["localectl set-locale LANG=en_US.UTF-8", "localectl set-keymap us"]
     with pytest.raises(Unsupported):
         loc.current({"localectl": ProbeResult(127, "")})
+
+
+def test_locale_on_debian_uses_update_locale():
+    status = ok("   System Locale: LANG=C.UTF-8\n       VC Keymap: (unset)")
+    loc = Locale(lang="en_US.UTF-8")
+    cur = loc.current({"localectl": status, "update_locale": ok("/usr/sbin/update-locale")})
+    assert loc.fix(loc.compare(cur), cur) == ["update-locale LANG=en_US.UTF-8"]
+    with pytest.raises(Unsupported) as e:
+        Locale(lang="en_US.UTF-8", keymap="us").current({"localectl": status, "update_locale": ok("/usr/sbin/update-locale")})
+    assert "console-setup" in str(e.value)
+    assert Locale(lang="en_US.UTF-8").current({"localectl": status, "update_locale": ProbeResult(1, "")})["tool"] == "localectl"
