@@ -3,14 +3,20 @@
 import json
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 
+from bastet.core.changes import Change
 from bastet.core.collect import ProbeResult
 from bastet.core.facts import SKIP_DISKS, Extracted
+from bastet.core.frontmatter import Document, new_document, set_keys
+from bastet.core.gatherplan import Note, merge_facts
+from bastet.core.gitrepo import GitRepo
 from bastet.core.hwparse import (
     base_device, clean, machine_from_dmi, parse_disk_ids, parse_dmidecode, parse_ipmi_lan, parse_lspci,
     parse_net_sysfs, parse_pve_guests, parse_smart, parse_zpool, slots_in_use, speed_label, strip_ids,
 )
-from bastet.core.links import make_link
+from bastet.core.inventory import Inventory, markdown_files
+from bastet.core.links import link_target, make_link
 from bastet.core.units import format_size
 
 DRIVE_TRANSPORTS = {"sata", "sas", "nvme", "ata", "scsi"}
@@ -179,3 +185,65 @@ def observe_hardware(host: str, results: dict[str, ProbeResult], ex: Extracted) 
 
     view.guests = parse_pve_guests(_text(results, "pve_guests") or "")
     return view
+
+
+HARDWARE_YOURS = {"category", "status", "location", "purchased", "vendor", "price", "warranty_until", "notes"}
+HARDWARE_SPECIAL = {"bastet", "installed_in"}
+
+
+def _index(inv: Inventory) -> dict[str, Document]:
+    index: dict[str, Document] = {}
+    for doc in inv.of_kind("hardware"):
+        target = (link_target(doc.data.get("installed_in")) or "").lower()
+        if doc.data.get("serial"):
+            index[f"serial:{str(doc.data['serial']).lower()}"] = doc
+        if doc.data.get("pci") and target:
+            index[f"pci:{target}:{doc.data['pci']}"] = doc
+        if target and not doc.data.get("serial") and doc.data.get("category") in MACHINE_CATEGORIES:
+            index.setdefault(f"machine:{target}", doc)
+    return index
+
+
+def plan_hardware(
+    inv: Inventory, host_doc: Document, view: HardwareView, repo: GitRepo, *, take: set[str]
+) -> tuple[list[Change], list[Note]]:
+    host = host_doc.name
+    index = _index(inv)
+    taken = {p.stem.lower() for p in markdown_files(inv.root)}
+    changes: list[Change] = []
+    notes: list[Note] = []
+    seen: set[Path] = set()
+
+    for obs in view.items:
+        doc = index.get(obs.key)
+        if doc is None:
+            name, n = obs.name, 2
+            while name.lower() in taken:
+                name, n = f"{obs.name} {n}", n + 1
+            taken.add(name.lower())
+            changes.append(Change(inv.root / "hardware" / f"{name}.md", None, new_document(obs.data, f"# {name}\n")))
+            continue
+        seen.add(doc.path)
+        observed = {k: v for k, v in obs.data.items() if k not in HARDWARE_YOURS | HARDWARE_SPECIAL}
+        updates, fact_notes = merge_facts(doc, observed, repo, take=take, nature_of=lambda k: "fact", warn=lambda k: True)
+        notes.extend(fact_notes)
+        current = link_target(doc.data.get("installed_in"))
+        if (current or "").lower() != host.lower():
+            updates["installed_in"] = make_link(host)
+            where = f"moved from [[{current}]] to [[{host}]]" if current else f"is now installed in [[{host}]]"
+            notes.append(Note(host, "info", f"{doc.name} {where}"))
+        status = doc.data.get("status")
+        if status not in (None, "in-service"):
+            notes.append(Note(host, "warn", f"{doc.name} has status '{status}' but is installed in {host}; update it if that's wrong"))
+        if updates:
+            text = doc.path.read_text(encoding="utf-8")
+            changes.append(Change(doc.path, text, set_keys(text, updates, doc.path)))
+
+    for doc in inv.of_kind("hardware"):
+        if doc.path in seen or (link_target(doc.data.get("installed_in")) or "").lower() != host.lower():
+            continue
+        category = doc.data.get("category")
+        checked = (category == "drive" and view.complete["drives"]) or (category in ("gpu", "hba", "nic") and view.complete["cards"])
+        if checked:
+            notes.append(Note(host, "warn", f"{doc.name} is recorded in {host} but wasn't seen (pulled, failed or moved?); its file is unchanged"))
+    return changes, notes
