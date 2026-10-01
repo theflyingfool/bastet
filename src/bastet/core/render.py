@@ -5,7 +5,6 @@ warnings each host's last gather stored in its summary). Output is deterministic
 so regenerating an unchanged inventory changes nothing.
 """
 
-import re
 from importlib import resources
 from pathlib import Path
 
@@ -15,6 +14,7 @@ from bastet.core.frontmatter import Document, parse_document
 from bastet.core.gitrepo import BASTET_NAME, GitRepo
 from bastet.core.hardware import MACHINE_CATEGORIES
 from bastet.core.hosttypes import HostType
+from bastet.core.hwparse import short_cpu
 from bastet.core.inventory import Inventory
 from bastet.core.links import link_target, make_link
 from bastet.core.units import format_size, parse_size
@@ -36,13 +36,6 @@ def guide() -> str:
 
 def summary_path(root: Path, page: str) -> Path:
     return root / SUMMARY_DIR / f"{summary_name(page)}.md"
-
-
-def short_cpu(model: str) -> str:
-    text = re.sub(r"\((R|TM|tm|r)\)", "", str(model))
-    text = re.sub(r"\s+CPU\s+@.*$", "", text)
-    text = re.sub(r"\s+(Processor|CPU)$", "", text)
-    return re.sub(r"\s+", " ", text).strip()
 
 
 def _flat(value: object) -> str:

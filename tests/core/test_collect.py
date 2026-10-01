@@ -75,7 +75,7 @@ def test_root_probe_command_is_quoted_safely():
 def test_new_probes_present():
     names = {p.name for p in PROBES}
     assert {"privilege", "dmidecode", "smart", "lspci", "net_sysfs", "ipmi", "zpool", "disk_ids", "pve_guests"} <= names
-    assert {p.name for p in PROBES if p.root} == {"dmidecode", "smart", "ipmi", "pve_guests", "pve_guest_conf"}
+    assert {p.name for p in PROBES if p.root} == {"dmidecode", "smart", "ipmi", "pve_guests", "pve_guest_conf", "ipmi_fru", "ipmi_mc"}
 
 
 def test_smart_probe_skips_standby_disks_and_builds_valid_json():
@@ -87,3 +87,13 @@ def test_ipmi_probe_loads_modules_first():
     [ipmi] = [p for p in PROBES if p.name == "ipmi"]
     assert ipmi.command.startswith("modprobe ipmi_devintf ipmi_si") and ipmi.root
     assert any(p.name == "ipmi_dev" for p in PROBES)
+
+
+def test_completeness_probes_present():
+    import subprocess
+    names = {p.name: p for p in PROBES}
+    for n in ("ip_link", "ipmi_fru", "ipmi_mc", "ethtool", "usb", "firmware"):
+        assert n in names, n
+    assert names["ipmi_fru"].root and names["ipmi_mc"].root and not names["usb"].root
+    assert ",39" in names["dmidecode"].command
+    subprocess.run(["sh", "-n"], input=build_script(), text=True, check=True)

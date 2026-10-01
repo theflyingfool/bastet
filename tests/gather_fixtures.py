@@ -375,3 +375,53 @@ SERVER.update({
         {"dst": "fe80::1", "dev": "vmbr0", "lladdr": "bc:24:11:00:01:05", "state": ["STALE"]},
     ]),
 })
+
+SERVER["dmidecode"] += """
+Handle 0x0050, DMI type 39, 22 bytes
+System Power Supply
+\tLocation: PSU1
+\tName: PWS-504P-1R
+\tManufacturer: SUPERMICRO
+\tSerial Number: P504PCH12AB3456
+\tModel Part Number: PWS-504P-1R
+\tMax Power Capacity: 500 W
+\tStatus: Present, OK
+"""
+SERVER.update({
+    "ipmi_fru": (
+        "FRU Device Description : Builtin FRU Device (ID 0)\n Board Mfg             : Supermicro\n"
+        " Product Name          : SYS-5019C-MR\n\n"
+        "FRU Device Description : PSU1 (ID 1)\n Product Manufacturer  : SUPERMICRO\n"
+        " Product Name          : PWS-504P-1R\n Product Part Number   : PWS-504P-1R\n"
+        " Product Serial        : P504PCH12AB3456\n"
+    ),
+    "ipmi_mc": "Device ID                 : 32\nFirmware Revision         : 1.73\nManufacturer Name         : Super Micro Computer Inc.\n",
+    "ethtool": (
+        "### eno1\nSettings for eno1:\n\tSupported ports: [ TP ]\n"
+        "\tSupported link modes:   10baseT/Half 10baseT/Full\n\t                        100baseT/Half 100baseT/Full\n"
+        "\t                        1000baseT/Full\n\tSupported pause frame use: Symmetric\n\tSpeed: 1000Mb/s\n"
+        "#info\ndriver: igb\nfirmware-version: 3.16, 0x800004d6\n"
+        "### enp1s0f0\nSettings for enp1s0f0:\n\tSupported link modes:   10000baseSR/Full\n"
+        "\tSupported pause frame use: Symmetric\n#info\ndriver: i40e\nfirmware-version: 8.50 0x8000b6c5 1.3082.0\n"
+        "### enp1s0f1\nSettings for enp1s0f1:\n\tSupported link modes:   10000baseSR/Full\n"
+        "#info\ndriver: i40e\nfirmware-version: 8.50 0x8000b6c5 1.3082.0\n"
+    ),
+    "usb": (
+        "1-1\t1cf1\t0030\t00\tremovable\tdresden elektronik ingenieurtechnik GmbH\tConBee II\tDE2412345\n"
+        "1-2\t0bda\t5411\t09\tremovable\tGeneric\tUSB2.1 Hub\t\n"
+        "usb1\t1d6b\t0002\t09\tunknown\tLinux Foundation\txHCI Host Controller\t0000:00:14.0\n"
+        "1-14\t0557\t9241\t00\tfixed\tAmerican Megatrends Inc.\tVirtual Keyboard and Mouse\t\n"
+    ),
+    "firmware": "microcode=0xde\ntpm=2\nboot=uefi\nsecure_boot=0\n",
+    "ip_link": json.dumps([
+        {"ifname": "lo", "link_type": "loopback"},
+        {"ifname": "eno1", "master": "vmbr0", "link_type": "ether"},
+        {"ifname": "enp1s0f0", "master": "bond0", "link_type": "ether"},
+        {"ifname": "enp1s0f1", "master": "bond0", "link_type": "ether"},
+        {"ifname": "bond0", "linkinfo": {"info_kind": "bond", "info_data": {"mode": "802.3ad"}}},
+        {"ifname": "vmbr0", "linkinfo": {"info_kind": "bridge"}},
+        {"ifname": "vmbr0.20", "link": "vmbr0", "linkinfo": {"info_kind": "vlan", "info_data": {"id": 20}}},
+        {"ifname": "tap101i0", "master": "vmbr0"},
+        {"ifname": "docker0", "linkinfo": {"info_kind": "bridge"}},
+    ]),
+})

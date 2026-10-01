@@ -152,3 +152,55 @@ def test_board_subsystem_prefers_most_used_matching_id():
     from bastet.core.hwparse import board_subsystem_id
     devices = [{"SVendor": "Hewlett Packard Enterprise [1590]"}] + [{"SVendor": "Hewlett-Packard Company [103c]"}] * 3
     assert board_subsystem_id(devices, ["HPE"]) == "103c"
+
+
+from bastet.core.hwparse import (  # noqa: E402
+    cpus_from_dmi, parse_ethtool, parse_firmware_info, parse_fru, parse_links, parse_mc_info, parse_usb, psus_from_dmi,
+)
+
+
+def test_cpus_and_psus_from_dmi():
+    records = parse_dmidecode(SERVER["dmidecode"])
+    assert cpus_from_dmi(records) == [{"socket": "CPU", "model": "Intel(R) Xeon(R) E-2236 CPU @ 3.40GHz", "cores": 6, "threads": 12}]
+    assert psus_from_dmi(records) == [{"name": "PWS-504P-1R", "make": "SUPERMICRO", "model": "PWS-504P-1R",
+                                       "serial": "P504PCH12AB3456", "max_power": "500 W"}]
+
+
+def test_fru_and_mc():
+    assert parse_fru(SERVER["ipmi_fru"]) == [{"name": "PSU1", "make": "SUPERMICRO", "model": "PWS-504P-1R", "serial": "P504PCH12AB3456"}]
+    assert parse_mc_info(SERVER["ipmi_mc"]) == {"firmware": "1.73"}
+
+
+def test_ethtool():
+    eth = parse_ethtool(SERVER["ethtool"])
+    assert eth["eno1"] == {"max_speed": "1G", "firmware": "3.16, 0x800004d6"}
+    assert eth["enp1s0f0"]["max_speed"] == "10G"
+
+
+def test_ethtool_unreported():
+    eth = parse_ethtool("### wlan0\nSettings for wlan0:\n\tSupported link modes:   Not reported\n#info\ndriver: iwlwifi\nfirmware-version: N/A\n")
+    assert eth == {"wlan0": {}}
+
+
+def test_usb():
+    usb = parse_usb(SERVER["usb"])
+    assert usb == [
+        {"busid": "1-1", "id": "1cf1:0030", "make": "dresden elektronik ingenieurtechnik GmbH", "model": "ConBee II",
+         "serial": "DE2412345", "removable": True},
+        {"busid": "1-14", "id": "0557:9241", "make": "American Megatrends Inc.", "model": "Virtual Keyboard and Mouse",
+         "serial": None, "removable": False},
+    ]
+
+
+def test_firmware_info():
+    assert parse_firmware_info(SERVER["firmware"]) == {"microcode": "0xde", "tpm": "TPM 2.0", "boot": "uefi", "secure_boot": "disabled"}
+    assert parse_firmware_info("microcode=\ntpm=\nboot=bios\n") == {"boot": "bios"}
+
+
+def test_links():
+    assert parse_links(SERVER["ip_link"]) == {
+        "bridges": [{"name": "vmbr0", "ports": ["eno1"]}],
+        "bonds": [{"name": "bond0", "ports": ["enp1s0f0", "enp1s0f1"], "mode": "802.3ad"}],
+        "vlans": [{"name": "vmbr0.20", "id": 20, "parent": "vmbr0"}],
+    }
+    assert parse_links("not json") == {}

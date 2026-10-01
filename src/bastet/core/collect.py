@@ -43,7 +43,7 @@ PROBES: tuple[Probe, ...] = (
         "for m in apt-get pacman dnf zypper apk; do command -v $m >/dev/null 2>&1 && { echo $m; break; }; done",
         "package manager",
     ),
-    Probe("dmidecode", "dmidecode -t 0,1,2,3,4,9,17,38", "dmidecode", root=True),
+    Probe("dmidecode", "dmidecode -t 0,1,2,3,4,9,17,38,39", "dmidecode", root=True),
     Probe(
         "smart",
         "command -v smartctl >/dev/null || exit 127; printf '['; sep=''; "
@@ -72,6 +72,32 @@ PROBES: tuple[Probe, ...] = (
         root=True,
     ),
     Probe("neigh", "ip -j neigh show", "ip (iproute2)"),
+    Probe("ip_link", "ip -j -d link", "ip (iproute2)"),
+    Probe("ipmi_fru", "modprobe ipmi_devintf ipmi_si 2>/dev/null; ipmitool fru print", "ipmitool", root=True),
+    Probe("ipmi_mc", "modprobe ipmi_devintf ipmi_si 2>/dev/null; ipmitool mc info", "ipmitool", root=True),
+    Probe(
+        "ethtool",
+        "command -v ethtool >/dev/null || exit 127; for i in /sys/class/net/*; do [ -e \"$i/device\" ] || continue; "
+        "n=${i##*/}; printf '### %s\\n' \"$n\"; ethtool \"$n\" 2>/dev/null; printf '#info\\n'; ethtool -i \"$n\" 2>/dev/null; done",
+        "ethtool",
+    ),
+    Probe(
+        "usb",
+        "for d in /sys/bus/usb/devices/*; do [ -f \"$d/idVendor\" ] || continue; "
+        "printf '%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\n' \"${d##*/}\" \"$(cat \"$d/idVendor\")\" \"$(cat \"$d/idProduct\")\" "
+        "\"$(cat \"$d/bDeviceClass\" 2>/dev/null)\" \"$(cat \"$d/removable\" 2>/dev/null)\" \"$(cat \"$d/manufacturer\" 2>/dev/null)\" "
+        "\"$(cat \"$d/product\" 2>/dev/null)\" \"$(cat \"$d/serial\" 2>/dev/null)\"; done",
+        "/sys/bus/usb",
+    ),
+    Probe(
+        "firmware",
+        "printf 'microcode=%s\\n' \"$(awk -F': ' '/^microcode/{print $2; exit}' /proc/cpuinfo)\"; "
+        "printf 'tpm=%s\\n' \"$(cat /sys/class/tpm/tpm0/tpm_version_major 2>/dev/null)\"; "
+        "if [ -d /sys/firmware/efi ]; then echo boot=uefi; else echo boot=bios; fi; "
+        "for f in /sys/firmware/efi/efivars/SecureBoot-*; do [ -f \"$f\" ] && printf 'secure_boot=%s\\n' "
+        "\"$(od -An -t u1 \"$f\" | awk '{print $NF}')\"; done",
+        "/proc/cpuinfo, /sys/firmware",
+    ),
 )
 
 

@@ -102,7 +102,8 @@ def machine_from_dmi(records: list[dict]) -> dict:
             slot = f"{slot} ({d['Bank Locator'].strip()})"
         entry = {"slot": slot, "size": size, "type": clean(d.get("Type")),
                  "speed": clean(d.get("Configured Memory Speed")) or clean(d.get("Speed")),
-                 "part": clean(d.get("Part Number")), "serial": clean(d.get("Serial Number"))}
+                 "part": clean(d.get("Part Number")), "serial": clean(d.get("Serial Number")),
+                 "make": clean(d.get("Manufacturer"))}
         memory.append({k: v for k, v in entry.items() if v})
     if memory:
         out["memory"] = memory
@@ -352,3 +353,169 @@ def has_bmc(records: list[dict], pci_devices: list[dict], ipmi_dev: str | None) 
         if vendor in ("1a03", "1050") or (vendor == "102b" and "G200e" in (dev.get("Device") or "")):
             return True
     return False
+
+
+def short_cpu(model: str) -> str:
+    text = re.sub(r"\((R|TM|tm|r)\)", "", str(model))
+    text = re.sub(r"\s+CPU\s+@.*$", "", text)
+    text = re.sub(r"\s+(Processor|CPU)$", "", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def cpus_from_dmi(records: list[dict]) -> list[dict]:
+    out = []
+    for c in _of_type(records, 4):
+        if "Populated" not in c.get("Status", ""):
+            continue
+        entry = {"socket": clean(c.get("Socket Designation")), "make": clean(c.get("Manufacturer")),
+                 "model": clean(c.get("Version")), "serial": clean(c.get("Serial Number")),
+                 "cores": _int(c.get("Core Count")), "threads": _int(c.get("Thread Count"))}
+        out.append({k: v for k, v in entry.items() if v not in (None, "")})
+    return out
+
+
+def psus_from_dmi(records: list[dict]) -> list[dict]:
+    out = []
+    for p in _of_type(records, 39):
+        if "Not Present" in p.get("Status", ""):
+            continue
+        entry = {"name": clean(p.get("Name")) or clean(p.get("Location")), "make": clean(p.get("Manufacturer")),
+                 "model": clean(p.get("Model Part Number")), "serial": clean(p.get("Serial Number")),
+                 "max_power": clean(p.get("Max Power Capacity"))}
+        if entry["model"] or entry["serial"]:
+            out.append({k: v for k, v in entry.items() if v})
+    return out
+
+
+def parse_fru(text: str) -> list[dict]:
+    """PSU entries from `ipmitool fru print`."""
+    blocks: list[dict] = []
+    current: dict | None = None
+    for line in text.splitlines():
+        m = re.match(r"^FRU Device Description\s*:\s*(.+?)(?:\s*\(ID \d+\))?\s*$", line)
+        if m:
+            current = {"description": m.group(1).strip()}
+            blocks.append(current)
+            continue
+        if current is not None:
+            key, sep, value = line.partition(":")
+            if sep:
+                current[key.strip()] = value.strip()
+    psus = []
+    for b in blocks:
+        label = f"{b.get('description', '')} {b.get('Product Name', '')}".lower()
+        if not any(w in label for w in ("psu", "power supply", "pws")):
+            continue
+        entry = {"name": b.get("description"), "make": clean(b.get("Product Manufacturer")),
+                 "model": clean(b.get("Product Part Number")) or clean(b.get("Product Name")),
+                 "serial": clean(b.get("Product Serial"))}
+        psus.append({k: v for k, v in entry.items() if v})
+    return psus
+
+
+def parse_mc_info(text: str) -> dict:
+    for line in text.splitlines():
+        key, sep, value = line.partition(":")
+        if sep and key.strip() == "Firmware Revision" and clean(value):
+            return {"firmware": value.strip()}
+    return {}
+
+
+def parse_ethtool(text: str) -> dict[str, dict]:
+    """Per interface: fastest supported link mode (`max_speed`) and NIC `firmware`."""
+    out: dict[str, dict] = {}
+    best: dict[str, int] = {}
+    name: str | None = None
+    section = "settings"
+    in_modes = False
+    for line in text.splitlines():
+        m = re.match(r"^### (\S+)$", line)
+        if m:
+            name, section, in_modes = m.group(1), "settings", False
+            out[name] = {}
+            continue
+        if name is None:
+            continue
+        if line.strip() == "#info":
+            section, in_modes = "info", False
+            continue
+        if section == "settings":
+            if "Supported link modes:" in line:
+                in_modes, line = True, line.split(":", 1)[1]
+            elif not (in_modes and ":" not in line):
+                in_modes = False
+                continue
+            for n in re.findall(r"(\d+)base", line):
+                best[name] = max(best.get(name, 0), int(n))
+        else:
+            key, sep, value = line.partition(":")
+            if sep and key.strip() == "firmware-version" and clean(value):
+                out[name]["firmware"] = value.strip()
+    for n, mbps in best.items():
+        if mbps:
+            out[n] = {"max_speed": speed_label(mbps), **out[n]}
+    return out
+
+
+def parse_usb(text: str) -> list[dict]:
+    """USB devices from sysfs; hubs and root hubs are left out."""
+    out = []
+    for line in text.splitlines():
+        parts = (line.split("\t") + [""] * 8)[:8]
+        busid, vid, pid, cls, removable, make, product, serial = (p.strip() for p in parts)
+        if not vid or busid.startswith("usb") or cls == "09":
+            continue
+        out.append({"busid": busid, "id": f"{vid}:{pid}", "make": clean(make), "model": clean(product),
+                    "serial": clean(serial), "removable": removable == "removable"})
+    return out
+
+
+def parse_firmware_info(text: str) -> dict:
+    kv = dict(line.split("=", 1) for line in text.splitlines() if "=" in line)
+    out = {}
+    if kv.get("microcode", "").strip():
+        out["microcode"] = kv["microcode"].strip()
+    tpm = kv.get("tpm", "").strip()
+    if tpm:
+        out["tpm"] = {"2": "TPM 2.0", "1": "TPM 1.2"}.get(tpm, f"TPM {tpm}")
+    if kv.get("boot", "").strip():
+        out["boot"] = kv["boot"].strip()
+    sb = kv.get("secure_boot", "").strip()
+    if sb in ("0", "1"):
+        out["secure_boot"] = "enabled" if sb == "1" else "disabled"
+    return out
+
+
+GUEST_PORT = re.compile(r"^(tap|veth|fwpr|fwln|fwbr|vnet)")
+
+
+def parse_links(text: str) -> dict:
+    """Bridges, bonds and VLANs from `ip -j -d link`; guest ports and container bridges left out."""
+    try:
+        data = json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        return {}
+    members: dict[str, list[str]] = {}
+    kinds: dict[str, tuple] = {}
+    for e in data if isinstance(data, list) else []:
+        if not isinstance(e, dict) or not e.get("ifname"):
+            continue
+        info = e.get("linkinfo") or {}
+        kinds[e["ifname"]] = (info.get("info_kind"), info.get("info_data") or {}, e.get("link"))
+        if e.get("master") and not GUEST_PORT.match(e["ifname"]):
+            members.setdefault(e["master"], []).append(e["ifname"])
+    bridges, bonds, vlans = [], [], []
+    for name, (kind, info_data, link) in sorted(kinds.items()):
+        if kind == "bridge" and not name.startswith(("docker", "br-", "virbr")):
+            bridges.append({"name": name, "ports": sorted(members.get(name, []))})
+        elif kind == "bond":
+            bond = {"name": name, "ports": sorted(members.get(name, []))}
+            if info_data.get("mode"):
+                bond["mode"] = info_data["mode"]
+            bonds.append(bond)
+        elif kind == "vlan":
+            vlan = {"name": name, "id": info_data.get("id")}
+            if link:
+                vlan["parent"] = link
+            vlans.append(vlan)
+    return {k: v for k, v in (("bridges", bridges), ("bonds", bonds), ("vlans", vlans)) if v}
