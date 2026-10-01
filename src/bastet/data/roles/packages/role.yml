@@ -52,7 +52,22 @@ options:
         enabled: {type: bool}
         trusted: {type: bool}
         options: {type: map, items: {type: string}, description: "Extra fields in the repository's own format"}
+  updates:
+    type: string
+    default: manual
+    choices: [manual, auto, security]
+    description: "manual: check reports pending updates, apply installs them only with --updates. auto: apply installs them. security: apply installs security updates (apt, dnf, zypper)"
+  updates_exclude: {type: list, items: {type: string}, description: "Never upgrade these (pacman --ignore, dnf --exclude, …)"}
+  allowed: {type: list, items: {type: string}, description: "Packages that are fine without a role (not reported as unaccounted)"}
+  report_unaccounted: {type: bool, default: true, description: "Report packages installed outside Bastet (explicitly installed, not in the system set, no role, not allowed)"}
 examples:
+  - title: Keep the system updated automatically, holding one package back
+    yaml: |
+      updates: auto
+      updates_exclude:
+        - linux-lts
+      allowed:
+        - steam
   - title: Install a few packages
     yaml: |
       install:

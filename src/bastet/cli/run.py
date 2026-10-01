@@ -20,15 +20,15 @@ from bastet.roles.pages import options_in_body
 from bastet.roles.resolve import Applied, resolve
 
 
-def host_info(ctx: Context, doc: Document) -> HostInfo:
+def host_info(ctx: Context, doc: Document, updates: bool = False) -> HostInfo:
     lab = ctx.inventory.lab
     return HostInfo(name=doc.name, type=str(doc.data.get("type", "")), data=dict(doc.data), root=ctx.root,
-                    lab=dict(lab.data) if lab else {})
+                    lab=dict(lab.data) if lab else {}, apply_updates=updates)
 
 
-def plan_for(ctx: Context, doc: Document, roles: dict[str, RoleDef]) -> tuple[list[Applied], list[Batch]]:
+def plan_for(ctx: Context, doc: Document, roles: dict[str, RoleDef], updates: bool = False) -> tuple[list[Applied], list[Batch]]:
     applied = resolve(ctx.inventory, doc, ctx.types, roles)
-    return applied, batches_for(applied, host_info(ctx, doc))
+    return applied, batches_for(applied, host_info(ctx, doc, updates=updates))
 
 
 def connect(ctx: Context, doc: Document, tmp: Path, *, yes: bool):
@@ -66,7 +66,7 @@ def _hosts(ctx: Context, names: list[str] | None) -> list[Document]:
     return [d for d in ctx.inventory.of_kind("host") if d.data.get("state", "present") != "destroyed"]
 
 
-def _run(names: list[str] | None, *, apply_changes: bool, yes: bool, verbose: bool) -> None:
+def _run(names: list[str] | None, *, apply_changes: bool, yes: bool, verbose: bool, updates: bool = False) -> None:
     ctx = load_context()
     roles = load_roles()
     docs = _hosts(ctx, names)
@@ -76,7 +76,7 @@ def _run(names: list[str] | None, *, apply_changes: bool, yes: bool, verbose: bo
         for doc in docs:
             target = None
             try:
-                applied, batches = plan_for(ctx, doc, roles)
+                applied, batches = plan_for(ctx, doc, roles, updates)
                 names = ", ".join(f"{a.role.name} ({', '.join(sorted({s.label for s in a.sources}))})" for a in applied)
                 if not applied:
                     typer.echo(f"{doc.name}: no roles")
@@ -132,6 +132,7 @@ def apply(
     hosts: list[str] | None = typer.Argument(None, help="Hosts to apply to (default: all hosts)."),
     yes: bool = typer.Option(False, "--yes", "-y", help="Don't ask; apply every change."),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show compliant items for every host."),
+    updates: bool = typer.Option(False, "--updates", help="Also install pending updates on hosts whose policy is manual."),
 ) -> None:
     """Make each host match its roles: shows the check first, asks, applies, and verifies."""
-    _run(hosts, apply_changes=True, yes=yes, verbose=verbose)
+    _run(hosts, apply_changes=True, yes=yes, verbose=verbose, updates=updates)

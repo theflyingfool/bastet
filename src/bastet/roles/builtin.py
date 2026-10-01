@@ -8,7 +8,7 @@ from pathlib import Path
 from bastet.core.errors import BastetError
 from bastet.engine.files import Block, Directory, File, Line, Symlink
 from bastet.engine.model import Trigger
-from bastet.engine.packages import Package, Repository
+from bastet.engine.packages import Package, Reboot, Repository, Unaccounted, Updates
 from bastet.engine.run import Batch
 from bastet.engine.systemd import Hostname, Locale, TimeSettings, Unit, drop_in, restart
 from bastet.engine.templates import render_template
@@ -26,6 +26,7 @@ class HostInfo:
     data: dict
     root: Path
     lab: dict = field(default_factory=dict)
+    apply_updates: bool = False
 
     @property
     def debian_like(self) -> bool:
@@ -114,7 +115,15 @@ def _packages(v: dict, host: HostInfo) -> list[Batch]:
             raise BastetError(f"packages: {p['name']} is in both install and remove")
         keep = {k: base[k] for k in ("extra_args", "dpkg_options", "allow_change_held") if k in base}
         removes.append(Package(**_kw({**keep, "state": "absent", **p})))
-    return [Batch("packages", [*repos, *removes, *[Package(**_kw({**base, **p})) for p in installs]])]
+    extras = [Updates(policy=v.get("updates") or "manual", exclude=tuple(v.get("updates_exclude") or ()),
+                      apply_updates=host.apply_updates,
+                      **({"dpkg_options": tuple(v["dpkg_options"])} if v.get("dpkg_options") else {}))]
+    if not host.container:
+        extras.append(Reboot())
+    if v.get("report_unaccounted", True):
+        tracked = tuple(p["name"] for p in installs) + tuple(str(t) for t in host.data.get("bastet_tools") or ())
+        extras.append(Unaccounted(tracked=tracked, allowed=tuple(v.get("allowed") or ())))
+    return [Batch("packages", [*repos, *removes, *[Package(**_kw({**base, **p})) for p in installs], *extras])]
 
 
 def _users(v: dict, host: HostInfo) -> list[Batch]:

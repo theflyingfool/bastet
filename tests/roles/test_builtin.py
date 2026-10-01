@@ -86,8 +86,8 @@ def test_packages_role():
         "repositories": [{"name": "b", "uris": ["http://deb.debian.org/debian"], "suites": ["trixie-backports"],
                           "options": {"X-Repolib-Name": "Backports"}}],
     }))
-    assert [type(r).__name__ for r in out] == ["Repository", "Package", "Package", "Package"]
-    repo, nano, tree, jq = out
+    assert [type(r).__name__ for r in out] == ["Repository", "Package", "Package", "Package", "Updates", "Reboot", "Unaccounted"]
+    repo, nano, tree, jq = out[:4]
     assert repo.options == (("X-Repolib-Name", "Backports"),) and repo.suites == ("trixie-backports",)
     assert (nano.name, nano.state, nano.purge) == ("nano", "absent", True)
     assert tree.install_recommends is False and jq.version == "1.7" and jq.extra_args == ("--foo",)
@@ -136,4 +136,16 @@ def test_full_upgrade_without_packages_is_an_error():
     with pytest.raises(BastetError) as e:
         resources(ap("packages", {"full_upgrade": True}))
     assert "full_upgrade only applies while installing" in str(e.value)
-    assert resources(ap("packages", {})) == []
+    assert [type(r).__name__ for r in resources(ap("packages", {}))] == ["Updates", "Reboot", "Unaccounted"]
+
+
+def test_packages_role_adds_updates_reboot_unaccounted():
+    from bastet.engine.packages import Reboot, Unaccounted, Updates
+    out = resources(ap("packages", {"install": ["tree"], "updates": "auto", "updates_exclude": ["linux"],
+                                    "allowed": ["steam"]}), host=info(bastet_tools=["dmidecode"]))
+    upd, reboot, unacc = out[-3:]
+    assert isinstance(upd, Updates) and upd.policy == "auto" and upd.exclude == ("linux",)
+    assert isinstance(reboot, Reboot)
+    assert isinstance(unacc, Unaccounted) and unacc.tracked == ("tree", "dmidecode") and unacc.allowed == ("steam",)
+    lxc = resources(ap("packages", {"report_unaccounted": False}), host=info(type_="lxc"))
+    assert [type(r).__name__ for r in lxc] == ["Updates"]

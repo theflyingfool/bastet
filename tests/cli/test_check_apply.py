@@ -90,11 +90,10 @@ def test_connect_requires_gathered_key(inventory):
 def test_roles_named_and_empty_role_explained(runner, box, inventory):
     result = runner.invoke(app, ["check", "box"])
     assert "roles: files (host box)" in result.output
-    (inventory / "_roles" / "hosts" / "box" / "packages.md").write_text(
-        '---\nbastet: role\nrole: packages\napplies_to: "[[box]]"\n---\n')
-    (inventory / "_roles" / "hosts" / "box" / "files.md").unlink()
+    (inventory / "_roles" / "hosts" / "box" / "files.md").write_text(
+        '---\nbastet: role\nrole: files\napplies_to: "[[box]]"\n---\n')
     result = runner.invoke(app, ["check", "box"])
-    assert "box: packages (host box): nothing to manage yet" in result.output and "no roles" not in result.output
+    assert "box: files (host box): nothing to manage yet" in result.output and "no roles" not in result.output
 
 
 def test_options_in_page_text_warned(runner, box, inventory):
@@ -102,3 +101,16 @@ def test_options_in_page_text_warned(runner, box, inventory):
     f.write_text(f.read_text() + "# files for box\n\nlinks:\n  /a: /b\n")
     result = runner.invoke(app, ["check", "box"])
     assert "links:" in result.output and "page text" in result.output
+
+
+def test_apply_updates_flag_reaches_roles(runner, box, monkeypatch):
+    seen = {}
+    real = run_mod.host_info
+
+    def spy(ctx, doc, updates=False):
+        seen["updates"] = updates
+        return real(ctx, doc, updates=updates)
+
+    monkeypatch.setattr(run_mod, "host_info", spy)
+    runner.invoke(app, ["apply", "box", "--updates", "-y"])
+    assert seen["updates"] is True
