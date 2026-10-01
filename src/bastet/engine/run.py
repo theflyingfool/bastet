@@ -155,7 +155,10 @@ def run_host(runner, host: str, batches: list[Batch], *, apply: bool) -> HostRun
     for batch, mine in planned:  # phase 4
         pending: list[Trigger] = []
         broken: str | None = None
-        for item in mine:
+        i = 0
+        while i < len(mine):
+            item = mine[i]
+            i += 1
             if item.status == "failed" and broken is None:
                 broken = item.resource.label
             if item.status != "would-change":
@@ -170,19 +173,31 @@ def run_host(runner, host: str, batches: list[Batch], *, apply: bool) -> HostRun
                     broken = item.resource.label
                 if item.status != "would-change":
                     continue
-            commands = item.resource.fix(item.changes, item.current)
-            res = runner.run(exec_script(commands, root=item.resource.root, mark=new_mark()))
+            group = [item]
+            key = item.resource.group_key()
+            if key is not None:
+                while (i < len(mine) and mine[i].status == "would-change"
+                       and mine[i].resource.group_key() == key):
+                    group.append(mine[i])
+                    i += 1
+                commands = type(item.resource).fix_group([(g.resource, g.changes, g.current) for g in group])
+            else:
+                commands = item.resource.fix(item.changes, item.current)
+            res = runner.run(exec_script(commands, root=any(g.resource.root for g in group), mark=new_mark()))
             if res.returncode != 0:
-                item.status, item.error = "failed", _tail(res.stderr, res.returncode)
+                error = _tail(res.stderr, res.returncode)
+                for g in group:
+                    g.status, g.error = "failed", error
                 broken = item.resource.label
                 continue
-            item.status = "changed"
-            changed.append(item)
-            if path is not None:
-                touched.add(path)
-            for t in item.triggers:
-                if t not in pending:
-                    pending.append(t)
+            for g in group:
+                g.status = "changed"
+                changed.append(g)
+                if g.resource.touches() is not None:
+                    touched.add(g.resource.touches())
+                for t in g.triggers:
+                    if t not in pending:
+                        pending.append(t)
         for t in sorted(pending, key=lambda t: t.order):  # phase 5
             res = runner.run(exec_script([t.command], root=t.root, mark=new_mark()))
             run.triggers.append(TriggerRun(t, res.returncode == 0, None if res.returncode == 0 else _tail(res.stderr, res.returncode)))

@@ -100,6 +100,14 @@ class Resource(ABC):
     def diff_text(self, current: dict[str, object]) -> str | None:
         return None
 
+    def group_key(self) -> str | None:
+        """Consecutive changed items in a batch with the same key are fixed by one fix_group call."""
+        return None
+
+    @classmethod
+    def fix_group(cls, members: list[tuple["Resource", list[FieldChange], dict[str, object]]]) -> list[str]:
+        raise NotImplementedError
+
     def touches(self) -> str | None:
         """Path this resource edits, so a later edit of the same file in one run re-reads it first."""
         return None

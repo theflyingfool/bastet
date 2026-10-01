@@ -132,3 +132,30 @@ class SilentRunner:
 
     def run(self, script, *, timeout=120):
         return CommandResult("", "", 0)
+
+
+@dataclass(frozen=True, kw_only=True)
+class GroupedFlag(Flag):
+    """Like Flag, but consecutive ones are written by one script that also logs one line per call."""
+
+    log: str = ""
+
+    def group_key(self):
+        return f"grouped:{self.log}"
+
+    @classmethod
+    def fix_group(cls, members):
+        cmds = [f"echo call >> {shlex.quote(members[0][0].log)}"]
+        for res, _changes, _current in members:
+            cmds.append(f"printf '%s' {shlex.quote(res.value)} > {shlex.quote(res.path)}")
+        return cmds
+
+    def fix(self, changes, current):
+        return type(self).fix_group([(self, changes, current)])
+
+
+@dataclass(frozen=True, kw_only=True)
+class BrokenGroup(GroupedFlag):
+    @classmethod
+    def fix_group(cls, members):
+        return ["echo 'E: Unable to locate package nope' >&2", "exit 100"]

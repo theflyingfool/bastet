@@ -126,3 +126,29 @@ def test_partial_desires_merge_and_real_clashes_still_conflict():
     assert item.resource.desired() == {"timezone": "UTC", "ntp": True, "rtc_local": None} and item.origins == ["a", "b"]
     with pytest.raises(ConflictError):
         collect_items([Batch("a", [TimeSettings(timezone="UTC")]), Batch("b", [TimeSettings(timezone="Europe/Paris")])])
+
+
+from engine_fakes import BrokenGroup, GroupedFlag  # noqa: E402
+
+
+def test_consecutive_grouped_items_are_fixed_by_one_call(tmp_path):
+    log = str(tmp_path / "log")
+    items = [GroupedFlag(path=str(tmp_path / n), value=n, log=log) for n in ("a", "b", "c")]
+    run = run_host(LocalRunner(), "h", [Batch("t", [*items, Flag(path=str(tmp_path / "d"), value="d"),
+                                                     GroupedFlag(path=str(tmp_path / "e"), value="e", log=log)])], apply=True)
+    assert run.ok and run.count("changed") == 5
+    assert (tmp_path / "log").read_text() == "call\ncall\n"
+    assert all((tmp_path / n).read_text() == n for n in "abcde")
+
+
+def test_group_failure_fails_every_member(tmp_path):
+    log = str(tmp_path / "log")
+    run = run_host(LocalRunner(), "h", [Batch("t", [
+        BrokenGroup(path=str(tmp_path / "a"), value="a", log=log),
+        BrokenGroup(path=str(tmp_path / "b"), value="b", log=log),
+        Flag(path=str(tmp_path / "after"), value="x"),
+    ])], apply=True)
+    s = statuses(run)
+    assert s[str(tmp_path / "a")] == ("failed", "E: Unable to locate package nope")
+    assert s[str(tmp_path / "b")] == ("failed", "E: Unable to locate package nope")
+    assert s[str(tmp_path / "after")][0] == "skipped"
