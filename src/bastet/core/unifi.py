@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 
 from bastet.core.errors import BastetError
@@ -10,15 +11,25 @@ from bastet.core.hardware import Observed, file_name
 from bastet.core.hwparse import clean
 from bastet.core.links import make_link
 
-SENSITIVE = ("key", "pass", "secret", "token", "psk", "cert", "x_")
+SENSITIVE = ("key", "pass", "secret", "token", "psk", "cert", "community", "auth", "credential", "shared", "hash")
+_SECRET_TEXT = re.compile(r"(key|pass|secret|psk|token)\w*\s*[=:]", re.I)
+
+
+def _sensitive(key: object) -> bool:
+    k = str(key).lower()
+    return k.startswith("x_") or any(s in k for s in SENSITIVE)
 CATEGORY = {"unifi-gateway": "gateway", "unifi-switch": "switch", "unifi-ap": "ap"}
 
 
 def redact(obj):
+    """Drop anything that looks secret: sensitive keys, name/value pairs naming one, and key=value text."""
     if isinstance(obj, dict):
-        return {k: "(redacted)" if any(s in str(k).lower() for s in SENSITIVE) else redact(v) for k, v in obj.items()}
+        named = any(_sensitive(obj.get(k)) for k in ("name", "key") if isinstance(obj.get(k), str))
+        return {k: "(redacted)" if _sensitive(k) or (named and k == "value") else redact(v) for k, v in obj.items()}
     if isinstance(obj, list):
         return [redact(v) for v in obj]
+    if isinstance(obj, str) and _SECRET_TEXT.search(obj):
+        return "(redacted)"
     return obj
 
 

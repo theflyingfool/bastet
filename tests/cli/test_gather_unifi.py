@@ -60,3 +60,14 @@ def test_device_without_mca_dump_is_an_error(runner, unifi_lab):
     (unifi_lab / "hosts" / "odd.md").write_text(f"---\nbastet: host\ntype: unifi-switch\nip: 10.10.0.9\ngather: true\nssh_host_key: {REC}\n---\n# odd\n")
     result = runner.invoke(app, ["gather", "odd", "uxg", "-y"])
     assert "odd: mca-dump" in result.output and "firmware: 6.0.10" in (unifi_lab / "hosts" / "uxg.md").read_text()
+
+
+def test_link_conflict_is_a_warning_and_the_file_wins(runner, unifi_lab):
+    nas = unifi_lab / "hosts" / "nas.md"
+    nas.write_text(nas.read_text().replace(
+        "gather: false\n", 'gather: false\nlinks:\n  - port: eno1\n    to: "[[uxg]]"\n    to_port: "9"\n  - just a note\n'))
+    result = runner.invoke(app, ["gather", "sw", "-y"])
+    assert result.exit_code == 0, result.output
+    assert "⚠ nas: link eno1: seen on [[sw]] port 2" in result.output
+    text = nas.read_text()
+    assert 'to_port: "9"' in text and "just a note" in text and "[[sw]]" not in text

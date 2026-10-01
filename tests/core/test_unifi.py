@@ -37,3 +37,13 @@ def test_redact():
 def test_not_json():
     with pytest.raises(BastetError):
         parse_mca("sh: mca-dump: not found")
+
+
+def test_redact_more_secret_shapes():
+    data = {"snmp_community": "pub", "radius": {"servers": [{"shared": "S"}]}, "wan": {"auth": "pw"},
+            "config": [{"name": "x_authkey", "value": "V"}], "blob": "mgmt.authkey=abc123\nother=1",
+            "rx_bytes": 5, "max_speed": 10}
+    out = json.dumps(redact(data))
+    for secret in ('"pub"', '"S"', '"pw"', '"V"', "abc123"):
+        assert secret not in out, secret
+    assert '"rx_bytes": 5' in out and '"max_speed": 10' in out

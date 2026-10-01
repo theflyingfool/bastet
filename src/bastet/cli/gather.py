@@ -311,26 +311,36 @@ def gather(
                 changes.extend(host_changes)
                 gathered.append(doc.name)
 
+    linked: list[str] = []
     if unifi_devices:
         by_path = {c.path: c for c in changes}
-        for proposal_host, links in _group(propose_links(inv, unifi_devices)).items():
-            target = inv.get(proposal_host)
-            if target is None:
+        proposals, cable_notes = propose_links(inv, unifi_devices)
+        notes.extend(Note(host, "warn", message) for host, message in cable_notes)
+        for proposal_host, links in _group(proposals).items():
+            try:
+                target = inv.get(proposal_host)
+                if target is None:
+                    continue
+                pending = by_path.get(target.path)
+                text = pending.after if pending is not None else target.path.read_text(encoding="utf-8")
+                existing = parse_document(text, target.path).data.get("links")
+                merged, conflicts = merge_links(existing, links)
+                notes.extend(Note(target.name, "warn", f"link {c}; left as written") for c in conflicts)
+                if merged is None:
+                    continue
+                after = set_keys(text, {"links": merged}, target.path)
+            except Exception as exc:  # one host's links must not lose the rest of the run
+                typer.secho(f"{proposal_host}: links not updated: {exc.__class__.__name__}: {exc}", fg="yellow")
                 continue
-            pending = by_path.get(target.path)
-            text = pending.after if pending is not None else target.path.read_text(encoding="utf-8")
-            merged = merge_links(parse_document(text, target.path).data.get("links") or [], links)
-            if merged is None:
-                continue
-            after = set_keys(text, {"links": merged}, target.path)
             if pending is not None:
                 pending.after = after
             else:
                 by_path[target.path] = Change(target.path, text, after)
                 changes.append(by_path[target.path])
-                gathered.append(target.name)
+                linked.append(target.name)
+            before = existing if isinstance(existing, list) else []
             notes.extend(Note(target.name, "info", f"link {link['port']} → {link['to']} port {link['to_port']}")
-                         for link in links if link in merged)
+                         for link in merged[len(before):])
 
     for note in notes:
         mark = "⚠" if note.severity == "warn" else "·"
@@ -339,6 +349,8 @@ def gather(
     changes.extend(added)
     if changes:
         message = f"gather: {', '.join(gathered)}" if gathered else "gather"
+        if linked:
+            message += f"; links: {', '.join(linked)}"
         if added:
             message += f"; add {len(added)} guest{'s' if len(added) != 1 else ''}"
         if not write_with_confirmation(ctx, [*changes, *lab_embed_changes(inv)], message, yes):
