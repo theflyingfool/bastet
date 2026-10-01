@@ -1,0 +1,37 @@
+import subprocess
+
+from bastet.core.hostkeys import check, parse_keyscan, preferred, record, write_known_hosts
+
+
+def test_fingerprint_matches_ssh_keygen(tmp_path):
+    key = tmp_path / "k"
+    subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(key)], check=True)
+    ktype, blob = (tmp_path / "k.pub").read_text().split()[:2]
+    expected = subprocess.run(["ssh-keygen", "-lf", str(tmp_path / "k.pub")], capture_output=True, text=True).stdout.split()[1]
+    [hk] = parse_keyscan(f"# comment\nhost {ktype} {blob}\n")
+    assert hk.type == "ssh-ed25519" and hk.fingerprint == expected
+
+
+def test_parse_skips_junk():
+    assert parse_keyscan("garbage\nhost ssh-rsa !!notbase64!!\n") == []
+
+
+def test_preferred_and_record():
+    keys = parse_keyscan("h ssh-rsa QUFBQQ==\nh ssh-ed25519 QkJCQg==\n")
+    assert preferred(keys).type == "ssh-ed25519"
+    assert record(preferred(keys)).startswith("ssh-ed25519 SHA256:")
+
+
+def test_check():
+    keys = parse_keyscan("h ssh-ed25519 QkJCQg==\n")
+    assert check(None, keys) == "new"
+    assert check(record(keys[0]), keys) == "match"
+    assert check("ssh-ed25519 SHA256:other", keys) == "changed"
+
+
+def test_write_known_hosts(tmp_path):
+    keys = parse_keyscan("h ssh-ed25519 QkJCQg==\n")
+    p = write_known_hosts(keys, "203.0.113.10", 22, tmp_path)
+    assert p.read_text() == "203.0.113.10 ssh-ed25519 QkJCQg==\n"
+    p2 = write_known_hosts(keys, "203.0.113.10", 2222, tmp_path / "x")
+    assert p2.read_text().startswith("[203.0.113.10]:2222 ")
