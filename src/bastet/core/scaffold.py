@@ -36,6 +36,18 @@ def _require(inv: Inventory, name: str, kind: str, option: str) -> None:
         raise BastetError(f"{option} {name}: no {kind} named '{name}' in the inventory")
 
 
+def suggested_ip(inv: Inventory, network: str) -> str:
+    """Next free address in a lab network; raises if the network is unknown or full."""
+    networks = (inv.lab.data.get("networks") or {}) if inv.lab else {}
+    if network not in networks:
+        have = ", ".join(sorted(networks)) or "none"
+        raise BastetError(f"--network {network}: not in the lab file's networks (have: {have})")
+    address = suggest_address(networks[network], used_addresses(inv))
+    if address is None:
+        raise BastetError(f"no free address left in network '{network}'")
+    return address
+
+
 def new_host(
     inv: Inventory,
     types: dict[str, HostType],
@@ -48,6 +60,7 @@ def new_host(
     location: str | None = None,
     provider: str | None = None,
     address: str | None = None,
+    connection: str | None = None,
 ) -> HostDraft:
     _check_name(inv, name)
     if type_name not in types:
@@ -64,22 +77,20 @@ def new_host(
     used = used_addresses(inv)
     suggested = None
     if network:
-        networks = (inv.lab.data.get("networks") or {}) if inv.lab else {}
-        if network not in networks:
-            have = ", ".join(sorted(networks)) or "none"
-            raise BastetError(f"--network {network}: not in the lab file's networks (have: {have})")
         data["network"] = network
         if ip is None:
-            suggested = suggest_address(networks[network], used)
-            if suggested is None:
-                raise BastetError(f"no free address left in network '{network}'")
+            suggested = suggested_ip(inv, network)
             ip = suggested
+        else:
+            suggested_ip(inv, network)
     if ip:
         if ip.split("/", 1)[0] in used:
             raise BastetError(f"address {ip} is already used in the inventory")
         data["ip"] = ip
     if address:
         data["address"] = address
+    if connection:
+        data["connection"] = connection
     missing = [f for f in types[type_name].minimal if f not in data]
     if missing:
         needs = ", ".join(f"{f} ({OPTION_FOR.get(f, '--' + f)})" for f in missing)

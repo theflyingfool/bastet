@@ -115,3 +115,11 @@ def test_broken_yaml_is_a_warning_not_an_error(tmp_path):
     assert inv.errors == []
     assert inv.problems[0].severity == "warning"
     assert inv.get("pve1") is not None
+
+
+def test_connection_must_be_local_or_ssh(tmp_path):
+    put(tmp_path, "a.md", "---\nbastet: host\ntype: laptop\nconnection: local\n---\n")
+    put(tmp_path, "b.md", "---\nbastet: host\ntype: laptop\nconnection: telnet\n---\n")
+    inv = load_inventory(tmp_path, TYPES)
+    [p] = inv.errors
+    assert p.error.key == "connection" and "telnet" in p.error.message

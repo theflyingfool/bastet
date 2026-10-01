@@ -93,6 +93,9 @@ def _check_host(inv: Inventory, doc: Document, types: dict[str, HostType], ips: 
         for name in types[type_name].minimal:
             if doc.data.get(name) in (None, ""):
                 _add(inv, "error", f"host type '{type_name}' needs '{name}'", doc, "type")
+    connection = doc.data.get("connection")
+    if connection is not None and connection not in ("local", "ssh"):
+        _add(inv, "error", f"connection '{connection}' is not 'local' or 'ssh'", doc, "connection")
     ip = doc.data.get("ip")
     if ip:
         bare = _bare_ip(ip)

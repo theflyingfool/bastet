@@ -136,3 +136,18 @@ def test_refuses_same_name_any_case_anywhere(tmp_path):
         new_host(inv, TYPES, "web", "server", ip="10.0.10.50")
     with pytest.raises(BastetError):
         new_hardware(inv, "WEB", "drive")
+
+
+def test_new_host_local_connection(tmp_path):
+    inv = inv_with(tmp_path, {})
+    draft = new_host(inv, TYPES, "laptop", "laptop", ip="dhcp", address="laptop.local", connection="local")
+    assert "address: laptop.local\nconnection: local\n" in draft.change.after
+
+
+def test_suggested_ip_helper(tmp_path):
+    from bastet.core.scaffold import suggested_ip
+
+    inv = inv_with(tmp_path, {"Homelab.md": LAB, "hosts/pve1.md": PVE1})
+    assert suggested_ip(inv, "servers") == "10.0.20.10"
+    with pytest.raises(BastetError):
+        suggested_ip(inv, "iot")

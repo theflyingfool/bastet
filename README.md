@@ -27,7 +27,7 @@ tools it uses, which are required and which are optional, and what each optional
 
     git clone <this repo> && cd bastet
     uv run bastet init
-    uv run bastet add host edge1 --type vps --provider linode --ip 203.0.113.10
+    uv run bastet add host          # walks you through it
     uv run bastet show
 
 Config lives at `$BASTET_CONFIG`, else `$XDG_CONFIG_HOME/bastet/bastet.yml`,
@@ -38,6 +38,6 @@ else `~/.config/bastet/bastet.yml`.
 | Command | Does |
 |---|---|
 | `bastet init` | Config, Bastet's SSH key, the inventory repository and `Homelab.md` |
-| `bastet add host NAME --type …` | Writes a minimal host file |
-| `bastet add hardware NAME --category …` | Writes a hardware file |
+| `bastet add host [NAME] [--type …]` | Writes a minimal host file; asks for anything you leave out (`-y` to never ask) |
+| `bastet add hardware [NAME] [--category …]` | Writes a hardware file; asks for anything you leave out |
 | `bastet show [NAME]` | Lists the inventory and problems, or one object and what links to it |
