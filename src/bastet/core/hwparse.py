@@ -340,3 +340,15 @@ def parse_neigh(text: str) -> dict[str, str]:
             continue
         out.setdefault(str(entry["lladdr"]).lower(), str(entry["dst"]))
     return out
+
+
+def has_bmc(records: list[dict], pci_devices: list[dict], ipmi_dev: str | None) -> bool:
+    """A management controller is present: SMBIOS IPMI record, a kernel IPMI device, or BMC graphics
+    (ASPEED, Nuvoton, Matrox G200e) - many boards omit the SMBIOS record."""
+    if has_ipmi(records) or (ipmi_dev or "").strip():
+        return True
+    for dev in pci_devices:
+        vendor = pci_id(dev.get("Vendor"))
+        if vendor in ("1a03", "1050") or (vendor == "102b" and "G200e" in (dev.get("Device") or "")):
+            return True
+    return False

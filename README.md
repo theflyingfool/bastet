@@ -37,7 +37,7 @@ No agent, no Python and no Ansible are needed on hosts.
 | `smartctl` (as root) | smartmontools | optional | drive model, serial, firmware, health (SATA, SAS and NVMe) |
 | `lspci` | pciutils | optional | add-in cards (GPU, HBA, NIC) and which slot they're in |
 | `/sys/class/net`, `/dev/disk/by-id` | kernel, udev | optional | NIC link speeds and PCI addresses; ZFS member disks |
-| `ipmitool` (as root) | ipmitool | optional | BMC/IPMI address and MAC |
+| `ipmitool` (as root) | ipmitool | optional | BMC/IPMI address and MAC (gather loads the `ipmi_devintf`/`ipmi_si` kernel modules first; offered when the board has a BMC: SMBIOS IPMI record, `/dev/ipmi*`, or BMC graphics such as ASPEED) |
 | `zpool` | OpenZFS | optional | pools and their member drives |
 | `pvesh`, `/etc/pve` guest configs (as root) | Proxmox VE | optional | guests on a Proxmox node, with their static IPs and MACs |
 | `ip neigh` | iproute2 | optional | addresses the node currently sees for its guests (DHCP guests) |

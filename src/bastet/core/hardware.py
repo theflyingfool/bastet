@@ -12,7 +12,7 @@ from bastet.core.frontmatter import Document, new_document, set_keys
 from bastet.core.gatherplan import Note, merge_facts
 from bastet.core.gitrepo import GitRepo
 from bastet.core.hwparse import (
-    base_device, board_subsystem_id, clean, parse_guest_conf, parse_neigh, has_ipmi, machine_from_dmi, pci_id, slot_designations, parse_disk_ids, parse_dmidecode, parse_ipmi_lan, parse_lspci,
+    base_device, board_subsystem_id, clean, parse_guest_conf, parse_neigh, has_bmc, machine_from_dmi, pci_id, slot_designations, parse_disk_ids, parse_dmidecode, parse_ipmi_lan, parse_lspci,
     parse_net_sysfs, parse_pve_guests, parse_smart, parse_zpool, slots_in_use, strip_ids,
 )
 from bastet.core.inventory import Inventory, markdown_files
@@ -135,7 +135,7 @@ def observe_hardware(host: str, results: dict[str, ProbeResult], ex: Extracted) 
     if onboard:
         data["interfaces"] = onboard
     ipmi_result = results.get("ipmi")
-    if has_ipmi(dmi) and ipmi_result is not None and ipmi_result.missing:
+    if ipmi_result is not None and ipmi_result.missing and has_bmc(dmi, pci, _text(results, "ipmi_dev")):
         view.hints.append(f"has a BMC (IPMI); install ipmitool on {host} to record its out-of-band address")
     oob = parse_ipmi_lan(_text(results, "ipmi") or "")
     if oob:

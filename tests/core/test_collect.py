@@ -81,3 +81,9 @@ def test_new_probes_present():
 def test_smart_probe_skips_standby_disks_and_builds_valid_json():
     [smart] = [p for p in PROBES if p.name == "smart"]
     assert "-n standby" in smart.command and 'if [ -n "$o" ]' in smart.command
+
+
+def test_ipmi_probe_loads_modules_first():
+    [ipmi] = [p for p in PROBES if p.name == "ipmi"]
+    assert ipmi.command.startswith("modprobe ipmi_devintf ipmi_si") and ipmi.root
+    assert any(p.name == "ipmi_dev" for p in PROBES)

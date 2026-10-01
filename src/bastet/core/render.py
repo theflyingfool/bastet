@@ -93,6 +93,10 @@ def _address(doc: Document) -> str | None:
     return doc.data.get("address") or (ip or None)
 
 
+def _port_names(ports: object) -> list[str]:
+    return [str(p["name"]) for p in ports if isinstance(p, dict) and p.get("name")] if isinstance(ports, list) else []
+
+
 def host_summary(
     inv: Inventory, doc: Document, types: dict[str, HostType], warnings: list[str], drift: list[str] | None = None
 ) -> str:
@@ -126,6 +130,13 @@ def host_summary(
         cards.append(_card("Machine", what or machine.name, f"serial {m['serial']}" if m.get("serial") else f"[[{machine.name}]]"))
         if m.get("oob_address"):
             cards.append(_card("Out-of-band", m["oob_address"], _oob_type(m.get("oob"))))
+    if host_type and host_type.physical:
+        ports = _port_names(machine.data.get("interfaces") if machine else None)
+        for item in _installed(inv, doc.name):
+            if item.data.get("category") not in MACHINE_CATEGORIES:
+                ports += _port_names(item.data.get("ports"))
+        if ports:
+            cards.append(_card("Ports", len(ports), ", ".join(ports)))
     guests = _guests(inv, doc.name)
     if guests or (host_type and host_type.name == "proxmox-node"):
         cards.append(_card("Guests", len(guests), ", ".join(f"[[{g.name}]]" for g in guests) or None))
@@ -167,6 +178,9 @@ def hardware_summary(inv: Inventory, doc: Document) -> str:
             counts = " · ".join(x for x in (f"{c['cores']} cores" if c.get("cores") else "",
                                              f"{c['threads']} threads" if c.get("threads") else "") if x)
             cards.append(_card("CPU" if len(cpus) == 1 else f"CPU ×{len(cpus)}", short_cpu(c["model"]), counts))
+        onboard = _port_names(d.get("interfaces"))
+        if onboard:
+            cards.append(_card("Network", len(onboard), ", ".join(onboard)))
         if d.get("oob_address"):
             cards.append(_card("Out-of-band", d["oob_address"], _oob_type(d.get("oob"))))
     elif category == "drive":

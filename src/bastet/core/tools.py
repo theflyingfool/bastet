@@ -5,7 +5,7 @@ import shlex
 
 from bastet.core.collect import ProbeResult
 from bastet.core.hosttypes import HostType
-from bastet.core.hwparse import has_ipmi, parse_dmidecode
+from bastet.core.hwparse import has_bmc, parse_dmidecode, parse_lspci
 
 # Generic tool package -> name per package manager.
 PACKAGES = {
@@ -59,8 +59,10 @@ def needed_tools(results: dict[str, ProbeResult], host_type: HostType) -> list[s
             need.append("pciutils")
         if _missing(results, "smart") and _has_drives(results):
             need.append("smartmontools")
-        dmi = results.get("dmidecode")
-        if dmi is not None and dmi.ok and has_ipmi(parse_dmidecode(dmi.output)) and _missing(results, "ipmi"):
+        dmi, pci, dev = results.get("dmidecode"), results.get("lspci"), results.get("ipmi_dev")
+        records = parse_dmidecode(dmi.output) if dmi is not None and dmi.ok else []
+        devices = parse_lspci(pci.output) if pci is not None and pci.ok else []
+        if _missing(results, "ipmi") and has_bmc(records, devices, dev.output if dev is not None and dev.ok else None):
             need.append("ipmitool")
     return need
 

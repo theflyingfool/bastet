@@ -44,3 +44,13 @@ def test_install_scripts():
     assert "dnf install -y iproute" in install_script("dnf", ["iproute2"])
     assert "sudo -n" in apt
     assert install_script("unknown-pm", ["dmidecode"]) is None
+
+
+def test_bmc_detected_by_bmc_graphics_or_ipmi_device():
+    import json
+    from gather_fixtures import RACK
+    no_smbios = RACK["dmidecode"].split("Handle 0x0031")[0]
+    assert needed_tools(results(dict(RACK, dmidecode=no_smbios)), TYPES["proxmox-node"]) == ["ipmitool"]
+    plain = dict(RACK, dmidecode=no_smbios, lspci=RACK["lspci"].replace("ASPEED Technology, Inc. [1a03]", "Intel Corporation [8086]"))
+    assert needed_tools(results(plain), TYPES["proxmox-node"]) == []
+    assert needed_tools(results(dict(plain, ipmi_dev="/dev/ipmi0")), TYPES["proxmox-node"]) == ["ipmitool"]

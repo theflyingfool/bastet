@@ -158,3 +158,16 @@ def test_installed_snippet_is_kept_current(repo):
     assert '#drift' in changes[snippet].after
     snippet.unlink()
     assert snippet not in {c.path for c in generated_changes(inv(repo), TYPES, repo)}
+
+
+def test_ports_shown_on_host_and_machine_pages(repo):
+    m = repo.root / "hardware" / "Supermicro SYS-5019C-MR S123456X.md"
+    m.write_text(m.read_text().replace("oob_address:", "interfaces:\n  - name: eno1\n    mac: aa:aa:aa:aa:aa:01\n  - name: eno2\n    mac: aa:aa:aa:aa:aa:02\noob_address:"))
+    (repo.root / "hardware" / "pve1 X710.md").write_text(
+        '---\nbastet: hardware\ncategory: nic\nmodel: X710-2\nports:\n  - name: enp1s0f0\n  - name: enp1s0f1\n'
+        'status: in-service\ninstalled_in: "[[pve1]]"\n---\n# c\n')
+    i = inv(repo)
+    host = host_summary(i, i.get("pve1"), TYPES, [])
+    assert "[!stat] Ports" in host and "**4**" in host and "eno1, eno2, enp1s0f0, enp1s0f1" in host
+    machine = hardware_summary(i, i.get("Supermicro SYS-5019C-MR S123456X"))
+    assert "[!stat] Network" in machine and "eno1, eno2" in machine
