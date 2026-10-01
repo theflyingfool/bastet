@@ -99,6 +99,9 @@ def report(scratch: Path, pristine: Path = FIXTURE) -> str:
         except ValueError as exc:
             out += [f"- {exc} (in one of the two copies)", ""]
             continue
+        except yaml.YAMLError as exc:
+            out += [f"- invalid YAML in frontmatter: {exc}".replace("\n", " "), ""]
+            continue
         out.append(f"- body changed: {r.body_changed}")
         out.append(f"- comments lost: {r.comments_lost or 'none'}")
         out.append(f"- key order changed: {r.order_changed}")

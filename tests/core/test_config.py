@@ -110,3 +110,24 @@ def test_error_str_includes_location():
     err = BastetError("bad value", file=Path("/x/bastet.yml"), line=4, key="inventory.path")
     assert str(err) == "/x/bastet.yml:4: inventory.path: bad value"
     assert str(BastetError("plain")) == "plain"
+
+
+def test_top_level_typo_is_named(tmp_path):
+    p = write(tmp_path, "inventroy:\n  path: ~/Homelab\n")
+    with pytest.raises(BastetError) as e:
+        load_config(p)
+    assert e.value.key == "inventroy"
+    assert e.value.line == 1
+
+
+def test_unreadable_config_is_a_bastet_error(tmp_path):
+    d = tmp_path / "dir.yml"
+    d.mkdir()
+    with pytest.raises(BastetError) as e:
+        load_config(d)
+    assert e.value.file == d
+    bad = tmp_path / "latin1.yml"
+    bad.write_bytes(b"inventory:\n  path: ~/H\xe9\n")
+    with pytest.raises(BastetError) as e:
+        load_config(bad)
+    assert e.value.file == bad

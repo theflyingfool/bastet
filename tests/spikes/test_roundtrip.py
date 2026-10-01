@@ -98,3 +98,17 @@ def test_prepare_copies_fixture(tmp_path):
     rt.prepare(dest)
     assert (dest / "hosts" / "pve1.md").exists()
     assert (dest / "views" / "hardware-here.base").exists()
+
+
+def test_malformed_yaml_reported_not_crash(tmp_path):
+    pristine = tmp_path / "p"
+    scratch = tmp_path / "s"
+    pristine.mkdir()
+    scratch.mkdir()
+    (pristine / "a.md").write_text(BEFORE)
+    (scratch / "a.md").write_text("---\nip: [unclosed\n---\nbody\n")
+    (pristine / "b.md").write_text(BEFORE)
+    (scratch / "b.md").write_text(BEFORE)
+    out = rt.report(scratch, pristine)
+    assert "a.md" in out and "invalid YAML" in out
+    assert "## b.md" in out

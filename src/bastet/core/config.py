@@ -90,7 +90,10 @@ def _key_line(text: str, loc: Sequence[str | int]) -> int | None:
 def load_config(path: Path) -> Config:
     if not path.exists():
         raise BastetError("config file not found", file=path)
-    text = path.read_text(encoding="utf-8")
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise BastetError(f"cannot read config: {exc.__class__.__name__}", file=path) from None
     try:
         raw = yaml.safe_load(text)
     except yaml.YAMLError as exc:
@@ -108,7 +111,8 @@ def load_config(path: Path) -> Config:
     try:
         return Config.model_validate(raw)
     except ValidationError as exc:
-        err = exc.errors()[0]
+        errors = exc.errors()
+        err = next((e for e in errors if e["type"] == "extra_forbidden"), errors[0])
         loc = [p for p in err["loc"] if isinstance(p, (str, int))]
         message = err["msg"].removeprefix("Value error, ")
         raise BastetError(
