@@ -11,6 +11,7 @@ import typer
 from bastet.cli.common import Context, handles_errors, load_context, refresh_generated, write_with_confirmation
 from bastet.core.render import lab_embed_changes
 from bastet.core.scaffold import new_host
+from bastet.core.tools import install_script, needed_tools
 from bastet.core import hostkeys
 from bastet.core.bootstrap import setup_command
 from bastet.core.collect import Snapshot, collect, save_snapshot
@@ -56,11 +57,12 @@ def _fixed_ip(value: object) -> str | None:
     return text
 
 
-def _collect(ctx: Context, doc: Document, tmp: Path, *, yes: bool, accept: bool) -> tuple[Snapshot, str | None]:
+def _collect(ctx: Context, doc: Document, tmp: Path, *, yes: bool, accept: bool) -> tuple[Snapshot, str | None, object]:
     if doc.data.get("connection") == "local":
         if not yes and os.geteuid() != 0:
             sudo_validate()
-        return collect(local_runner(), doc.name), None
+        runner = local_runner()
+        return collect(runner, doc.name), None, runner
     address = doc.data.get("address") or _fixed_ip(doc.data.get("ip"))
     if not address:
         raise BastetError("no address to connect to; set `address:` (e.g. laptop.local) or a fixed `ip:`", file=doc.path)
@@ -89,7 +91,8 @@ def _collect(ctx: Context, doc: Document, tmp: Path, *, yes: bool, accept: bool)
     key = ctx.config.ssh.key
     if key is not None:
         try:
-            return collect(ssh_runner(SshTarget(str(address), "bastet", key, known)), doc.name), hostkey
+            runner = ssh_runner(SshTarget(str(address), "bastet", key, known))
+            return collect(runner, doc.name), hostkey, runner
         except AuthFailed:
             pass
     user = ctx.config.ssh.bootstrap_user or getpass.getuser()
@@ -104,12 +107,44 @@ def _collect(ctx: Context, doc: Document, tmp: Path, *, yes: bool, accept: bool)
         public_key = pub.read_text(encoding="utf-8")
         if interactive(own, setup_command(public_key)) == 0:
             try:
-                return collect(ssh_runner(SshTarget(str(address), "bastet", key, known)), doc.name), hostkey
+                runner = ssh_runner(SshTarget(str(address), "bastet", key, known))
+                return collect(runner, doc.name), hostkey, runner
             except AuthFailed:
                 typer.secho(f"{doc.name}: bastet user set up, but its login was refused; continuing as {user}", fg="yellow")
         else:
             typer.secho(f"{doc.name}: setting up the bastet user failed; continuing as {user}", fg="yellow")
-    return collect(ssh_runner(own), doc.name), hostkey
+    runner = ssh_runner(own)
+    return collect(runner, doc.name), hostkey, runner
+
+
+def _maybe_install_tools(ctx: Context, doc: Document, host_type, snapshot: Snapshot, runner, yes: bool):
+    """Install useful gather tools the host is missing (per config and host), then collect again."""
+    installed: list[str] = []
+    mode = ctx.config.gather.install_tools
+    if mode == "never" or doc.data.get("install_tools") is False or (mode == "ask" and yes):
+        return snapshot, installed
+    for _ in range(2):  # a second round catches tools only found to be useful after the first (e.g. a BMC)
+        tools = [t for t in needed_tools(snapshot.results, host_type) if t not in installed]
+        if not tools:
+            break
+        manager = (snapshot.results.get("pkg_mgr").output.strip() if snapshot.results.get("pkg_mgr") else "") or None
+        script = install_script(manager, tools)
+        if script is None:
+            typer.secho(f"{doc.name}: missing {', '.join(tools)}, but no supported package manager was found", fg="yellow")
+            break
+        if mode == "ask" and not typer.confirm(
+            f"{doc.name}: install {', '.join(tools)} for fuller hardware info?", default=True
+        ):
+            break
+        result = runner.run(script, timeout=600)
+        if result.returncode != 0:
+            tail = (result.stderr or result.stdout).strip().splitlines()[-1:] or ["no output"]
+            typer.secho(f"{doc.name}: installing {', '.join(tools)} failed: {tail[0]}", fg="yellow")
+            break
+        installed += tools
+        typer.echo(f"{doc.name}: installed {', '.join(tools)}")
+        snapshot = collect(runner, doc.name)
+    return snapshot, installed
 
 
 def _guest_command(node: str, guest: dict) -> str:
@@ -166,7 +201,12 @@ def gather(
                 raise BastetError(f"no host named '{name}' in the inventory")
             docs.append(doc)
     else:
-        docs = inv.of_kind("host")
+        docs = []
+        for doc in inv.of_kind("host"):
+            if doc.data.get("gather") is False:
+                typer.echo(f"{doc.name}: skipped (gather: false)")
+            else:
+                docs.append(doc)
     if not docs:
         typer.echo("No hosts yet. Add one with `bastet add host`.")
         return
@@ -180,10 +220,14 @@ def gather(
         for doc in docs:
             typer.echo(f"{doc.name}: gathering…")
             try:
-                snapshot, hostkey = _collect(ctx, doc, Path(tmp), yes=yes, accept=accept_new_hostkey)
+                snapshot, hostkey, runner = _collect(ctx, doc, Path(tmp), yes=yes, accept=accept_new_hostkey)
+                host_type = ctx.types.get(str(doc.data.get("type")), ctx.types["unknown"])
+                snapshot, installed = _maybe_install_tools(ctx, doc, host_type, snapshot, runner, yes)
                 save_snapshot(snapshot, data_dir())
                 extracted = extract(snapshot.results)
-                host_type = ctx.types.get(str(doc.data.get("type")), ctx.types["unknown"])
+                tools = sorted(set(doc.data.get("bastet_tools") or []) | set(installed))
+                if tools:
+                    extracted.facts["bastet_tools"] = tools
                 view = observe_hardware(doc.name, snapshot.results, extracted) if host_type.physical else None
                 if view is not None and view.pools:
                     extracted.facts["pools"] = view.pools

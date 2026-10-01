@@ -32,6 +32,12 @@ This page is generated from the Bastet version you run, so it always matches it.
   comes later).
 - **Your** values (purchase date, location, status, notes) are never touched.
 
+## Host switches you can set
+
+- `gather: false` skips the host when you run `bastet gather` for everything (naming it still gathers it).
+- `install_tools: false` stops gather from installing its helper tools on that host. What gather has
+  installed is listed in the host's `bastet_tools`.
+
 ## Hardware
 
 Physical hosts get a file per machine, drive and add-in card under `hardware/`, linked to the host with

@@ -298,3 +298,75 @@ def test_found_guests_not_added_on_no_or_yes_flag(runner, server):
     assert not (server / "hosts" / "git1.md").exists()
     result = runner.invoke(app, ["gather", "pve1", "-y"])
     assert "Add all" not in result.output and not (server / "hosts" / "git1.md").exists()
+
+
+class InstallingRunner:
+    """First collection lacks tools; after an install script runs, the next collection has them."""
+
+    def __init__(self, before, after):
+        self.before, self.after, self.installs, self.name = before, after, [], "x"
+
+    def run(self, script, *, timeout=120):
+        if "BASTET-INSTALL" in script:
+            self.installs.append(script)
+            return CommandResult("", "", 0)
+        mark = re.search(r"'(@@BASTET[^']*@@)'", script).group(1)
+        return CommandResult(stdout_for(self.after if self.installs else self.before, mark), "", 0)
+
+
+def _rack_host(inventory):
+    add_host(inventory, "sanrio", "---\nbastet: host\ntype: proxmox-node\nip: 10.0.10.12\n---\n# sanrio\n")
+
+
+def test_missing_tools_installed_when_confirmed_and_recorded(runner, inventory, monkeypatch):
+    from gather_fixtures import RACK
+    _rack_host(inventory)
+    fake = InstallingRunner(dict(RACK, pkg_mgr="apt-get"), dict(RACK, pkg_mgr="apt-get", ipmi=SERVER["ipmi"]))
+    monkeypatch.setattr(gather_mod, "scan_keys", lambda address, recorded=None: KEYS)
+    monkeypatch.setattr(gather_mod, "ssh_runner", lambda target: fake)
+    result = runner.invoke(app, ["gather", "sanrio", "--accept-new-hostkey"], input="y\ny\n")
+    assert result.exit_code == 0, result.output
+    assert "install ipmitool" in result.output and len(fake.installs) == 1
+    host = (inventory / "hosts" / "sanrio.md").read_text()
+    assert "bastet_tools:\n  - ipmitool\n" in host
+    machine = next((inventory / "hardware").glob("ASRockRack*.md")).read_text()
+    assert "oob_address: 10.0.10.9" in machine
+
+
+def test_tools_not_installed_with_yes_by_default_or_when_host_opts_out(runner, inventory, monkeypatch):
+    from gather_fixtures import RACK
+    _rack_host(inventory)
+    fake = InstallingRunner(dict(RACK, pkg_mgr="apt-get"), dict(RACK, pkg_mgr="apt-get"))
+    monkeypatch.setattr(gather_mod, "scan_keys", lambda address, recorded=None: KEYS)
+    monkeypatch.setattr(gather_mod, "ssh_runner", lambda target: fake)
+    runner.invoke(app, ["gather", "sanrio", "-y", "--accept-new-hostkey"])
+    assert fake.installs == []
+    p = inventory / "hosts" / "sanrio.md"
+    p.write_text(p.read_text().replace("type: proxmox-node\n", "type: proxmox-node\ninstall_tools: false\n"))
+    git(inventory, "commit", "-q", "-am", "no tools here")
+    runner.invoke(app, ["gather", "sanrio"], input="y\n")
+    assert fake.installs == []
+
+
+def test_config_always_installs_unattended(runner, inventory, monkeypatch, tmp_path):
+    from gather_fixtures import RACK
+    import os
+    cfg = Path(os.environ["BASTET_CONFIG"])
+    cfg.write_text(cfg.read_text() + "gather:\n  install_tools: always\n")
+    _rack_host(inventory)
+    fake = InstallingRunner(dict(RACK, pkg_mgr="apt-get"), dict(RACK, pkg_mgr="apt-get", ipmi=SERVER["ipmi"]))
+    monkeypatch.setattr(gather_mod, "scan_keys", lambda address, recorded=None: KEYS)
+    monkeypatch.setattr(gather_mod, "ssh_runner", lambda target: fake)
+    result = runner.invoke(app, ["gather", "sanrio", "-y", "--accept-new-hostkey"])
+    assert result.exit_code == 0, result.output
+    assert len(fake.installs) == 1
+
+
+def test_gather_false_skipped_unless_named(runner, laptop):
+    p = laptop / "hosts" / "hp-13.md"
+    p.write_text(p.read_text().replace("type: laptop\n", "type: laptop\ngather: false\n"))
+    git(laptop, "commit", "-q", "-am", "not ready")
+    result = runner.invoke(app, ["gather", "-y"])
+    assert "hp-13: skipped (gather: false)" in result.output and "os:" not in p.read_text()
+    runner.invoke(app, ["gather", "hp-13", "-y"])
+    assert "os: Arch Linux" in p.read_text()

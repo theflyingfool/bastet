@@ -17,3 +17,4 @@ fields:
   interfaces: fact
   gateway: fact
   ssh_host_key: fact
+  bastet_tools: fact

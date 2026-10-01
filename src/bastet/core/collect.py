@@ -38,6 +38,11 @@ PROBES: tuple[Probe, ...] = (
     Probe("ip_route", "ip -j route show default", "ip (iproute2)"),
     Probe("pveversion", "pveversion", "pveversion (Proxmox VE)"),
     Probe("privilege", 'echo "${SUDO:-root}"', "sudo"),
+    Probe(
+        "pkg_mgr",
+        "for m in apt-get pacman dnf zypper apk; do command -v $m >/dev/null 2>&1 && { echo $m; break; }; done",
+        "package manager",
+    ),
     Probe("dmidecode", "dmidecode -t 0,1,2,3,4,9,17,38", "dmidecode", root=True),
     Probe(
         "smart",

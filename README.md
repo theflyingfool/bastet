@@ -46,6 +46,17 @@ Root-only tools run through passwordless sudo (the `bastet` user has it). When g
 from, gather asks for your sudo password once (not with `-y`, which never asks). Without root, those facts are skipped
 and gather says so.
 
+**Installing missing tools.** When a host lacks a tool gather would use (only where it's useful: e.g.
+`dmidecode`/`pciutils`/`smartmontools` on physical hosts, `ipmitool` only if the board has a BMC; never on
+VPS/VM/LXC), gather can install it with the host's package manager (apt, pacman, dnf, zypper or apk) and
+records it in the host's `bastet_tools`. Control it in `bastet.yml`:
+
+    gather:
+      install_tools: ask      # ask (default; -y never installs) | always | never
+
+and per host with `install_tools: false` in the host file. Hosts with `gather: false` are skipped by a
+plain `bastet gather` (naming the host still gathers it).
+
 The first gather can set up a `bastet` user on each host, from your own SSH login (it asks first). That user has
 key login only (no password) and passwordless sudo. Setting it up needs `useradd`, `usermod`, `install`, `getent`
 and `visudo` on the host (shadow-utils/passwd, coreutils, sudo).

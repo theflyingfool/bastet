@@ -2,6 +2,7 @@ import os
 import re
 from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator, model_validator
@@ -60,12 +61,19 @@ class SshConfig(BaseModel):
         return value
 
 
+class GatherConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    install_tools: Literal["ask", "always", "never"] = "ask"
+
+
 class Config(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     inventory: InventoryConfig
     secrets: SecretsConfig = SecretsConfig()
     ssh: SshConfig = SshConfig()
+    gather: GatherConfig = GatherConfig()
 
 
 def config_path(env: Mapping[str, str] | None = None) -> Path:
