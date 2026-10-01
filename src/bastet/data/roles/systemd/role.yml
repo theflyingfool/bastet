@@ -31,3 +31,23 @@ options:
         name: {type: string, description: "File name without .conf"}
         content: {type: string, description: "The drop-in's contents"}
         restart: {type: bool, default: true, description: "Restart the unit when the drop-in changes"}
+examples:
+  - title: Lab-wide time, synced with timesyncd
+    yaml: |
+      timezone: America/Chicago
+      ntp: true
+      ntp_service: timesyncd
+      ntp_servers:
+        - 10.0.10.1
+  - title: Keep a service running, with a drop-in
+    yaml: |
+      services:
+        ssh.service:
+          enabled: true
+          state: up
+      dropins:
+        - unit: ssh.service
+          name: bastet
+          content: |
+            [Service]
+            Restart=always

@@ -52,3 +52,28 @@ options:
         enabled: {type: bool}
         trusted: {type: bool}
         options: {type: map, items: {type: string}, description: "Extra fields in the repository's own format"}
+examples:
+  - title: Install a few packages
+    yaml: |
+      install:
+        - tree
+        - htop
+  - title: Pin one version, skip recommended packages
+    yaml: |
+      install_recommends: false
+      install:
+        - name: jq
+          version: "1.7.1-3"
+  - title: Remove a package, add a repository
+    yaml: |
+      remove:
+        - nano
+      repositories:
+        - name: backports
+          uris:
+            - http://deb.debian.org/debian
+          suites:
+            - trixie-backports
+          components:
+            - main
+          signed_by: /usr/share/keyrings/debian-archive-keyring.gpg

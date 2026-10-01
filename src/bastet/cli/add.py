@@ -184,7 +184,9 @@ def add_role(
     path = folder / f"{role}.md"
     if path.exists():
         raise BastetError("already exists; edit it in Obsidian", file=path)
-    body = f"# {role} for {doc.name}\n\nOptions: see [[{role} role]].\n"
+    body = (f"# {role} for {doc.name}\n\nValues go in this note's properties (the frontmatter at the top), "
+            f"not in the page text below.\n\n## Examples\n\n![[{role} role#Examples]]\n\n"
+            f"## Options\n\n![[{role} role#Options]]\n")
     data = {"bastet": "role", "role": role, "applies_to": make_link(doc.name)}
     changes = [Change(path, None, new_document(data, body))]
     if doc.data.get("bastet") in ("host", "group") and not has_roles_section(doc.body):

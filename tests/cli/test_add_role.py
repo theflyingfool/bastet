@@ -26,3 +26,9 @@ def test_refresh_writes_role_pages_view_and_card(runner, inventory):
     assert "applies_to == this" in (inventory / "_bastet" / "roles-here.base").read_text()
     summary = (inventory / "_bastet" / "summary" / "pve1 summary.md").read_text()
     assert "[!stat] Roles" in summary and "[[packages role|packages]]" in summary
+
+
+def test_new_role_file_explains_itself(runner, inventory):
+    runner.invoke(app, ["add", "role", "packages", "pve1", "-y"])
+    body = (inventory / "_roles" / "hosts" / "pve1" / "packages.md").read_text().split("---\n", 2)[2]
+    assert "properties" in body and "![[packages role#Examples]]" in body and "![[packages role#Options]]" in body

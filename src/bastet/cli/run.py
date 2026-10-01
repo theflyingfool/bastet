@@ -16,6 +16,7 @@ from bastet.engine.report import render_host
 from bastet.engine.run import Batch, run_host
 from bastet.roles.builtin import HostInfo, batches_for
 from bastet.roles.contract import RoleDef, load_roles
+from bastet.roles.pages import options_in_body
 from bastet.roles.resolve import Applied, resolve
 
 
@@ -80,6 +81,13 @@ def _run(names: list[str] | None, *, apply_changes: bool, yes: bool, verbose: bo
                 if not applied:
                     typer.echo(f"{doc.name}: no roles")
                     continue
+                for a in applied:
+                    for s in a.sources:
+                        found = options_in_body(a.role, s.doc.body) if s.doc is not None else []
+                        if found:
+                            typer.secho(f"{doc.name}: {s.doc.path.relative_to(ctx.root)} has "
+                                        f"{', '.join(k + ':' for k in found)} in the page text; Bastet only reads "
+                                        "the properties at the top", fg="yellow")
                 if not any(b.resources for b in batches):
                     typer.echo(f"{doc.name}: {names}: nothing to manage yet")
                     continue

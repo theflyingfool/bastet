@@ -72,3 +72,23 @@ options:
         nopasswd: {type: bool}
         setenv: {type: bool}
         defaults: {type: list, items: {type: string}}
+examples:
+  - title: A user with an SSH key and passwordless sudo
+    yaml: |
+      users:
+        nick:
+          shell: /bin/bash
+          groups:
+            - wheel
+          keys:
+            - ssh-ed25519 AAAAC3Nza...example nick@laptop
+          sudo:
+            nopasswd: true
+  - title: A group with exactly these members
+    yaml: |
+      groups:
+        media:
+          gid: 2001
+          members:
+            - nick
+            - jellyfin

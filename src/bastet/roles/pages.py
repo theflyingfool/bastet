@@ -1,5 +1,6 @@
 """Generated reference pages: one per role, every option with type, default and description, and who uses it."""
 
+import re
 from pathlib import Path
 
 from bastet.core.errors import BastetError
@@ -41,7 +42,12 @@ def _rows(name: str, opt: Option) -> list[str]:
 
 
 def role_page(role: RoleDef, used_by: list[tuple[str, list[str]]]) -> str:
-    lines = [f"# {role.name} role", "", role.description, "", "## Options", "",
+    lines = [f"# {role.name} role", "", role.description, "",
+             "Values go in a role file's properties (the frontmatter at the top), never in its page text.", "",
+             "## Examples", ""]
+    for ex in role.examples:
+        lines += [f"### {ex['title']}", "", "```yaml", ex["yaml"].rstrip("\n"), "```", ""]
+    lines += ["## Options", "",
              "| Option | Type | Default | Description |", "|---|---|---|---|"]
     for name, opt in role.options.items():
         lines += _rows(name, opt)
@@ -61,3 +67,20 @@ def role_pages(inv: Inventory, types: dict[str, HostType]) -> dict[Path, str]:
         for a in applied:
             used[a.role.name].append((host.name, sorted({s.label for s in a.sources})))
     return {role_page_path(inv.root, name): role_page(role, used[name]) for name, role in roles.items()}
+
+
+_OPTION_LINE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*):(\s|$)")
+
+
+def options_in_body(role: RoleDef, body: str) -> list[str]:
+    """Option names written as `name:` lines in the page text (outside code blocks): values Bastet won't read."""
+    found: list[str] = []
+    fenced = False
+    for line in body.splitlines():
+        if line.strip().startswith("```"):
+            fenced = not fenced
+            continue
+        m = _OPTION_LINE.match(line)
+        if not fenced and m and m.group(1) in role.options and m.group(1) not in found:
+            found.append(m.group(1))
+    return found

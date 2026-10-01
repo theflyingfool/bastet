@@ -49,3 +49,11 @@ def test_bad_role_definitions(tmp_path):
     with pytest.raises(BastetError) as e:
         load_roles(tmp_path)
     assert "reserved" in str(e.value)
+
+
+def test_every_role_has_examples_that_validate():
+    import yaml
+    for role in load_roles().values():
+        assert role.examples, role.name
+        for ex in role.examples:
+            assert ex["title"] and check_values(role, yaml.safe_load(ex["yaml"]), role.name) is not None

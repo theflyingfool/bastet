@@ -24,3 +24,16 @@ def test_role_pages_for_inventory(tmp_path):
     assert set(pages) == {role_page_path(tmp_path, r) for r in ("systemd", "packages", "users", "files")}
     assert "- [[media01]]: lab" in pages[role_page_path(tmp_path, "packages")]
     assert "(no hosts yet)" in pages[role_page_path(tmp_path, "users")]
+
+
+def test_role_page_has_examples_before_options():
+    text = role_page(load_roles()["packages"], [])
+    assert "## Examples" in text and text.index("## Examples") < text.index("## Options")
+    assert "```yaml\ninstall:\n" in text
+
+
+def test_options_in_page_text_are_spotted():
+    from bastet.roles.pages import options_in_body
+    role = load_roles()["packages"]
+    assert options_in_body(role, "# packages for hp-13\n\ninstall:\n- tree\n") == ["install"]
+    assert options_in_body(role, "# notes\n\nI install things here\n```yaml\ninstall:\n```\n") == []

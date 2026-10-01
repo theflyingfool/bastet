@@ -47,3 +47,21 @@ options:
         line: {type: string}
         match: {type: string, description: "Regex for the line to replace"}
         validate: {type: string}
+examples:
+  - title: A file, a directory and a link
+    yaml: |
+      files:
+        /etc/motd:
+          content: "Managed by Bastet\n"
+          mode: "0644"
+      directories:
+        /srv/app:
+          mode: "0750"
+      links:
+        /srv/current: /srv/app
+  - title: One line in someone else's file
+    yaml: |
+      lines:
+        - path: /etc/ssh/sshd_config
+          line: PermitRootLogin no
+          match: "^#?PermitRootLogin"

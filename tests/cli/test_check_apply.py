@@ -95,3 +95,10 @@ def test_roles_named_and_empty_role_explained(runner, box, inventory):
     (inventory / "_roles" / "hosts" / "box" / "files.md").unlink()
     result = runner.invoke(app, ["check", "box"])
     assert "box: packages (host box): nothing to manage yet" in result.output and "no roles" not in result.output
+
+
+def test_options_in_page_text_warned(runner, box, inventory):
+    f = inventory / "_roles" / "hosts" / "box" / "files.md"
+    f.write_text(f.read_text() + "# files for box\n\nlinks:\n  /a: /b\n")
+    result = runner.invoke(app, ["check", "box"])
+    assert "links:" in result.output and "page text" in result.output

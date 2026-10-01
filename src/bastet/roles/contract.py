@@ -33,6 +33,7 @@ class RoleDef:
     description: str
     options: dict[str, Option]
     path: Path
+    examples: list[dict] = field(default_factory=list)
 
 
 def _option(where: str, raw: object, path: Path) -> Option:
@@ -69,7 +70,11 @@ def load_roles(directory: Path | None = None) -> dict[str, RoleDef]:
         clash = RESERVED & set(options)
         if clash:
             raise BastetError(f"role {name}: option names reserved for role files: {sorted(clash)}", file=path)
-        roles[name] = RoleDef(name, str(raw.get("description", "")), options, path)
+        examples = raw.get("examples") or []
+        if not all(isinstance(e, dict) and isinstance(e.get("title"), str) and isinstance(e.get("yaml"), str)
+                   for e in examples):
+            raise BastetError(f"role {name}: each example needs a title and yaml text", file=path)
+        roles[name] = RoleDef(name, str(raw.get("description", "")), options, path, examples)
     return roles
 
 
