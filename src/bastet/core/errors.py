@@ -26,3 +26,11 @@ class BastetError(Exception):
             parts.append(self.key)
         parts.append(self.message)
         return ": ".join(parts)
+
+
+class Unreachable(BastetError):
+    """The host could not be reached (network, DNS, SSH not answering)."""
+
+
+class AuthFailed(BastetError):
+    """The host answered but refused the login."""
