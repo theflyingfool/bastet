@@ -72,9 +72,9 @@ def _blocks(fm: list[str]) -> dict[str, tuple[int, int]]:
 
     def continues(i: int) -> bool:
         line = fm[i]
-        if line.strip() == "":
+        if line.strip() == "" or line.startswith("#"):
             for later in fm[i + 1 :]:
-                if later.strip():
+                if later.strip() and not later.startswith("#"):
                     return later.startswith((" ", "\t", "-"))
             return False
         return line.startswith((" ", "\t", "-"))

@@ -5,7 +5,7 @@ from bastet.core.changes import Change
 from bastet.core.facts import Extracted, propose_type
 from bastet.core.frontmatter import Document, set_keys
 from bastet.core.gitrepo import BASTET_NAME, GitRepo
-from bastet.core.hosttypes import HostType
+from bastet.core.hosttypes import HostType, load_host_types
 from bastet.core.units import same_value
 from bastet.core.views import HARDWARE_SECTION, has_hardware_section
 
@@ -26,12 +26,25 @@ class HostUpdate:
 
 
 def plan_update(
-    doc: Document, ex: Extracted, host_type: HostType, repo: GitRepo, *, take: set[str], hostkey: str | None
+    doc: Document,
+    ex: Extracted,
+    host_type: HostType,
+    repo: GitRepo,
+    *,
+    take: set[str],
+    hostkey: str | None,
+    types: dict[str, HostType] | None = None,
 ) -> HostUpdate:
     text = doc.path.read_text(encoding="utf-8")
     observed = dict(ex.facts)
     if hostkey:
         observed["ssh_host_key"] = hostkey
+    if str(doc.data.get("ip", "")).strip().lower() == "dhcp":
+        observed.pop("gateway", None)
+        if isinstance(observed.get("interfaces"), list):
+            observed["interfaces"] = [
+                {k: v for k, v in i.items() if k != "addresses"} for i in observed["interfaces"] if isinstance(i, dict)
+            ]
     updates: dict[str, object] = {}
     notes: list[Note] = []
 
@@ -64,7 +77,13 @@ def plan_update(
     proposal = propose_type(ex)
     current_type = doc.data.get("type")
     if proposal and current_type == "unknown":
-        updates["type"] = proposal
+        known = (types or load_host_types()).get(proposal)
+        merged = {**doc.data, **updates}
+        missing = [f for f in (known.minimal if known else []) if merged.get(f) in (None, "")]
+        if missing:
+            notes.append(Note(doc.name, "info", f"this host looks like a {proposal}; set type: {proposal} and add {', '.join(missing)}"))
+        else:
+            updates["type"] = proposal
     elif proposal and current_type and proposal != current_type:
         notes.append(Note(doc.name, "info", f"type is {current_type!r} but this host looks like a {proposal}"))
 

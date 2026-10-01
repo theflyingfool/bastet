@@ -106,3 +106,10 @@ def test_set_keys_preserves_crlf():
 def test_key_lines_include_quoted_keys():
     doc = parse_document('---\n"my key": 1\nb: 2\n---\n', P)
     assert doc.key_lines == {"my key": 2, "b": 3}
+
+
+def test_set_keys_comment_at_column_zero_inside_list():
+    text = "---\ninterfaces:\n  - name: a\n# note\n  - name: b\nram: 8 GB\n---\n"
+    out = set_keys(text, {"interfaces": [{"name": "c"}]}, P)
+    assert "name: b" not in out and "name: a" not in out
+    assert "  - name: c\nram: 8 GB\n" in out

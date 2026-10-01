@@ -90,7 +90,7 @@ def test_desired_field_reported_not_written(repo):
 
 
 def test_unknown_type_gets_proposal_others_get_note(repo):
-    p = host(repo, "---\nbastet: host\ntype: unknown\n---\n# u\n")
+    p = host(repo, "---\nbastet: host\ntype: unknown\nprovider: linode\nip: 203.0.113.10\n---\n# u\n")
     assert "type: vps" in plan(p, VPS, repo, "unknown").change.after
     p2 = host(repo, "---\nbastet: host\ntype: server\nip: 203.0.113.10\n---\n# s\n")
     up = plan(p2, VPS, repo, "server")
@@ -101,3 +101,23 @@ def test_hostkey_recorded(repo):
     p = host(repo, "---\nbastet: host\ntype: vps\nprovider: linode\nip: 203.0.113.10\n---\n# v\n")
     up = plan(p, VPS, repo, "vps", hostkey="ssh-ed25519 SHA256:abc")
     assert 'ssh_host_key: ssh-ed25519 SHA256:abc' in up.change.after
+
+
+def test_dhcp_host_keeps_no_addresses_or_gateway(repo):
+    p = host(repo, "---\nbastet: host\ntype: laptop\nip: dhcp\nconnection: local\n---\n# h\n")
+    after = plan(p, LAPTOP, repo, "laptop").change.after
+    assert "10.0.10.50" not in after and "gateway" not in after
+    assert "  - name: wlan0\n    mac: aa:bb:cc:dd:ee:10\n" in after
+
+
+def test_unknown_type_not_switched_when_required_fields_missing(repo):
+    p = host(repo, "---\nbastet: host\ntype: unknown\naddress: v.example.com\n---\n# u\n")
+    up = plan(p, VPS, repo, "unknown")
+    assert "type: unknown" in up.change.after
+    assert any("looks like a vps" in n.message and "provider" in n.message for n in up.notes)
+
+
+def test_matching_hand_pinned_key_gives_no_note(repo):
+    p = host(repo, "---\nbastet: host\ntype: vps\nprovider: linode\nip: 203.0.113.10\nssh_host_key: ecdsa-sha2-nistp256 SHA256:x\n---\n# v\n")
+    up = plan(p, VPS, repo, "vps", hostkey="ecdsa-sha2-nistp256 SHA256:x")
+    assert not [n for n in up.notes if "ssh_host_key" in n.message]

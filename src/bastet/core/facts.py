@@ -13,7 +13,7 @@ CHASSIS_FROM_SMBIOS = {
 CONTAINER_VIRTS = {"lxc", "lxc-libvirt", "systemd-nspawn", "docker", "podman", "openvz", "wsl", "proot", "rkt"}
 VPS_VENDORS = ("linode", "akamai", "digitalocean", "hetzner", "vultr", "ovh", "amazon ec2", "google", "scaleway")
 VIRTUAL_IFACE = re.compile(r"^(lo|veth|tap|fwbr|fwpr|fwln|docker|br-|virbr|cni|flannel|vnet)")
-SKIP_DISKS = ("zram", "loop", "ram", "sr")
+SKIP_DISKS = ("zram", "loop", "ram", "sr", "zd", "nbd", "rbd", "md")
 
 
 @dataclass
@@ -88,6 +88,8 @@ def extract(results: dict[str, ProbeResult]) -> Extracted:
         chassis = CHASSIS_FROM_SMBIOS.get(code)
     virt_result = results.get("virt")
     virt = virt_result.output.strip() if virt_result is not None and virt_result.output.strip() else None
+    if virt in (None, "none") and (container := _text(results, "container")) is not None:
+        virt = container.split()[0]
     if virt and virt != "none":
         f["virtualization"] = virt
         if chassis is None or chassis not in ("vm", "container"):
@@ -134,12 +136,16 @@ def extract(results: dict[str, ProbeResult]) -> Extracted:
             if not name or VIRTUAL_IFACE.match(name):
                 continue
             entry: dict[str, object] = {"name": name}
-            if iface.get("link_type") == "ether" and iface.get("address"):
-                entry["mac"] = iface["address"]
+            if iface.get("link_type") == "ether" and (iface.get("permaddr") or iface.get("address")):
+                entry["mac"] = iface.get("permaddr") or iface["address"]
             found = [
                 f"{a['local']}/{a['prefixlen']}"
                 for a in iface.get("addr_info", [])
-                if isinstance(a, dict) and a.get("scope") not in ("link", "host") and a.get("local")
+                if isinstance(a, dict)
+                and a.get("scope") not in ("link", "host")
+                and a.get("local")
+                and not a.get("temporary")
+                and not a.get("deprecated")
             ]
             if found:
                 entry["addresses"] = found
@@ -147,6 +153,10 @@ def extract(results: dict[str, ProbeResult]) -> Extracted:
                 interfaces.append(entry)
         if interfaces:
             f["interfaces"] = interfaces
+
+    if chassis == "container":
+        for key in ("storage", "cpu_cores", "cpu_threads"):
+            f.pop(key, None)
 
     routes = _json(results, "ip_route")
     if isinstance(routes, list):

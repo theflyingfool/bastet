@@ -35,3 +35,14 @@ def test_write_known_hosts(tmp_path):
     assert p.read_text() == "203.0.113.10 ssh-ed25519 QkJCQg==\n"
     p2 = write_known_hosts(keys, "203.0.113.10", 2222, tmp_path / "x")
     assert p2.read_text().startswith("[203.0.113.10]:2222 ")
+
+
+def test_pinned_keys_only_the_recorded_one():
+    from bastet.core.hostkeys import pinned
+
+    keys = parse_keyscan("h ssh-ed25519 QkJCQg==\nh ssh-rsa QUFBQQ==\n")
+    real = keys[0]
+    assert pinned(record(real), keys) == [real]
+    rsa_only = parse_keyscan("h ssh-rsa QUFBQQ==\n")
+    assert pinned(record(keys[1]), keys) == rsa_only
+    assert pinned("ssh-ed25519 SHA256:nope", keys) == []

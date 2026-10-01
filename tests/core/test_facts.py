@@ -55,3 +55,40 @@ def test_garbage_json_is_ignored():
     e = ex(dict(LAPTOP, lscpu="{not json", lsblk="nope", ip_addr="[}"))
     assert "cpu" not in e.facts and "storage" not in e.facts and "interfaces" not in e.facts
     assert e.facts["ram"] == "16 GB"
+
+
+def test_temporary_and_deprecated_addresses_skipped():
+    import json
+    addr = json.dumps([{"ifname": "eth0", "link_type": "ether", "address": "f2:3c:00:00:00:01", "addr_info": [
+        {"family": "inet6", "local": "2001:db8::10", "prefixlen": 64, "scope": "global"},
+        {"family": "inet6", "local": "2001:db8::abcd", "prefixlen": 64, "scope": "global", "temporary": True},
+        {"family": "inet6", "local": "2001:db8::dead", "prefixlen": 64, "scope": "global", "deprecated": True},
+    ]}])
+    f = ex(dict(VPS, ip_addr=addr)).facts
+    assert f["interfaces"][0]["addresses"] == ["2001:db8::10/64"]
+
+
+def test_permanent_mac_preferred():
+    import json
+    addr = json.dumps([{"ifname": "wlan0", "link_type": "ether", "address": "de:ad:00:00:00:01",
+                        "permaddr": "aa:bb:cc:dd:ee:10", "addr_info": []}])
+    assert ex(dict(LAPTOP, ip_addr=addr)).facts["interfaces"][0]["mac"] == "aa:bb:cc:dd:ee:10"
+
+
+def test_proxmox_zvols_not_counted():
+    import json
+    blk = json.dumps({"blockdevices": [
+        {"name": "sda", "type": "disk", "size": 500000000000},
+        {"name": "zd0", "type": "disk", "size": 34359738368},
+        {"name": "nbd0", "type": "disk", "size": 1000},
+        {"name": "rbd0", "type": "disk", "size": 1000},
+    ]})
+    assert ex(dict(LAPTOP, lsblk=blk)).facts["storage"] == "500 GB"
+
+
+def test_container_without_systemd_detected_and_host_values_dropped():
+    lxc = dict(VPS, hostnamectl=(1, ""), virt=(127, ""), chassis_type="17", container="lxc")
+    e = ex(lxc)
+    assert e.facts["chassis"] == "container" and e.facts["virtualization"] == "lxc"
+    assert "storage" not in e.facts and "cpu_cores" not in e.facts and "cpu_threads" not in e.facts
+    assert propose_type(e) == "lxc"

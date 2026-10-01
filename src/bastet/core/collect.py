@@ -1,5 +1,6 @@
 import datetime as dt
 import json
+import secrets
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -23,6 +24,11 @@ PROBES: tuple[Probe, ...] = (
     Probe("sys_vendor", "cat /sys/class/dmi/id/sys_vendor", "/sys/class/dmi"),
     Probe("product_name", "cat /sys/class/dmi/id/product_name", "/sys/class/dmi"),
     Probe("virt", "systemd-detect-virt", "systemd-detect-virt (systemd)"),
+    Probe(
+        "container",
+        "cat /run/systemd/container 2>/dev/null || tr '\\0' '\\n' < /proc/1/environ 2>/dev/null | sed -n 's/^container=//p'",
+        "/run/systemd/container, /proc/1/environ",
+    ),
     Probe("lscpu", "lscpu -J", "lscpu (util-linux)", True),
     Probe("meminfo", "cat /proc/meminfo", "/proc/meminfo", True),
     Probe("lsblk", "lsblk -J -b -o NAME,PATH,TYPE,SIZE,MODEL,SERIAL,ROTA,TRAN", "lsblk (util-linux)", True),
@@ -54,25 +60,25 @@ class Snapshot:
     results: dict[str, ProbeResult]
 
 
-def build_script(probes: tuple[Probe, ...] = PROBES) -> str:
+def build_script(probes: tuple[Probe, ...] = PROBES, mark: str = MARK) -> str:
     lines = ["export LC_ALL=C"]
     for p in probes:
         lines += [
             f"out=$( ( {p.command} ) 2>/dev/null ); rc=$?",
-            f"printf '%s %s %s\\n' '{MARK}' '{p.name}' \"$rc\"",
+            f"printf '%s %s %s\\n' '{mark}' '{p.name}' \"$rc\"",
             "printf '%s\\n' \"$out\"",
         ]
     lines.append("exit 0")
     return "\n".join(lines) + "\n"
 
 
-def parse_sections(stdout: str) -> dict[str, ProbeResult]:
+def parse_sections(stdout: str, mark: str = MARK) -> dict[str, ProbeResult]:
     results: dict[str, ProbeResult] = {}
     name: str | None = None
     rc = 0
     buf: list[str] = []
     for line in stdout.split("\n"):
-        if line.startswith(MARK + " "):
+        if line.startswith(mark + " "):
             if name is not None:
                 results[name] = ProbeResult(rc, "\n".join(buf).rstrip("\n"))
             _, name, rc_text = line.split(" ", 2)
@@ -86,9 +92,10 @@ def parse_sections(stdout: str) -> dict[str, ProbeResult]:
 
 
 def collect(runner, host: str, probes: tuple[Probe, ...] = PROBES) -> Snapshot:
-    result = runner.run(build_script(probes))
+    mark = f"@@BASTET-{secrets.token_hex(8)}@@"
+    result = runner.run(build_script(probes, mark))
     taken = dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    return Snapshot(host=host, runner=runner.name, taken_at=taken, results=parse_sections(result.stdout))
+    return Snapshot(host=host, runner=runner.name, taken_at=taken, results=parse_sections(result.stdout, mark))
 
 
 def save_snapshot(snapshot: Snapshot, data: Path) -> Path:

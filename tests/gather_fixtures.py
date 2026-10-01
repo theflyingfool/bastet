@@ -66,11 +66,11 @@ VPS = {
 }
 
 
-def stdout_for(outputs: dict) -> str:
+def stdout_for(outputs: dict, mark: str = MARK) -> str:
     """Collector stdout as the shell script would print it; probes not in `outputs` are 'missing' (rc 127)."""
     parts = []
     for probe in PROBES:
         value = outputs.get(probe.name, (127, ""))
         rc, text = value if isinstance(value, tuple) else (0, value)
-        parts.append(f"{MARK} {probe.name} {rc}\n{text}\n")
+        parts.append(f"{mark} {probe.name} {rc}\n{text}\n")
     return "".join(parts)

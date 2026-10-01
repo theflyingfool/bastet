@@ -72,6 +72,12 @@ def check(recorded: str | None, keys: list[HostKey]) -> str:
     return "match" if any(k.fingerprint == fingerprint for k in keys) else "changed"
 
 
+def pinned(recorded: str, keys: list[HostKey]) -> list[HostKey]:
+    """Only the scanned key(s) whose fingerprint equals the recorded one."""
+    fingerprint = str(recorded).split()[-1]
+    return [k for k in keys if k.fingerprint == fingerprint]
+
+
 def write_known_hosts(keys: list[HostKey], address: str, port: int, directory: Path) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     host = address if port == 22 else f"[{address}]:{port}"

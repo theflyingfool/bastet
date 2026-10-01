@@ -66,11 +66,15 @@ def _collect(ctx: Context, doc: Document, tmp: Path, *, yes: bool, accept: bool)
         typer.echo(f"{doc.name}: first contact, host key {offered}")
         if not typer.confirm("Trust this key?", default=False):
             raise BastetError("host key not trusted; nothing gathered")
-    known = hostkeys.write_known_hosts(keys, str(address), 22, tmp / doc.name)
+    if status == "match":
+        trusted, hostkey = hostkeys.pinned(str(recorded), keys), str(recorded)
+    else:
+        trusted, hostkey = [best], offered
+    known = hostkeys.write_known_hosts(trusted, str(address), 22, tmp / doc.name)
     key = ctx.config.ssh.key
     if key is not None:
         try:
-            return collect(ssh_runner(SshTarget(str(address), "bastet", key, known)), doc.name), offered
+            return collect(ssh_runner(SshTarget(str(address), "bastet", key, known)), doc.name), hostkey
         except AuthFailed:
             pass
     user = ctx.config.ssh.bootstrap_user or getpass.getuser()
@@ -79,15 +83,18 @@ def _collect(ctx: Context, doc: Document, tmp: Path, *, yes: bool, accept: bool)
     if key is not None and not yes and typer.confirm(
         f"Set up the bastet user on {doc.name} now (key login only, passwordless sudo)?", default=True
     ):
-        public_key = Path(str(key) + ".pub").read_text(encoding="utf-8")
+        pub = Path(str(key) + ".pub")
+        if not pub.is_file():
+            raise BastetError("Bastet's public key is missing; run `bastet init` or fix ssh.key in bastet.yml", file=pub)
+        public_key = pub.read_text(encoding="utf-8")
         if interactive(own, setup_command(public_key)) == 0:
             try:
-                return collect(ssh_runner(SshTarget(str(address), "bastet", key, known)), doc.name), offered
+                return collect(ssh_runner(SshTarget(str(address), "bastet", key, known)), doc.name), hostkey
             except AuthFailed:
                 typer.secho(f"{doc.name}: bastet user set up, but its login was refused; continuing as {user}", fg="yellow")
         else:
             typer.secho(f"{doc.name}: setting up the bastet user failed; continuing as {user}", fg="yellow")
-    return collect(ssh_runner(own), doc.name), offered
+    return collect(ssh_runner(own), doc.name), hostkey
 
 
 @handles_errors
@@ -113,21 +120,27 @@ def gather(
         typer.echo("No hosts yet. Add one with `bastet add host`.")
         return
 
+    take_fields = set(take) | ({"ssh_host_key"} if accept_new_hostkey else set())
     changes, notes, gathered = [], [], []
     with tempfile.TemporaryDirectory(prefix="bastet-") as tmp:
         for doc in docs:
             typer.echo(f"{doc.name}: gathering…")
             try:
                 snapshot, hostkey = _collect(ctx, doc, Path(tmp), yes=yes, accept=accept_new_hostkey)
+                save_snapshot(snapshot, data_dir())
+                extracted = extract(snapshot.results)
+                host_type = ctx.types.get(str(doc.data.get("type")), ctx.types["unknown"])
+                update = plan_update(
+                    doc, extracted, host_type, ctx.repo, take=take_fields, hostkey=hostkey, types=ctx.types
+                )
             except BastetError as exc:
                 typer.secho(f"{doc.name}: {exc}", fg="yellow")
                 continue
-            save_snapshot(snapshot, data_dir())
-            extracted = extract(snapshot.results)
+            except Exception as exc:  # one host's surprise must not lose the others' results
+                typer.secho(f"{doc.name}: unexpected error: {exc.__class__.__name__}: {exc}", fg="yellow")
+                continue
             for probe in extracted.missing_required:
                 notes.append(Note(doc.name, "warn", f"required probe '{probe}' failed or its tool is missing"))
-            host_type = ctx.types.get(str(doc.data.get("type")), ctx.types["unknown"])
-            update = plan_update(doc, extracted, host_type, ctx.repo, take=set(take), hostkey=hostkey)
             notes.extend(update.notes)
             if update.change is None:
                 typer.echo(f"{doc.name}: up to date")

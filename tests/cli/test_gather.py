@@ -1,5 +1,6 @@
 import base64
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -21,7 +22,8 @@ class FakeRunner:
         self.name = name
 
     def run(self, script, *, timeout=120):
-        return CommandResult(stdout_for(self.outputs), "", 0)
+        mark = re.search(r"'(@@BASTET[^']*@@)'", script).group(1)
+        return CommandResult(stdout_for(self.outputs, mark), "", 0)
 
 
 def git(root: Path, *args: str) -> str:
@@ -158,3 +160,36 @@ def test_dhcp_host_without_address_is_reported(runner, inventory):
 def test_unknown_host_name(runner, inventory):
     result = runner.invoke(app, ["gather", "nope"])
     assert result.exit_code == 1 and "no host named 'nope'" in result.output
+
+
+def test_accepted_key_replaces_recorded_and_pins_only_one(runner, vps, monkeypatch):
+    evil = parse_keyscan(f"h ssh-rsa {base64.b64encode(b'evil').decode()}\n")
+    monkeypatch.setattr(gather_mod, "scan_keys", lambda address: KEYS + evil)
+    seen = {}
+    real_write = gather_mod.hostkeys.write_known_hosts
+
+    def spy(keys, address, port, directory):
+        seen["keys"] = list(keys)
+        return real_write(keys, address, port, directory)
+
+    monkeypatch.setattr(gather_mod.hostkeys, "write_known_hosts", spy)
+    p = vps / "hosts" / "vps1.md"
+    p.write_text(p.read_text().replace("ip: 203.0.113.10\n", "ip: 203.0.113.10\nssh_host_key: ssh-ed25519 SHA256:old\n"))
+    git(vps, "commit", "-q", "-am", "old key")
+    result = runner.invoke(app, ["gather", "vps1", "-y", "--accept-new-hostkey"])
+    assert result.exit_code == 0, result.output
+    assert seen["keys"] == KEYS
+    assert f"ssh_host_key: ssh-ed25519 {KEYS[0].fingerprint}" in p.read_text()
+
+
+def test_unexpected_error_on_one_host_does_not_stop_others(runner, laptop, monkeypatch):
+    add_host(laptop, "vps1", "---\nbastet: host\ntype: vps\nprovider: linode\nip: 203.0.113.10\n---\n# vps1\n")
+
+    def boom(address):
+        raise RuntimeError("something odd")
+
+    monkeypatch.setattr(gather_mod, "scan_keys", boom)
+    result = runner.invoke(app, ["gather", "-y"])
+    assert result.exit_code == 0, result.output
+    assert "something odd" in result.output
+    assert "os: Arch Linux" in (laptop / "hosts" / "hp-13.md").read_text()

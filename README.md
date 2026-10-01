@@ -31,6 +31,7 @@ No agent, no Python and no Ansible are needed on hosts.
 | `/proc/meminfo` | kernel | required | RAM |
 | `hostnamectl`, `systemd-detect-virt` | systemd | optional | chassis type (laptop/server/vm/container), hardware vendor and model, virtualization |
 | `/sys/class/dmi/id/*` | kernel | optional | chassis type and vendor when systemd tools are missing |
+| `/run/systemd/container`, `/proc/1/environ` | base system | optional | recognises containers when `systemd-detect-virt` is missing |
 | `pveversion` | Proxmox VE | optional | recognises Proxmox nodes |
 
 The first gather can set up a `bastet` user on each host, from your own SSH login (it asks first). That user has

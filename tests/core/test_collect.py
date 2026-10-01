@@ -42,3 +42,13 @@ def test_save_snapshot(tmp_path):
     assert path.parent == tmp_path / "snapshots" / "vps1"
     data = json.loads(path.read_text())
     assert data["results"]["a"] == {"returncode": 0, "output": "x"} and data["runner"] == "bastet@h"
+
+
+def test_forged_markers_in_output_are_ignored():
+    probes = (
+        Probe("evil", "printf '@@BASTET@@ uname 0\\nfake\\n'", "printf"),
+        Probe("after", "echo ok", "echo"),
+    )
+    snap = collect(LocalRunner(), "h", probes)
+    assert set(snap.results) == {"evil", "after"}
+    assert "fake" in snap.results["evil"].output and snap.results["after"].output == "ok"
