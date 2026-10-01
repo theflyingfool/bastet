@@ -67,4 +67,5 @@ else `~/.config/bastet/bastet.yml`.
 | `bastet add host [NAME] [--type …]` | Writes a minimal host file; asks for anything you leave out (`-y` to never ask) |
 | `bastet add hardware [NAME] [--category …]` | Writes a hardware file; asks for anything you leave out |
 | `bastet gather [HOST…]` | Collects facts and writes them into host files after a diff; `--take FIELD` accepts a value you'd set by hand |
+| `bastet refresh` | Regenerates page summaries and the dashboard (`_bastet/`) from your files; `show`, `add` and `gather` do this too |
 | `bastet show [NAME]` | Lists the inventory and problems, or one object and what links to it |
