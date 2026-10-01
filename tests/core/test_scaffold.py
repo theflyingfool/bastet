@@ -151,3 +151,12 @@ def test_suggested_ip_helper(tmp_path):
     assert suggested_ip(inv, "servers") == "10.0.20.10"
     with pytest.raises(BastetError):
         suggested_ip(inv, "iot")
+
+
+def test_unifi_types_default_to_not_gathered(tmp_path):
+    from bastet.core.hosttypes import load_host_types
+    types = load_host_types()
+    assert {"unifi-gateway", "unifi-switch", "unifi-ap"} <= set(types)
+    assert types["unifi-ap"].gather is False and types["server"].gather is True
+    draft = new_host(inv_with(tmp_path, {}), types, "u7-pro-xg", "unifi-ap", ip="10.10.0.3")
+    assert "gather: false" in draft.change.after and "hostname: u7-pro-xg" in draft.change.after

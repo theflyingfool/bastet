@@ -18,8 +18,8 @@ def test_interactive_vps(runner, inventory):
 
 
 def test_type_by_number_and_bad_choice_reprompts(runner, inventory):
-    # types sorted: laptop, lxc, proxmox-node, server, unknown, vm, vps
-    result = runner.invoke(app, ["add", "host"], input="edge1\nvpz\n7\nlinode\n203.0.113.10\ny\n")
+    # types sorted: laptop, lxc, proxmox-node, server, unifi-ap, unifi-gateway, unifi-switch, unknown, vm, vps
+    result = runner.invoke(app, ["add", "host"], input="edge1\nvpz\n10\nlinode\n203.0.113.10\ny\n")
     assert result.exit_code == 0, result.output
     assert "isn't one of the choices" in result.output
     assert "type: vps" in (inventory / "hosts" / "edge1.md").read_text()

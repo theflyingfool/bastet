@@ -1,0 +1,13 @@
+name: unifi-gateway
+description: UniFi gateway (e.g. UXG); configured through the UniFi controller
+physical: true
+gather: false
+minimal: [ip]
+fields:
+  hostname: yours
+  ip: yours
+  address: yours
+  location: yours
+  model: yours
+  mac: yours
+  firmware: fact
