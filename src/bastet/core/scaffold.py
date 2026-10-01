@@ -8,7 +8,7 @@ from bastet.core.frontmatter import new_document
 from bastet.core.hosttypes import HostType
 from bastet.core.inventory import HARDWARE_STATUSES, Inventory, markdown_files
 from bastet.core.links import make_link
-from bastet.core.views import HARDWARE_SECTION
+from bastet.core.views import HARDWARE_SECTION, HARDWARE_SUMMARY_SECTION, HOST_SUMMARY_SECTION
 
 NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._-]*$")
 OPTION_FOR = {"ip": "--ip", "runs_on": "--on", "provider": "--provider"}
@@ -97,7 +97,7 @@ def new_host(
         needs = ", ".join(f"{f} ({OPTION_FOR.get(f, '--' + f)})" for f in missing)
         raise BastetError(f"host type '{type_name}' needs {needs}")
     path = inv.root / "hosts" / f"{name}.md"
-    body = f"# {name}\n" + (HARDWARE_SECTION if types[type_name].physical else "")
+    body = f"# {name}\n" + HOST_SUMMARY_SECTION + (HARDWARE_SECTION if types[type_name].physical else "")
     return HostDraft(Change(path, None, new_document(data, body)), suggested)
 
 
@@ -129,4 +129,4 @@ def new_hardware(
         _require(inv, location, "location", "--location")
         data["location"] = make_link(inv.get(location).name)
     path = inv.root / "hardware" / f"{name}.md"
-    return Change(path, None, new_document(data, f"# {name}\n"))
+    return Change(path, None, new_document(data, f"# {name}\n" + HARDWARE_SUMMARY_SECTION))

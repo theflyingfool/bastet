@@ -152,3 +152,15 @@ def test_same_key_twice_in_one_run_is_claimed_once(repo):
     second, notes = plan_hardware(inv, inv.get("pve2"), v2, repo, take=set(), run=state)
     assert len(first) == 5 and [c for c in second if c.before is None and "WD-WCC4E" in c.path.name] == []
     assert any("also seen" in n.message for n in notes)
+
+
+def test_hardware_files_get_summary_and_existing_ones_get_it_once(repo):
+    changes, _ = run(repo, "pve1")
+    assert all("![[hardware-summary.base]]" in c.after for c in changes)
+    machine = [c for c in changes if "Supermicro" in c.path.name][0]
+    assert "oob_address: 10.0.10.9" in machine.after
+    old = [c for c in changes if "WD-WCC4E1234567" in c.path.name][0]
+    old.after = old.after.replace("\n## Summary\n\n![[hardware-summary.base]]\n", "")
+    apply(repo, changes)
+    again, _ = run(repo, "pve1")
+    assert [c.path for c in again] == [old.path] and "![[hardware-summary.base]]" in again[0].after

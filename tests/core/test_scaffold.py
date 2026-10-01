@@ -37,7 +37,7 @@ def test_new_vps(tmp_path):
     assert draft.change.before is None
     assert draft.change.after == (
         "---\nbastet: host\ncssclasses:\n  - bastet-host\ntype: vps\n"
-        "provider: linode\nip: 203.0.113.10\n---\n# edge1\n"
+        "provider: linode\nip: 203.0.113.10\n---\n# edge1\n\n## Summary\n\n![[host-summary.base]]\n"
     )
     assert draft.suggested_ip is None
 
@@ -108,7 +108,7 @@ def test_new_hardware_installed(tmp_path):
     assert c.path == tmp_path / "hardware" / "WD Red 4TB WX12.md"
     assert c.after == (
         "---\nbastet: hardware\ncategory: drive\nserial: WX12\nsize: 4 TB\n"
-        'status: in-service\ninstalled_in: "[[pve1]]"\n---\n# WD Red 4TB WX12\n'
+        'status: in-service\ninstalled_in: "[[pve1]]"\n---\n# WD Red 4TB WX12\n\n## Summary\n\n![[hardware-summary.base]]\n'
     )
 
 

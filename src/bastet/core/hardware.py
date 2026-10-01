@@ -18,6 +18,7 @@ from bastet.core.hwparse import (
 from bastet.core.inventory import Inventory, markdown_files
 from bastet.core.links import link_target, make_link
 from bastet.core.units import format_size
+from bastet.core.views import HARDWARE_SUMMARY_SECTION, insert_after_title
 
 DRIVE_TRANSPORTS = {"sata", "sas", "nvme", "ata", "scsi"}
 CARD_CLASSES = {"0300": "gpu", "0302": "gpu", "0380": "gpu", "0100": "hba", "0104": "hba", "0107": "hba", "0200": "nic"}
@@ -125,6 +126,7 @@ def observe_hardware(host: str, results: dict[str, ProbeResult], ex: Extracted) 
     oob = parse_ipmi_lan(_text(results, "ipmi") or "")
     if oob:
         data["oob"] = oob
+        data["oob_address"] = oob["address"]
     if serial:
         view.items.append(Observed(f"serial:{serial.lower()}", file_name(_make_model(make, model), serial), data))
     else:
@@ -266,7 +268,8 @@ def plan_hardware(
             while name.lower() in run.names:
                 name, n = f"{obs.name} {n}", n + 1
             run.names.add(name.lower())
-            changes.append(Change(inv.root / "hardware" / f"{name}.md", None, new_document(obs.data, f"# {name}\n")))
+            body = f"# {name}\n" + HARDWARE_SUMMARY_SECTION
+            changes.append(Change(inv.root / "hardware" / f"{name}.md", None, new_document(obs.data, body)))
             continue
         seen.add(doc.path)
         observed = {k: v for k, v in obs.data.items() if k not in HARDWARE_YOURS | HARDWARE_SPECIAL}
@@ -280,9 +283,12 @@ def plan_hardware(
         status = doc.data.get("status")
         if status not in (None, "in-service"):
             notes.append(Note(host, "warn", f"{doc.name} has status '{status}' but is installed in {host}; update it if that's wrong"))
-        if updates:
-            text = doc.path.read_text(encoding="utf-8")
-            changes.append(Change(doc.path, text, set_keys(text, updates, doc.path)))
+        text = doc.path.read_text(encoding="utf-8")
+        new_text = set_keys(text, updates, doc.path) if updates else text
+        if "hardware-summary.base" not in doc.body:
+            new_text = insert_after_title(new_text, HARDWARE_SUMMARY_SECTION)
+        if new_text != text:
+            changes.append(Change(doc.path, text, new_text))
 
     for doc in inv.of_kind("hardware"):
         if doc.path in seen or (link_target(doc.data.get("installed_in")) or "").lower() != host.lower():

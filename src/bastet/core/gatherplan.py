@@ -8,7 +8,7 @@ from bastet.core.frontmatter import Document, set_keys
 from bastet.core.gitrepo import BASTET_NAME, GitRepo
 from bastet.core.hosttypes import HostType, load_host_types
 from bastet.core.units import same_value
-from bastet.core.views import HARDWARE_SECTION, has_hardware_section
+from bastet.core.views import HARDWARE_SECTION, HOST_SUMMARY_SECTION, has_hardware_section, insert_after_title
 
 HARDWARE_KEYS = {"ram", "cpu", "cpu_cores", "cpu_threads", "storage"}
 
@@ -105,6 +105,8 @@ def plan_update(
         notes.append(Note(doc.name, "info", f"type is {current_type!r} but this host looks like a {proposal}"))
 
     new_text = set_keys(text, updates, doc.path) if updates else text
+    if "host-summary.base" not in doc.body:
+        new_text = insert_after_title(new_text, HOST_SUMMARY_SECTION)
     if host_type.physical and not has_hardware_section(doc.body):
         new_text = new_text.rstrip("\n") + "\n" + HARDWARE_SECTION
     change = Change(doc.path, text, new_text) if new_text != text else None
