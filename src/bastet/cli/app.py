@@ -22,3 +22,10 @@ def main(
     ),
 ) -> None:
     """Bastet: a human-readable homelab inventory."""
+
+
+from bastet.cli.add import add_app  # noqa: E402
+from bastet.cli.show import show  # noqa: E402
+
+app.command()(show)
+app.add_typer(add_app, name="add")
