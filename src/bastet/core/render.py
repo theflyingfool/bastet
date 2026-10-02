@@ -27,6 +27,7 @@ DASHBOARD_PATH = f"_bastet/{DASHBOARD_NAME}.md"
 DASHBOARD_EMBED = f"![[{DASHBOARD_NAME}]]"
 RECENT = 6
 GUIDE_PATH = "_bastet/Bastet guide.md"
+MAPS_DIR = "_bastet/maps"
 
 
 def guide() -> str:
@@ -324,6 +325,11 @@ def dashboard(
             for w in flagged[name]:
                 out.append(f"| #warn | [[{name}]] | {_cell(w)} |\n")
     out.append("\n## What's where\n\n" + _where(inv))
+    from bastet.core.maps import cabling_map, networks_map  # lazy: maps builds on render
+
+    maps = [f"[[{t}]]" for t, f in (("Cabling", cabling_map), ("Networks", networks_map)) if f(inv)]
+    if maps:
+        out.append("\nMaps: " + " · ".join(maps) + "\n")
 
     lab = inv.lab
     domains = (lab.data.get("domains") or {}) if lab else {}
@@ -417,6 +423,15 @@ def generated_changes(
             changes.append(Change(path, text, None))
     want(root / DASHBOARD_PATH, dashboard(inv, types, by_host, _recent(repo), drift_by_host))
     want(root / GUIDE_PATH, guide())
+    from bastet.core.maps import cabling_map, networks_map  # lazy: maps builds on render
+
+    for title, text, what in (("Cabling", cabling_map(inv), "cables, from `links:`"),
+                              ("Networks", networks_map(inv), "networks, from the lab file and host addresses")):
+        path = root / MAPS_DIR / f"{title}.md"
+        if text:
+            want(path, _note({}, f"Generated from your {what}; edit those, not this page.\n\n{text}"))
+        elif path.exists():
+            changes.append(Change(path, path.read_text(encoding="utf-8"), None))
     from bastet.roles.pages import role_pages  # lazy: roles builds on core
 
     for path, text in role_pages(inv, types).items():

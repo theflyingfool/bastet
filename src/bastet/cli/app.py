@@ -42,3 +42,6 @@ from bastet.cli.run import apply, check  # noqa: E402
 
 app.command()(check)
 app.command()(apply)
+from bastet.cli.map import map_  # noqa: E402
+
+app.command(name="map")(map_)

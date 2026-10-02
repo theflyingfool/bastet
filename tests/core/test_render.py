@@ -210,3 +210,10 @@ def test_host_summary_lists_ports(repo):
         '---\nbastet: host\ntype: server\nlinks:\n  - {port: eno1, to: "[[pve1]]", to_port: "7"}\n---\n# nas\n')
     text = host_summary(inv(repo), inv(repo).get("pve1"), TYPES, [])
     assert "## Ports" in text and "| 7 | [[nas]] eno1 |" in text
+
+
+def test_maps_are_generated(repo):
+    (repo.root / "hosts" / "nas.md").write_text(
+        '---\nbastet: host\ntype: server\nlinks:\n  - {port: eno1, to: "[[pve1]]", to_port: "3"}\n---\n# nas\n')
+    paths = {c.path.relative_to(repo.root).as_posix() for c in generated_changes(inv(repo), TYPES, repo)}
+    assert "_bastet/maps/Cabling.md" in paths
