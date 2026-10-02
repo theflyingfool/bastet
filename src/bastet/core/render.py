@@ -15,7 +15,7 @@ from bastet.core.gitrepo import BASTET_NAME, GitRepo
 from bastet.core.hardware import MACHINE_CATEGORIES
 from bastet.core.hosttypes import HostType
 from bastet.core.hwparse import short_cpu
-from bastet.core.inventory import Inventory
+from bastet.core.inventory import Inventory, markdown_files
 from bastet.core.links import link_target, make_link
 from bastet.core.units import format_size, parse_size
 from bastet.core.views import ensure_page_embed, ensure_views, summary_embed, summary_name
@@ -410,6 +410,7 @@ def generated_changes(
     for doc in inv.of_kind("hardware"):
         want(summary_path(root, doc.name), hardware_summary(inv, doc))
     wanted = {summary_path(root, d.name) for d in [*inv.of_kind("host"), *inv.of_kind("hardware")]}
+    on_disk = {p.stem.lower() for p in markdown_files(root)}  # includes notes that failed to load
     summary_dir = root / SUMMARY_DIR
     for path in sorted(summary_dir.glob("*.md")) if summary_dir.is_dir() else []:
         if path in wanted:
@@ -419,7 +420,8 @@ def generated_changes(
             doc = parse_document(text, path)
         except (BastetError, OSError, UnicodeDecodeError):
             continue
-        if doc is not None and link_target(doc.data.get("summary_of")):  # only Bastet's own summaries
+        target = link_target(doc.data.get("summary_of")) if doc is not None else None
+        if target and target.lower() not in on_disk:  # only Bastet's own summaries of notes that are really gone
             changes.append(Change(path, text, None))
     want(root / DASHBOARD_PATH, dashboard(inv, types, by_host, _recent(repo), drift_by_host))
     want(root / GUIDE_PATH, guide())

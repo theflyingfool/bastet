@@ -61,3 +61,15 @@ def test_compare_networks(tmp_path):
         ("warn", "10.10.30.0/24 (br30) is on the gateway but not in the lab file's networks"),
         ("info", "iot (10.10.40.0/24) isn't on the gateway yet"),
     ]
+
+
+def test_malformed_link_vlan_is_an_error_not_a_crash(tmp_path):
+    inv = make(tmp_path, LAB, a='ip: 10.10.0.5\nlinks:\n  - {port: eno1, vlan: {id: 10}}\n  - {port: eno2, vlan: "20"}\n')
+    errs = messages(inv, "error")
+    assert any("isn't a number" in m for m in errs) and not any("VLAN 20" in m for m in errs)
+
+
+def test_untagged_only_lab_skips_link_vlan_check(tmp_path):
+    inv = make(tmp_path, "---\nbastet: lab\nnetworks:\n  lan: {cidr: 10.10.0.0/24}\n---\n# Lab\n",
+               a='ip: 10.10.0.5\nlinks:\n  - {port: eno1, native_vlan: 1}\n')
+    assert messages(inv, "error") == []

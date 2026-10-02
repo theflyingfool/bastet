@@ -217,3 +217,10 @@ def test_maps_are_generated(repo):
         '---\nbastet: host\ntype: server\nlinks:\n  - {port: eno1, to: "[[pve1]]", to_port: "3"}\n---\n# nas\n')
     paths = {c.path.relative_to(repo.root).as_posix() for c in generated_changes(inv(repo), TYPES, repo)}
     assert "_bastet/maps/Cabling.md" in paths
+
+
+def test_broken_host_file_keeps_its_summary(repo):
+    write_changes(generated_changes(inv(repo), TYPES, repo))
+    git1 = repo.root / "hosts" / "git1.md"
+    git1.write_text(git1.read_text().replace("os: Debian 13\n", "os: Debian 13\nnotes: [unclosed\n"))
+    assert [c for c in generated_changes(inv(repo), TYPES, repo) if c.after is None] == []

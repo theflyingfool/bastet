@@ -56,3 +56,11 @@ def test_gateway_networks_skip_wan_and_down():
         {"interface": "br20", "cidr": "10.10.20.0/24", "address": "10.10.20.1"},
     ]
     assert "198.51.100" not in str(device_facts(d))
+
+
+def test_wan_found_by_ifname_when_port_names_are_labels():
+    j = json.loads(GATEWAY)
+    for p in j["port_table"]:
+        p["ifname"], p["name"] = p["name"], f"Port {p['port_idx']}"
+    j["network_table"][0]["address"] = "192.168.1.50/24"  # double NAT: a private WAN
+    assert [n["interface"] for n in parse_mca(json.dumps(j)).networks] == ["br0", "br20"]

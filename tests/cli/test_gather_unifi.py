@@ -73,3 +73,12 @@ def test_link_conflict_is_a_warning_and_the_file_wins(runner, unifi_lab):
     assert "⚠ nas: link eno1: seen on [[sw]] port 2" in result.output
     text = nas.read_text()
     assert 'to_port: "9"' in text and "just a note" in text and "[[sw]]" not in text
+
+
+def test_no_lab_networks_means_no_gateway_network_warnings(runner, unifi_lab):
+    lab = unifi_lab / "Homelab.md"
+    lab.write_text("---\nbastet: lab\n---\n# Homelab\n")
+    git(unifi_lab, "commit", "-qam", "no networks")
+    result = runner.invoke(app, ["gather", "uxg", "-y"])
+    assert result.exit_code == 0, result.output
+    assert "is on the gateway but not" not in result.output

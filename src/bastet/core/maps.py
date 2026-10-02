@@ -65,7 +65,7 @@ def networks_map(inv: Inventory) -> str:
         title = name if net is None else " · ".join(x for x in (name, str(net.cidr), f"VLAN {net.vlan}" if net.vlan else "") if x)
         lines.append(f'  subgraph net{i}["{_label(title)}"]')
         lines.append("    direction LR")
-        for h in sorted(members, key=lambda d: ipaddress.ip_address(_bare_ip(d.data["ip"]))):
+        for h in sorted(members, key=lambda d: (ipaddress.ip_address(_bare_ip(d.data["ip"])).version, ipaddress.ip_address(_bare_ip(d.data["ip"])))):
             lines.append(f'    h{n}["{_label(h.name)}<br/><small>{_label(_address(h) or "")}</small>"]')
             n += 1
         lines.append("  end")

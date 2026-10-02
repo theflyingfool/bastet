@@ -67,6 +67,16 @@ def link_vlans(link: dict) -> list[object]:
     return out + (vlans if isinstance(vlans, list) else [vlans] if vlans is not None else [])
 
 
+def _vlan_number(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value)
+    return None
+
+
 def check_networks(inv: Inventory) -> None:
     lab = inv.lab
     raw = lab.data.get("networks") if lab else None
@@ -109,14 +119,19 @@ def check_networks(inv: Inventory) -> None:
         elif is_lan(address) and network_of(nets, bare) is None:
             _problem(inv, "warning", f"{bare} is in none of the lab's networks", doc, "ip")
     vlans = set(seen_vlan)
+    if not vlans:  # an untagged-only lab: nothing to check link VLANs against
+        return
     for doc in [*inv.of_kind("host"), *inv.of_kind("hardware")]:
         links = doc.data.get("links")
         for link in links if isinstance(links, list) else []:
             if not isinstance(link, dict):
                 continue
             for v in link_vlans(link):
-                if v not in vlans:
-                    _problem(inv, "error", f"link {link.get('port')}: VLAN {v} isn't any lab network's vlan", doc, "links")
+                number = _vlan_number(v)
+                if number is None:
+                    _problem(inv, "error", f"link {link.get('port')}: VLAN {v!r} isn't a number", doc, "links")
+                elif number not in vlans:
+                    _problem(inv, "error", f"link {link.get('port')}: VLAN {number} isn't any lab network's vlan", doc, "links")
 
 
 def compare_networks(nets: dict[str, Network], seen: list[dict]) -> list[tuple[str, str]]:

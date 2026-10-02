@@ -80,6 +80,13 @@ def _networks(j: dict, uplinks: set[str]) -> list[dict]:
     return sorted(out, key=lambda x: ipaddress.ip_network(x["cidr"]))
 
 
+def _uplink_names(j: dict) -> set[str]:
+    """Every name the WAN goes by: port labels can be "Port 7" while network_table uses the kernel name."""
+    names = {str(p.get(k)) for p in j.get("port_table") or [] if p.get("is_uplink") for k in ("name", "ifname") if p.get(k)}
+    uplink = j.get("uplink") if isinstance(j.get("uplink"), dict) else {}
+    return names | {str(uplink[k]) for k in ("name", "ifname") if uplink.get(k)}
+
+
 def parse_mca(text: str) -> Device:
     try:
         j = json.loads(text)
@@ -104,7 +111,7 @@ def parse_mca(text: str) -> Device:
     return Device(mac=mac, model=str(j.get("model_display") or j.get("model") or ""), firmware=str(j.get("version") or ""),
                   serial=clean(j.get("serial")), hostname=str(j.get("hostname") or ""),
                   ports=sorted(ports, key=lambda p: (len(p.id), p.id)), neighbours=neighbours,
-                  interface_macs=interface_macs - {""}, networks=_networks(j, {p.name for p in ports if p.uplink}))
+                  interface_macs=interface_macs - {""}, networks=_networks(j, _uplink_names(j)))
 
 
 def device_facts(d: Device) -> dict:

@@ -264,8 +264,8 @@ def gather(
                     unifi_devices[doc.name] = (host_type.name, device)
                     extracted = Extracted(facts=device_facts(device))
                     view = HardwareView(items=[machine_item(doc.name, host_type.name, device)])
-                    if host_type.name == "unifi-gateway":
-                        network_notes = compare_networks(lab_networks(inv), device.networks)
+                    if host_type.name == "unifi-gateway" and (nets := lab_networks(inv)):
+                        network_notes = compare_networks(nets, device.networks)
                 else:
                     snapshot, hostkey, runner = _collect(ctx, doc, Path(tmp), yes=yes, accept=accept_new_hostkey)
                     snapshot, installed = _maybe_install_tools(ctx, doc, host_type, snapshot, runner, yes)
