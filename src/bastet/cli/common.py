@@ -106,3 +106,17 @@ def refresh_generated(
         return 0
     typer.echo(f"Refreshed {len(changes)} generated note{'s' if len(changes) != 1 else ''} in _bastet/.")
     return len(changes)
+
+
+def ssh_port(ctx: Context, doc) -> int:
+    """The port Bastet connects on: the host's ssh role `port` (first listed), else 22."""
+    from bastet.roles.contract import load_roles  # lazy: roles builds on core
+    from bastet.roles.resolve import resolve
+
+    try:
+        applied = {a.role.name: a for a in resolve(ctx.inventory, doc, ctx.types, load_roles())}
+    except BastetError as exc:
+        typer.secho(f"{doc.name}: roles couldn't be read ({exc.message}); connecting on port 22", fg="yellow", err=True)
+        return 22
+    ports = (applied["ssh"].values.get("port") if "ssh" in applied else None) or [22]
+    return int(ports[0])

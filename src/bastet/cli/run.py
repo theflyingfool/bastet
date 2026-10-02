@@ -6,7 +6,7 @@ from pathlib import Path
 
 import typer
 
-from bastet.cli.common import Context, handles_errors, load_context, refresh_generated
+from bastet.cli.common import Context, handles_errors, load_context, refresh_generated, ssh_port
 from bastet.cli.gather import _fixed_ip, local_runner, scan_keys, ssh_runner, sudo_validate
 from bastet.core import hostkeys
 from bastet.core.errors import BastetError
@@ -46,15 +46,16 @@ def connect(ctx: Context, doc: Document, tmp: Path, *, yes: bool):
     recorded = doc.data.get("ssh_host_key")
     if not recorded:
         raise BastetError("no confirmed host key yet; run `bastet gather` on this host first", file=doc.path)
-    keys = scan_keys(str(address), recorded=str(recorded))
+    port = ssh_port(ctx, doc)
+    keys = scan_keys(str(address), recorded=str(recorded), port=port)
     if hostkeys.check(str(recorded), keys) != "match":
         raise BastetError("the host's key doesn't match ssh_host_key; run `bastet gather` "
                           "(with --accept-new-hostkey after a reinstall)", file=doc.path, key="ssh_host_key")
     key = ctx.config.ssh.key
     if key is None:
         raise BastetError("no Bastet SSH key configured; run `bastet init`")
-    known = hostkeys.write_known_hosts(hostkeys.pinned(str(recorded), keys), str(address), 22, tmp / doc.name)
-    target = SshTarget(str(address), "bastet", key, known, control_path=control_path())
+    known = hostkeys.write_known_hosts(hostkeys.pinned(str(recorded), keys), str(address), port, tmp / doc.name)
+    target = SshTarget(str(address), "bastet", key, known, port=port, control_path=control_path())
     return ssh_runner(target), target
 
 

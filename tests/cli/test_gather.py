@@ -41,7 +41,7 @@ def laptop(inventory, monkeypatch):
     add_host(inventory, "hp-13", "---\nbastet: host\ntype: laptop\nip: dhcp\nconnection: local\n---\n# hp-13\n")
     monkeypatch.setattr(gather_mod, "local_runner", lambda: FakeRunner(LAPTOP, "local"))
 
-    def no_network(address, recorded=None):
+    def no_network(address, recorded=None, port=22):
         raise Unreachable(f"{address}: offline in tests")
 
     monkeypatch.setattr(gather_mod, "scan_keys", no_network)
@@ -51,7 +51,7 @@ def laptop(inventory, monkeypatch):
 @pytest.fixture
 def vps(inventory, monkeypatch):
     add_host(inventory, "vps1", "---\nbastet: host\ntype: vps\nprovider: linode\nip: 203.0.113.10\n---\n# vps1\n")
-    monkeypatch.setattr(gather_mod, "scan_keys", lambda address, recorded=None: KEYS)
+    monkeypatch.setattr(gather_mod, "scan_keys", lambda address, recorded=None, port=22: KEYS)
 
     def runner(target):
         if target.user == "bastet":
@@ -141,7 +141,7 @@ def test_changed_hostkey_stops(runner, vps):
 def test_unreachable_host_does_not_stop_others(runner, laptop, monkeypatch):
     add_host(laptop, "vps1", "---\nbastet: host\ntype: vps\nprovider: linode\nip: 203.0.113.10\n---\n# vps1\n")
 
-    def down(address, recorded=None):
+    def down(address, recorded=None, port=22):
         raise Unreachable(f"{address}: no SSH host keys")
 
     monkeypatch.setattr(gather_mod, "scan_keys", down)
@@ -164,7 +164,7 @@ def test_unknown_host_name(runner, inventory):
 
 def test_accepted_key_replaces_recorded_and_pins_only_one(runner, vps, monkeypatch):
     evil = parse_keyscan(f"h ssh-rsa {base64.b64encode(b'evil').decode()}\n")
-    monkeypatch.setattr(gather_mod, "scan_keys", lambda address, recorded=None: KEYS + evil)
+    monkeypatch.setattr(gather_mod, "scan_keys", lambda address, recorded=None, port=22: KEYS + evil)
     seen = {}
     real_write = gather_mod.hostkeys.write_known_hosts
 
@@ -185,7 +185,7 @@ def test_accepted_key_replaces_recorded_and_pins_only_one(runner, vps, monkeypat
 def test_unexpected_error_on_one_host_does_not_stop_others(runner, laptop, monkeypatch):
     add_host(laptop, "vps1", "---\nbastet: host\ntype: vps\nprovider: linode\nip: 203.0.113.10\n---\n# vps1\n")
 
-    def boom(address, recorded=None):
+    def boom(address, recorded=None, port=22):
         raise RuntimeError("something odd")
 
     monkeypatch.setattr(gather_mod, "scan_keys", boom)
@@ -200,7 +200,7 @@ from gather_fixtures import SERVER  # noqa: E402
 
 @pytest.fixture
 def server(inventory, monkeypatch):
-    monkeypatch.setattr(gather_mod, "scan_keys", lambda address, recorded=None: KEYS)
+    monkeypatch.setattr(gather_mod, "scan_keys", lambda address, recorded=None, port=22: KEYS)
 
     def runner(target):
         if target.user == "bastet":
@@ -322,7 +322,7 @@ def test_missing_tools_installed_when_confirmed_and_recorded(runner, inventory, 
     from gather_fixtures import RACK
     _rack_host(inventory)
     fake = InstallingRunner(dict(RACK, pkg_mgr="apt-get"), dict(RACK, pkg_mgr="apt-get", ipmi=SERVER["ipmi"]))
-    monkeypatch.setattr(gather_mod, "scan_keys", lambda address, recorded=None: KEYS)
+    monkeypatch.setattr(gather_mod, "scan_keys", lambda address, recorded=None, port=22: KEYS)
     monkeypatch.setattr(gather_mod, "ssh_runner", lambda target: fake)
     result = runner.invoke(app, ["gather", "sanrio", "--accept-new-hostkey"], input="y\ny\n")
     assert result.exit_code == 0, result.output
@@ -337,7 +337,7 @@ def test_tools_not_installed_with_yes_by_default_or_when_host_opts_out(runner, i
     from gather_fixtures import RACK
     _rack_host(inventory)
     fake = InstallingRunner(dict(RACK, pkg_mgr="apt-get"), dict(RACK, pkg_mgr="apt-get"))
-    monkeypatch.setattr(gather_mod, "scan_keys", lambda address, recorded=None: KEYS)
+    monkeypatch.setattr(gather_mod, "scan_keys", lambda address, recorded=None, port=22: KEYS)
     monkeypatch.setattr(gather_mod, "ssh_runner", lambda target: fake)
     runner.invoke(app, ["gather", "sanrio", "-y", "--accept-new-hostkey"])
     assert fake.installs == []
@@ -355,7 +355,7 @@ def test_config_always_installs_unattended(runner, inventory, monkeypatch, tmp_p
     cfg.write_text(cfg.read_text() + "gather:\n  install_tools: always\n")
     _rack_host(inventory)
     fake = InstallingRunner(dict(RACK, pkg_mgr="apt-get"), dict(RACK, pkg_mgr="apt-get", ipmi=SERVER["ipmi"]))
-    monkeypatch.setattr(gather_mod, "scan_keys", lambda address, recorded=None: KEYS)
+    monkeypatch.setattr(gather_mod, "scan_keys", lambda address, recorded=None, port=22: KEYS)
     monkeypatch.setattr(gather_mod, "ssh_runner", lambda target: fake)
     result = runner.invoke(app, ["gather", "sanrio", "-y", "--accept-new-hostkey"])
     assert result.exit_code == 0, result.output

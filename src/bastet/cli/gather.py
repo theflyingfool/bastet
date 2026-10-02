@@ -10,7 +10,7 @@ from pathlib import Path
 
 import typer
 
-from bastet.cli.common import Context, handles_errors, load_context, refresh_generated, write_with_confirmation
+from bastet.cli.common import Context, handles_errors, load_context, refresh_generated, ssh_port, write_with_confirmation
 from bastet.core.guests import guest_drift
 from bastet.core.render import lab_embed_changes
 from bastet.core.scaffold import new_host
@@ -39,8 +39,8 @@ def ssh_runner(target: SshTarget) -> SshRunner:
     return SshRunner(target)
 
 
-def scan_keys(address: str, recorded: str | None = None) -> list[hostkeys.HostKey]:
-    return hostkeys.scan(address, recorded=recorded)
+def scan_keys(address: str, recorded: str | None = None, port: int = 22) -> list[hostkeys.HostKey]:
+    return hostkeys.scan(address, recorded=recorded, port=port)
 
 
 def sudo_validate() -> bool:
@@ -64,13 +64,13 @@ def _fixed_ip(value: object) -> str | None:
     return text
 
 
-def _pin(ctx: Context, doc: Document, tmp: Path, *, yes: bool, accept: bool) -> tuple[str, Path, str]:
+def _pin(ctx: Context, doc: Document, tmp: Path, *, yes: bool, accept: bool, port: int = 22) -> tuple[str, Path, str]:
     """Scan, check and pin the host key (first contact asks); returns address, known_hosts path, recorded key."""
     address = doc.data.get("address") or _fixed_ip(doc.data.get("ip"))
     if not address:
         raise BastetError("no address to connect to; set `address:` (e.g. laptop.local) or a fixed `ip:`", file=doc.path)
     recorded = doc.data.get("ssh_host_key")
-    keys = scan_keys(str(address), recorded=str(recorded) if recorded else None)
+    keys = scan_keys(str(address), recorded=str(recorded) if recorded else None, port=port)
     best = hostkeys.preferred(keys)
     offered = hostkeys.record(best)
     status = hostkeys.check(recorded, keys)
@@ -90,7 +90,7 @@ def _pin(ctx: Context, doc: Document, tmp: Path, *, yes: bool, accept: bool) -> 
         trusted, hostkey = hostkeys.pinned(str(recorded), keys), str(recorded)
     else:
         trusted, hostkey = [best], offered
-    known = hostkeys.write_known_hosts(trusted, str(address), 22, tmp / doc.name)
+    known = hostkeys.write_known_hosts(trusted, str(address), port, tmp / doc.name)
     return str(address), known, hostkey
 
 
@@ -117,16 +117,17 @@ def _collect(ctx: Context, doc: Document, tmp: Path, *, yes: bool, accept: bool)
             sudo_validate()
         runner = local_runner()
         return collect(runner, doc.name), None, runner
-    address, known, hostkey = _pin(ctx, doc, tmp, yes=yes, accept=accept)
+    port = ssh_port(ctx, doc)
+    address, known, hostkey = _pin(ctx, doc, tmp, yes=yes, accept=accept, port=port)
     key = ctx.config.ssh.key
     if key is not None:
         try:
-            runner = ssh_runner(SshTarget(str(address), "bastet", key, known))
+            runner = ssh_runner(SshTarget(str(address), "bastet", key, known, port=port))
             return collect(runner, doc.name), hostkey, runner
         except AuthFailed:
             pass
     user = ctx.config.ssh.bootstrap_user or getpass.getuser()
-    own = SshTarget(str(address), user, None, known)
+    own = SshTarget(str(address), user, None, known, port=port)
     typer.echo(f"{doc.name}: the bastet user is not set up; using {user}@{address}")
     if key is not None and not yes and typer.confirm(
         f"Set up the bastet user on {doc.name} now (key login only, passwordless sudo)?", default=True
@@ -137,7 +138,7 @@ def _collect(ctx: Context, doc: Document, tmp: Path, *, yes: bool, accept: bool)
         public_key = pub.read_text(encoding="utf-8")
         if interactive(own, setup_command(public_key)) == 0:
             try:
-                runner = ssh_runner(SshTarget(str(address), "bastet", key, known))
+                runner = ssh_runner(SshTarget(str(address), "bastet", key, known, port=port))
                 return collect(runner, doc.name), hostkey, runner
             except AuthFailed:
                 typer.secho(f"{doc.name}: bastet user set up, but its login was refused; continuing as {user}", fg="yellow")

@@ -34,7 +34,7 @@ def unifi_lab(inventory, monkeypatch):
     (h / "nas.md").write_text(f"---\nbastet: host\ntype: server\nip: 10.10.0.20\ngather: false\ninterfaces:\n  - name: eno1\n    mac: {HOST_MAC}\n---\n# nas\n")
     git(inventory, "add", ".")
     git(inventory, "commit", "-q", "-m", "unifi")
-    monkeypatch.setattr(gather_mod, "scan_keys", lambda address, recorded=None: KEYS)
+    monkeypatch.setattr(gather_mod, "scan_keys", lambda address, recorded=None, port=22: KEYS)
     monkeypatch.setattr(gather_mod, "ssh_runner", lambda target: DumpRunner(target.address))
     return inventory
 
