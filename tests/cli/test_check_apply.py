@@ -215,3 +215,21 @@ def test_failed_audit_is_a_warning_not_a_failure(runner, box, inventory, monkeyp
         'service_exposure: false\nlistening_ports: false\napparmor_status: false\nsysctl_defaults: false\n---\n')
     result = runner.invoke(app, ["apply", "box", "-y"])
     assert result.exit_code == 0 and "lynis audit failed" in result.output
+
+
+def test_check_writes_security_note(runner, box, inventory, monkeypatch):
+    from bastet.engine.run import HostRun, Item
+    from bastet.engine.security import AppArmorStatus
+
+    def fake(runner_, host, batches, **kw):
+        res = next(r for b in batches for r in b.resources if isinstance(r, AppArmorStatus))
+        return HostRun(host, False, [Item(res, ["harden"], [], current={"enabled": False, "enforce": 0, "complain": 0})])
+    monkeypatch.setattr(run_mod, "run_host", fake)
+    (inventory / "_roles" / "hosts" / "box" / "harden.md").write_text(
+        '---\nbastet: role\nrole: harden\napplies_to: "[[box]]"\nvulnerable_packages: false\n'
+        'service_exposure: false\nlistening_ports: false\nsysctl_defaults: false\n---\n')
+    result = runner.invoke(app, ["check", "box"])
+    assert result.exit_code == 0, result.output
+    note = inventory / "_bastet" / "security" / "box security.md"
+    assert note.exists() and "## AppArmor\n\nnot enabled" in note.read_text()
+    assert "refresh: security note box" in git(inventory, "log", "--format=%s")

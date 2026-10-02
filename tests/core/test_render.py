@@ -274,3 +274,14 @@ def test_hardware_table_includes_network_devices_without_repeating_the_make(repo
 def test_where_map_runs_top_down(repo):
     from bastet.core.maps import where_map
     assert "flowchart TB" in where_map(inv(repo))
+
+
+def test_summary_links_security_note_and_deleted_hosts_lose_theirs(repo):
+    sec = repo.root / "_bastet" / "security"
+    sec.mkdir(parents=True)
+    (sec / "pve1 security.md").write_text('---\nsecurity_of: "[[pve1]]"\nchecked: 2026-10-02 10:00\n---\n## Lynis\n')
+    (sec / "gone security.md").write_text('---\nsecurity_of: "[[gone]]"\nchecked: x\n---\n')
+    text = host_summary(inv(repo), inv(repo).get("pve1"), TYPES, [])
+    assert "[[pve1 security|security report]]" in text and "2026-10-02 10:00" in text
+    removed = [c.path.name for c in generated_changes(inv(repo), TYPES, repo) if c.after is None]
+    assert "gone security.md" in removed and "pve1 security.md" not in removed

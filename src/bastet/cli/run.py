@@ -1,5 +1,6 @@
 """bastet check / bastet apply: make hosts match the desired state their roles describe (spec 9.2)."""
 
+import datetime as dt
 import os
 import tempfile
 from pathlib import Path
@@ -14,6 +15,8 @@ from bastet.core.frontmatter import Document
 from bastet.core.remote import SshTarget, close_master, control_path
 from bastet.cli.reboot import handle_reboot
 from bastet.engine.packages import Reboot
+from bastet.core.changes import Change, write_changes
+from bastet.core.security_note import security_items, security_note, security_path
 from bastet.engine.report import render_host
 from bastet.engine.script import exec_script, new_mark
 from bastet.engine.security import LYNIS_AUDIT, LynisReport
@@ -64,6 +67,17 @@ def connect(ctx: Context, doc: Document, tmp: Path, *, yes: bool):
 AUDIT_TIMEOUT = 600
 
 
+def _write_security_note(ctx: Context, doc: Document, items) -> bool:
+    """Write the host's security note from this run's reports (a Bastet-owned file: no confirmation)."""
+    if not security_items(items) or not ctx.repo.is_repo():
+        return False
+    path = security_path(ctx.root, doc.name)
+    text = security_note(doc.name, items, dt.datetime.now().strftime("%Y-%m-%d %H:%M"))
+    before = path.read_text(encoding="utf-8") if path.exists() else None
+    write_changes([Change(path, before, text)])
+    return ctx.repo.commit([path], f"refresh: security note {doc.name}")
+
+
 def run_audit(runner, doc: Document) -> str | None:
     """Run a lynis audit during apply (check only reads the last report); a failure is a warning, never fatal."""
     typer.echo(f"{doc.name}: running a lynis audit (1–3 minutes)…")
@@ -99,6 +113,7 @@ def _run(names: list[str] | None, *, apply_changes: bool, yes: bool, verbose: bo
             typer.secho(f"{Path(f).relative_to(ctx.root)}: {problem}", fg="yellow")
     full = verbose or len(docs) == 1
     failed = False
+    notes_written = False
     with tempfile.TemporaryDirectory(prefix="bastet-") as tmp:
         for doc in docs:
             target = None
@@ -127,6 +142,7 @@ def _run(names: list[str] | None, *, apply_changes: bool, yes: bool, verbose: bo
                 runner, target = connect(ctx, doc, Path(tmp), yes=yes)
                 check = run_host(runner, doc.name, batches, apply=False)
                 typer.echo(render_host(check, full=full))
+                notes_written |= _write_security_note(ctx, doc, check.items)
                 pending = check.count("would-change")
                 if not apply_changes:
                     failed |= check.count("failed") > 0
@@ -147,6 +163,10 @@ def _run(names: list[str] | None, *, apply_changes: bool, yes: bool, verbose: bo
                     warning = run_audit(runner, doc)
                     if warning:
                         typer.secho(warning, fg="yellow")
+                    else:  # the fresh audit replaces the report the check read
+                        fresh = run_host(runner, doc.name, [Batch("lynis", [LynisReport()])], apply=False).items
+                        notes_written |= _write_security_note(
+                            ctx, doc, [i for i in check.items if not isinstance(i.resource, LynisReport)] + fresh)
                 note = handle_reboot(runner, target, doc, reboots, yes=yes, apply_failed=apply_failed,
                                      connect_again=lambda doc=doc: connect(ctx, doc, Path(tmp), yes=yes)[0])
                 if note:
@@ -158,6 +178,8 @@ def _run(names: list[str] | None, *, apply_changes: bool, yes: bool, verbose: bo
             finally:
                 if target is not None:
                     close_master(target)
+    if notes_written and not ctx.repo.push():
+        typer.secho("warning: push failed; the security notes are committed locally", fg="yellow", err=True)
     refresh_generated(ctx)
     if failed:
         raise typer.Exit(1)
