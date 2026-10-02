@@ -300,6 +300,7 @@ class Line(_Edit):
     line: str
     match: str | None = None
     after: str | None = None  # regex: a new line goes after the last line matching this, not at the end
+    unique: bool = False  # with match: drop the other uncommented matching lines (a directive that may repeat)
 
     def __post_init__(self):
         for knob in ("match", "after"):
@@ -319,7 +320,7 @@ class Line(_Edit):
         return f"{self.path} (secret)" if self.secret else f"{self.path} ({self.line})"
 
     def desired(self):
-        return {"line": self.line, "match": self.match, "after": self.after}
+        return {"line": self.line, "match": self.match, "after": self.after, "unique": self.unique}
 
     def wanted(self, content):
         text = "" if content == ABSENT else str(content)
@@ -328,7 +329,11 @@ class Line(_Edit):
         if self.match:
             hits = [i for i, line in enumerate(stripped) if re.search(self.match, line)]
             if hits:
-                lines[hits[-1]] = self.line + "\n"
+                active = [i for i in hits if not stripped[i].lstrip().startswith("#")]
+                keep = (active or hits)[-1] if self.unique else hits[-1]
+                lines[keep] = self.line + "\n"
+                if self.unique:
+                    lines = [line for i, line in enumerate(lines) if i == keep or i not in active]
                 return "".join(lines)
         if self.line in stripped:
             return text

@@ -152,3 +152,12 @@ def test_bad_line_regex_is_a_value_error():
         Line(path="/x", line="a", after="(")
     with pytest.raises(ValueError, match="match"):
         Line(path="/x", line="a", match="[")
+
+
+def test_unique_line_drops_other_active_copies():
+    text = "[options]\n#NoExtract   =\nNoExtract = a\nNoExtract = b\n[core]\n"
+    line = Line(path="/etc/pacman.conf", line="NoExtract = x", match=r"^#?\s*NoExtract\s*(=.*)?$", unique=True)
+    assert line.wanted(text) == "[options]\n#NoExtract   =\nNoExtract = x\n[core]\n"
+    assert line.wanted(line.wanted(text)) == line.wanted(text)
+    plain = Line(path="/etc/pacman.conf", line="NoExtract = x", match=r"^#?\s*NoExtract\s*(=.*)?$")
+    assert plain.wanted(text).count("NoExtract = ") == 2  # without unique, only the last one is replaced

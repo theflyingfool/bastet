@@ -181,3 +181,17 @@ def test_arch_pacman_contract(arch_host):
     conf = arch_host.run("cat /etc/pacman.conf").stdout
     assert "\nColor\n" in conf and "\nILoveCandy\n" in conf and "ParallelDownloads = 8" in conf
     assert arch_host.run("pacman-conf >/dev/null").returncode == 0  # still a valid config
+
+
+def test_arch_pacman_all_kinds_contract(arch_host):
+    info = HostInfo(name="ct", type="vm", data={"os": "Arch Linux"}, root=Path("/nonexistent"), lab={})
+    batches = batches_for([_applied("pacman", {
+        "ignore_pkg": ["linux", "linux-headers"], "no_extract": ["usr/share/doc/*"], "clean_method": ["KeepCurrent"],
+        "verbose_pkg_lists": True, "check_space": False})], info)
+    assert run_host(arch_host, "ct", batches, apply=True).ok  # this image already has some of these set
+    again = run_host(arch_host, "ct", batches, apply=True)
+    assert all(i.status == "compliant" for i in again.items), render_host(again, full=True)
+    assert arch_host.run("pacman-conf IgnorePkg").stdout.split() == ["linux", "linux-headers"]
+    assert arch_host.run("pacman-conf NoExtract").stdout.strip() == "usr/share/doc/*"
+    assert arch_host.run("pacman-conf CleanMethod").stdout.strip() == "KeepCurrent"
+    assert "VerbosePkgLists" in arch_host.run("pacman-conf").stdout and "CheckSpace" not in arch_host.run("pacman-conf").stdout

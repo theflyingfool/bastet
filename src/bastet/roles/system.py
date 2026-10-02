@@ -43,18 +43,34 @@ def base(v: dict, host) -> list[Batch]:
 
 
 PACMAN_CONF = "/etc/pacman.conf"
-COLOR = r"^#?\s*Color\s*$"
 OPTIONS = r"^\[options\]\s*$"
-IN_OPTIONS = rf"{COLOR}|{OPTIONS}"  # after Color when it's there, else right under [options]
+# role option -> (pacman.conf directive, kind): flag = bare word, value = "Name = v", list = "Name = a b c"
+PACMAN_SETTINGS = {
+    "root_dir": ("RootDir", "value"), "db_path": ("DBPath", "value"), "cache_dir": ("CacheDir", "list"),
+    "hook_dir": ("HookDir", "list"), "gpg_dir": ("GPGDir", "value"), "log_file": ("LogFile", "value"),
+    "hold_pkg": ("HoldPkg", "list"), "ignore_pkg": ("IgnorePkg", "list"), "ignore_group": ("IgnoreGroup", "list"),
+    "no_upgrade": ("NoUpgrade", "list"), "no_extract": ("NoExtract", "list"), "architecture": ("Architecture", "value"),
+    "xfer_command": ("XferCommand", "value"), "parallel_downloads": ("ParallelDownloads", "value"),
+    "disable_download_timeout": ("DisableDownloadTimeout", "flag"), "download_user": ("DownloadUser", "value"),
+    "disable_sandbox": ("DisableSandbox", "flag"), "clean_method": ("CleanMethod", "list"),
+    "sig_level": ("SigLevel", "value"), "local_file_sig_level": ("LocalFileSigLevel", "value"),
+    "remote_file_sig_level": ("RemoteFileSigLevel", "value"), "color": ("Color", "flag"),
+    "candy": ("ILoveCandy", "flag"), "no_progress_bar": ("NoProgressBar", "flag"),
+    "verbose_pkg_lists": ("VerbosePkgLists", "flag"), "check_space": ("CheckSpace", "flag"),
+    "use_syslog": ("UseSyslog", "flag"),
+}
 
 
-def _setting(name: str, on: bool | None, value: str | None = None, after: str | None = None) -> Line | None:
-    """One [options] setting: on writes it, off comments it out, None leaves pacman.conf alone."""
-    if on is None:
-        return None
-    text = f"{name} = {value}" if value is not None else name
-    match = rf"^#?\s*{name}(\s*=.*)?\s*$" if value is not None else rf"^#?\s*{name}\s*$"
-    return Line(path=PACMAN_CONF, line=text if on else f"#{text}", match=match, after=after)
+def _directive(name: str, kind: str, value) -> Line:
+    """One [options] line: written in place of the directive (commented or not), else right under [options]."""
+    match = rf"^#?\s*{name}\s*(=.*)?$"
+    if kind == "flag":
+        line = name if value else f"#{name}"
+    elif kind == "list":
+        line = f"{name} = {' '.join(str(x) for x in value)}" if value else f"#{name} ="
+    else:
+        line = f"{name} = {value}"
+    return Line(path=PACMAN_CONF, line=line, match=match, after=OPTIONS, unique=True)  # the setting means exactly this
 
 
 def pacman(v: dict, host) -> list[Batch]:
@@ -64,15 +80,11 @@ def pacman(v: dict, host) -> list[Batch]:
     parallel = v.get("parallel_downloads")
     if parallel is not None and parallel < 1:
         raise BastetError("pacman.parallel_downloads must be 1 or more")
-    items = [
-        _setting("Color", v.get("color"), after=OPTIONS),
-        _setting("ILoveCandy", v.get("candy"), after=IN_OPTIONS),
-        _setting("ParallelDownloads", None if parallel is None else True, None if parallel is None else str(parallel),
-                 after=IN_OPTIONS),
-        _setting("VerbosePkgLists", v.get("verbose_pkg_lists"), after=IN_OPTIONS),
-    ]
-    return [Batch("pacman", [i for i in items if i is not None])]
-
+    for knob, (_, kind) in PACMAN_SETTINGS.items():
+        if kind == "value" and isinstance(v.get(knob), str) and ("\n" in v[knob] or not v[knob].strip()):
+            raise BastetError(f"pacman.{knob}: needs a single non-empty line")
+    lines = [_directive(name, kind, v[knob]) for knob, (name, kind) in PACMAN_SETTINGS.items() if v.get(knob) is not None]
+    return [Batch("pacman", lines)]
 
 DEBIAN_KEY = "/usr/share/keyrings/debian-archive-keyring.gpg"
 PVE_KEY = "/usr/share/keyrings/proxmox-archive-keyring.gpg"

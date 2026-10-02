@@ -1,10 +1,51 @@
-description: "pacman's own settings in /etc/pacman.conf (Arch-based hosts; aim it at [[arch]])."
+description: "pacman's own settings: every [options] setting in /etc/pacman.conf (Arch-based hosts; aim it at [[arch]]). Unset = leave pacman's setting as it is. Repositories belong to the packages role."
 options:
-  color: {type: bool, default: true, description: "Colour output (Color)"}
-  candy: {type: bool, default: true, description: "Pac-Man progress bar (ILoveCandy)"}
-  parallel_downloads: {type: int, description: "Download this many packages at once (ParallelDownloads); unset = leave as is"}
-  verbose_pkg_lists: {type: bool, description: "Show old and new versions in a table (VerbosePkgLists); unset = leave as is"}
+  # paths
+  root_dir: {type: string, description: "RootDir: installation root"}
+  db_path: {type: string, description: "DBPath: package database location"}
+  cache_dir: {type: list, items: {type: string}, description: "CacheDir: package cache directories"}
+  hook_dir: {type: list, items: {type: string}, description: "HookDir: extra hook directories"}
+  gpg_dir: {type: string, description: "GPGDir: keyring directory"}
+  log_file: {type: string, description: "LogFile"}
+  # what pacman touches
+  hold_pkg: {type: list, items: {type: string}, description: "HoldPkg: ask before removing these (pacman, glibc by default); [] comments it out"}
+  ignore_pkg: {type: list, items: {type: string}, description: "IgnorePkg: never upgrade these"}
+  ignore_group: {type: list, items: {type: string}, description: "IgnoreGroup: never upgrade packages in these groups"}
+  no_upgrade: {type: list, items: {type: string}, description: "NoUpgrade: files never overwritten on upgrade (saved as .pacnew)"}
+  no_extract: {type: list, items: {type: string}, description: "NoExtract: files never installed (e.g. usr/share/doc/*)"}
+  architecture: {type: string, description: "Architecture (auto, x86_64, …)"}
+  # downloading
+  xfer_command: {type: string, description: "XferCommand: external download command (%u URL, %o output)"}
+  parallel_downloads: {type: int, description: "ParallelDownloads: packages downloaded at once"}
+  disable_download_timeout: {type: bool, description: "DisableDownloadTimeout"}
+  download_user: {type: string, description: "DownloadUser: unprivileged user downloads run as"}
+  disable_sandbox: {type: bool, description: "DisableSandbox: turn off the download sandbox"}
+  clean_method:
+    type: list
+    items: {type: string, choices: [KeepInstalled, KeepCurrent]}
+    description: "CleanMethod: what pacman -Sc keeps"
+  # signatures
+  sig_level: {type: string, description: "SigLevel, e.g. Required DatabaseOptional"}
+  local_file_sig_level: {type: string, description: "LocalFileSigLevel"}
+  remote_file_sig_level: {type: string, description: "RemoteFileSigLevel"}
+  # output and checks
+  color: {type: bool, default: true, description: "Color: colour output"}
+  candy: {type: bool, default: true, description: "ILoveCandy: Pac-Man progress bar"}
+  no_progress_bar: {type: bool, description: "NoProgressBar"}
+  verbose_pkg_lists: {type: bool, description: "VerbosePkgLists: old and new versions in a table"}
+  check_space: {type: bool, description: "CheckSpace: check disk space before installing"}
+  use_syslog: {type: bool, description: "UseSyslog: log to syslog too"}
 examples:
   - title: All Arch hosts (put in _roles/groups/pacman.md with applies_to "[[arch]]")
     yaml: |
       parallel_downloads: 10
+      verbose_pkg_lists: true
+  - title: Hold the kernel back, skip docs, keep the current cache only
+    yaml: |
+      ignore_pkg:
+        - linux
+        - linux-headers
+      no_extract:
+        - usr/share/doc/*
+      clean_method:
+        - KeepCurrent

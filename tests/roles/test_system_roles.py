@@ -47,11 +47,10 @@ def test_pacman_lines():
            for r in b.resources]
     by_line = {r.line: r for r in out if isinstance(r, Line)}
     assert set(by_line) == {"Color", "#ILoveCandy", "ParallelDownloads = 10"}
-    assert by_line["Color"].match == r"^#?\s*Color\s*$"
     text = "[options]\n#Color\n#ParallelDownloads = 5\n\n[core]\nInclude = /etc/pacman.d/mirrorlist\n"
     for r in out:
         text = r.wanted(text)
-    assert text == "[options]\nColor\n#ILoveCandy\nParallelDownloads = 10\n\n[core]\nInclude = /etc/pacman.d/mirrorlist\n"
+    assert text == "[options]\n#ILoveCandy\nColor\nParallelDownloads = 10\n\n[core]\nInclude = /etc/pacman.d/mirrorlist\n"
 
 
 def test_pacman_refuses_non_arch():
@@ -189,3 +188,57 @@ def test_pacman_settings_fall_back_to_options_section():
             text = r.wanted(text)
     head, core = text.split("[core]")
     assert "Color" in head and "ILoveCandy" in head and "ParallelDownloads = 4" in head and "Color" not in core
+
+
+PACMAN_STOCK = ("[options]\n#RootDir     = /\nHoldPkg     = pacman glibc\n#IgnorePkg   =\nArchitecture = auto\n"
+                "#Color\n#NoProgressBar\nCheckSpace\n#VerbosePkgLists\nParallelDownloads = 5\n"
+                "SigLevel    = Required DatabaseOptional\nLocalFileSigLevel = Optional\n\n[core]\nInclude = /etc/pacman.d/mirrorlist\n")
+
+
+def pacman_text(values, start=PACMAN_STOCK):
+    from bastet.engine.files import Line
+    text = start
+    for b in batches_for([ap("pacman", values)], host(os="Arch Linux")):
+        for r in b.resources:
+            if isinstance(r, Line):
+                text = r.wanted(text)
+    return text
+
+
+def test_pacman_exposes_every_options_setting():
+    opts = ROLES["pacman"].options
+    for name in ("root_dir", "db_path", "cache_dir", "hook_dir", "gpg_dir", "log_file", "hold_pkg", "ignore_pkg",
+                 "ignore_group", "no_upgrade", "no_extract", "architecture", "xfer_command", "clean_method",
+                 "sig_level", "local_file_sig_level", "remote_file_sig_level", "use_syslog", "color", "no_progress_bar",
+                 "check_space", "verbose_pkg_lists", "disable_download_timeout", "parallel_downloads", "download_user",
+                 "disable_sandbox", "candy"):
+        assert name in opts, name
+
+
+def test_pacman_lists_values_and_flags():
+    text = pacman_text({"ignore_pkg": ["linux", "linux-headers"], "no_extract": ["usr/share/doc/*"],
+                        "sig_level": "Required DatabaseOptional TrustedOnly", "check_space": False,
+                        "clean_method": ["KeepInstalled", "KeepCurrent"], "download_user": "alpm"})
+    head = text.split("[core]")[0]
+    assert "\nIgnorePkg = linux linux-headers\n" in head and "#IgnorePkg" not in head
+    assert "NoExtract = usr/share/doc/*\n" in head and "CleanMethod = KeepInstalled KeepCurrent\n" in head
+    assert "\nSigLevel = Required DatabaseOptional TrustedOnly\n" in head and "\n#CheckSpace\n" in head
+    assert "DownloadUser = alpm\n" in head
+    assert "HoldPkg     = pacman glibc" in head  # unset options are left exactly as they are
+    assert pacman_text({"ignore_pkg": ["linux"]}, start=pacman_text({"ignore_pkg": ["linux"]})) == pacman_text({"ignore_pkg": ["linux"]})
+
+
+def test_pacman_empty_list_comments_it_out():
+    text = pacman_text({"hold_pkg": []})
+    assert "\n#HoldPkg =\n" in text and "HoldPkg     = pacman" not in text
+
+
+def test_pacman_clean_method_choices():
+    with pytest.raises(BastetError, match="KeepAll"):
+        ap("pacman", {"clean_method": ["KeepAll"]})
+
+
+def test_pacman_list_replaces_every_active_line():
+    start = "[options]\n#NoExtract   =\nNoExtract = usr/share/man/*\nNoExtract = usr/share/info/*\n\n[core]\nInclude = x\n"
+    text = pacman_text({"no_extract": ["usr/share/doc/*"]}, start=start)
+    assert text.count("\nNoExtract") == 1 and "NoExtract = usr/share/doc/*\n" in text and "#NoExtract   =" in text

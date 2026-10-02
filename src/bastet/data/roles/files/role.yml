@@ -51,6 +51,7 @@ options:
         path: {type: string, required: true}
         line: {type: string, required: true}
         match: {type: string, description: "Regex for the line to replace"}
+        unique: {type: bool, description: "With match: also remove the other uncommented lines it matches (for settings that may appear more than once)"}
         after: {type: string, description: "Regex: when the line isn't there yet, insert it after the last line matching this (instead of at the end)"}
         validate: {type: string}
         secret: {type: bool, description: "Never show the contents"}
