@@ -1,0 +1,5 @@
+libxml2|High risk|CVE-2025-6170, CVE-2025-49796, CVE-2025-49795, CVE-2025-49794|
+pam|High risk|CVE-2025-6020|
+coreutils|Medium risk|CVE-2025-5278|
+openssl|Medium risk|CVE-2022-2068, CVE-2025-4575|
+systemd|Medium risk|CVE-2025-4598|

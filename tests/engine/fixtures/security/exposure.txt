@@ -1,0 +1,4 @@
+UNIT                                 EXPOSURE PREDICATE HAPPY
+console-getty.service                     9.6 UNSAFE    :-{
+exim4.service                             6.9 MEDIUM    :-|
+fail2ban.service                          4.2 OK        :-)

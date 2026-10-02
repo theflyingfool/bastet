@@ -1,0 +1,8 @@
+CVE-2026-103111 (fixed)
+  PCRE2 before 10.49, when there is an attacker-controlled regular expre ...
+  installed: libpcre2-8-0 10.46-1~deb13u2
+             (built from pcre2 10.46-1~deb13u2)
+  fixed in unstable: pcre2 10.48-3.1 (source package)
+  fixed on branch:   pcre2 10.46-1~deb13u3 (source package)
+  fix is available for the selected suite (trixie)
+
