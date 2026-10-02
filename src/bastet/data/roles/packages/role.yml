@@ -24,6 +24,7 @@ options:
         refresh: {type: bool}
         full_upgrade: {type: bool}
         manager: {type: string, choices: [apt-get, pacman, dnf, zypper, apk], description: "Fail unless the host uses this manager"}
+        aur: {type: bool, description: "Arch only: build this package from the AUR (with yay, as the aur_user)"}
   remove:
     type: list
     description: "Packages to remove"
@@ -60,6 +61,8 @@ options:
     default: manual
     choices: [manual, auto, security]
     description: "manual: check reports pending updates, apply installs them only with --updates. auto: apply installs them. security: apply installs security updates (apt, dnf, zypper)"
+  aur_user: {type: string, default: bastet-aur, description: "Arch only: the unprivileged user AUR packages are built as (created when needed; may run pacman through sudo)"}
+  aur_helper: {type: string, default: yay-bin, description: "Arch only: the AUR package that provides yay, installed only on hosts that list AUR packages"}
   reboot:
     type: string
     default: ask
@@ -81,6 +84,11 @@ examples:
         - linux-lts
       allowed:
         - steam
+  - title: An AUR package (Arch; sets up yay on this host only)
+    yaml: |
+      install:
+        - name: visual-studio-code-bin
+          aur: true
   - title: Install a few packages
     yaml: |
       install:

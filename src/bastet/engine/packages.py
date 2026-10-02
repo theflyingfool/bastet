@@ -73,6 +73,8 @@ class Package(Resource):
     dpkg_options: tuple[str, ...] = DPKG_DEFAULT
     extra_args: tuple[str, ...] = ()
     manager: str | None = None
+    aur: bool = False  # Arch: build from the AUR with yay, as aur_user
+    aur_user: str = "bastet-aur"
 
     def __post_init__(self):
         if not NAME.match(self.name or ""):
@@ -109,6 +111,10 @@ class Package(Resource):
             raise Unsupported(f"{manager} has no purge; removing already drops unchanged config")
         if self.version is not None and manager == "pacman":
             raise Unsupported("pacman can't install a specific version")
+        if self.aur and manager != "pacman":
+            raise Unsupported("AUR packages need pacman (Arch-based hosts)")
+        if self.aur and self.full_upgrade:
+            raise Unsupported("full_upgrade doesn't apply to AUR packages")
 
     def current(self, results):
         m = results["manager"]
@@ -143,7 +149,8 @@ class Package(Resource):
 
     def group_key(self):
         return (f"package:{self.state}:{self.refresh}:{self.install_recommends}:{self.purge}:{self.full_upgrade}:"
-                f"{self.default_release}:{self.allow_change_held}:{self.dpkg_options}:{self.extra_args}")
+                f"{self.default_release}:{self.allow_change_held}:{self.dpkg_options}:{self.extra_args}:"
+                f"{self.aur}:{self.aur_user}")
 
     def _spec(self, manager: str) -> str:
         if self.version is None or self.state == "absent":
@@ -167,6 +174,9 @@ class Package(Resource):
                 "zypper": f"zypper --non-interactive remove{extra} -- {specs}",
                 "apk": f"apk del -q{' --purge' if first.purge else ''}{extra} {specs}",
             }[manager]]
+        if first.aur:
+            return [f"runuser -u {_q(first.aur_user)} -- yay -S --noconfirm --needed --answerdiff None "
+                    f"--answerclean None{extra} -- {specs}"]
         cmds = [REFRESH[manager]] if first.refresh and manager in REFRESH else []
         if first.full_upgrade and manager != "pacman":
             cmds.append(f"{apt} full-upgrade -y -q" if manager == "apt-get" else UPGRADE[manager])

@@ -163,3 +163,22 @@ def test_packages_reboot_policy_reaches_reboot():
     assert (reboot.policy, reboot.timeout) == ("auto", 900)
     default = next(r for r in resources(ap("packages", {})) if isinstance(r, Reboot))
     assert default.policy == "ask"
+
+
+def test_aur_bootstrap_only_when_aur_listed():
+    from bastet.engine.command import Command
+    plain = resources(ap("packages", {"install": ["tree"]}), host=info(os="Arch Linux"))
+    assert not any(isinstance(r, Command) for r in plain)
+    out = resources(ap("packages", {"install": [{"name": "paru-bin", "aur": True}, "tree"]}), host=info(os="Arch Linux"))
+    names = [getattr(r, "name", getattr(r, "path", "")) for r in out]
+    assert names.index("bastet-aur") < names.index("yay") < names.index("paru-bin")
+    yay = next(r for r in out if isinstance(r, Command))
+    assert yay.unless == "command -v yay" and "yay-bin" in yay.run and "makepkg -si --noconfirm" in yay.run
+    sudo = next(r for r in out if getattr(r, "path", "") == "/etc/sudoers.d/bastet-aur")
+    assert "NOPASSWD: /usr/bin/pacman" in sudo.content
+
+
+def test_aur_names_are_checked():
+    with pytest.raises(BastetError, match="packages.aur_user: "):
+        resources(ap("packages", {"aur_user": "x; rm -rf /", "install": [{"name": "a", "aur": True}]}),
+                  host=info(os="Arch Linux"))

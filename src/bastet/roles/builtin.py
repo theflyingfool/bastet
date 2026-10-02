@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
@@ -138,7 +139,30 @@ def _packages(v: dict, host: HostInfo) -> list[Batch]:
     if v.get("report_unaccounted", True):
         tracked = tuple(p["name"] for p in installs) + tuple(str(t) for t in host.data.get("bastet_tools") or ())
         extras.append(Unaccounted(tracked=tracked, allowed=tuple(v.get("allowed") or ())))
-    return [Batch("packages", [*repos, *removes, *[Package(**_kw({**base, **p})) for p in installs], *extras])]
+    aur_user = v.get("aur_user") or "bastet-aur"
+    bootstrap = _aur_bootstrap(aur_user, v.get("aur_helper") or "yay-bin") if any(p.get("aur") for p in installs) else []
+    packages = [Package(**_kw({**base, **p, **({"aur_user": aur_user} if p.get("aur") else {})})) for p in installs]
+    return [Batch("packages", [*repos, *removes, *bootstrap, *packages, *extras])]
+
+
+AUR_NAME = re.compile(r"^[a-z0-9][a-z0-9._+-]*$")
+
+
+def _aur_bootstrap(user: str, helper: str) -> list:
+    """What an AUR install needs first: a build user allowed to run pacman, base-devel and git, and yay itself."""
+    for knob, value in (("aur_user", user), ("aur_helper", helper)):
+        if not AUR_NAME.match(value):
+            raise BastetError(f"packages.{knob}: {value!r} isn't a valid name (lowercase letters, digits, . _ + -)")
+    home = f"/var/lib/{user}"
+    build = f"{home}/build-{helper}"
+    return [
+        User(name=user, system=True, home=home, create_home=True, shell="/usr/bin/nologin"),
+        sudoer(user, user=user, commands=("/usr/bin/pacman",), nopasswd=True),
+        Package(name="base-devel"), Package(name="git"),
+        Command(name="yay", unless="command -v yay", run=(
+            f"rm -rf {build} && runuser -u {user} -- git clone --depth 1 https://aur.archlinux.org/{helper}.git {build} && "
+            f"cd {build} && runuser -u {user} -- makepkg -si --noconfirm && rm -rf {build}")),
+    ]
 
 
 BASTET_USER = "bastet"

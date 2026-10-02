@@ -156,3 +156,14 @@ def test_updates_and_unaccounted_contract(host):
 def test_arch_updates_reported(arch_host):
     check = run_host(arch_host, "ct", [Batch("p", [Updates(), Unaccounted()])], apply=False)
     assert all(i.status in ("compliant", "attention") for i in check.items), render_host(check, full=True)
+
+
+def test_arch_aur_contract(arch_host):
+    info = HostInfo(name="ct", type="vm", data={"os": "Arch Linux"}, root=Path("/nonexistent"), lab={})
+    batches = batches_for([_applied("packages", {"install": [{"name": "yay-bin", "aur": True}], "report_unaccounted": False})], info)
+    from bastet.engine.packages import Reboot as _Reboot, Updates as _Updates
+    for b in batches:  # the update check needs mirrors this throwaway container may not reach; not what's tested here
+        b.resources = [r for r in b.resources if not isinstance(r, (_Updates, _Reboot))]
+    converge(arch_host, batches)
+    assert arch_host.run("command -v yay").returncode == 0
+    assert arch_host.run("pacman -Qm yay-bin").returncode == 0
