@@ -167,3 +167,9 @@ def test_arch_aur_contract(arch_host):
     converge(arch_host, batches)
     assert arch_host.run("command -v yay").returncode == 0
     assert arch_host.run("pacman -Qm yay-bin").returncode == 0
+
+
+def test_base_contract(host):
+    info = HostInfo(name="ct", type="vm", data={"os": "Debian GNU/Linux 13 (trixie)"}, root=Path("/nonexistent"), lab={})
+    converge(host, batches_for([_applied("base", {})], info))
+    assert host.run("command -v gdu && command -v htop").returncode == 0

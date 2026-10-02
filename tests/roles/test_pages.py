@@ -21,7 +21,7 @@ def test_role_pages_for_inventory(tmp_path):
     (tmp_path / "_roles" / "lab").mkdir(parents=True)
     (tmp_path / "_roles" / "lab" / "packages.md").write_text('---\nbastet: role\nrole: packages\napplies_to: "[[Homelab]]"\n---\n')
     pages = role_pages(load_inventory(tmp_path, TYPES), TYPES)
-    assert set(pages) == {role_page_path(tmp_path, r) for r in ("systemd", "packages", "users", "files")}
+    assert set(pages) == {role_page_path(tmp_path, r) for r in load_roles()}
     assert "- [[media01]]: lab" in pages[role_page_path(tmp_path, "packages")]
     assert "(no hosts yet)" in pages[role_page_path(tmp_path, "users")]
 

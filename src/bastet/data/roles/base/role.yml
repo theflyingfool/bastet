@@ -1,0 +1,21 @@
+description: "The basics every host gets: admin tools, and CPU microcode on physical machines."
+options:
+  tools:
+    type: list
+    items: {type: string}
+    default: [vim, zsh, git, htop, tree, gdu, wget, less]
+    description: "Admin tools to install; setting this replaces the default list (use extra_tools to add)"
+  extra_tools: {type: list, items: {type: string}, default: [], description: "More tools on top of `tools`"}
+  microcode:
+    type: string
+    default: auto
+    choices: [auto, never]
+    description: "auto: install CPU microcode on physical hosts (by host type; Intel or AMD from the gathered CPU), never on VMs or containers. Debian needs the non-free-firmware component."
+examples:
+  - title: Everywhere (put in _roles/lab/base.md)
+    yaml: |
+      extra_tools:
+        - jq
+  - title: A machine that shouldn't get microcode
+    yaml: |
+      microcode: never

@@ -16,9 +16,10 @@ from bastet.engine.run import Batch
 from bastet.engine.systemd import Hostname, Locale, TimeSettings, Unit, drop_in, reload, restart
 from bastet.engine.templates import render_template
 from bastet.engine.users import AuthorizedKey, Group, User, sudoer
+from bastet.roles import system
 from bastet.roles.resolve import Applied
 
-ORDER = ("packages", "users", "files", "systemd")
+ORDER = ("proxmox", "pacman", "packages", "base", "users", "files", "systemd")  # repositories and pacman.conf before installs
 DEBIAN_LIKE = ("debian", "ubuntu", "proxmox", "raspbian", "mint")
 
 
@@ -235,7 +236,7 @@ def _files(v: dict, host: HostInfo) -> list[Batch]:
     return [Batch("files", res)]
 
 
-BUILDERS = {"systemd": _systemd, "packages": _packages, "users": _users, "files": _files}
+BUILDERS = {"systemd": _systemd, "packages": _packages, "users": _users, "files": _files, "base": system.base}
 
 
 def batches_for(applied: list[Applied], host: HostInfo) -> list[Batch]:
