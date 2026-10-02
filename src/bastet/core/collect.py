@@ -128,6 +128,7 @@ class Snapshot:
 
 
 PRELUDE = """export LC_ALL=C
+PATH="$PATH:/usr/local/sbin:/usr/sbin:/sbin"; export PATH  # Debian: ethtool, smartctl… live in sbin
 if [ "$(id -u)" = 0 ]; then SUDO=""
 elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then SUDO="sudo -n"
 else SUDO="none"; fi"""

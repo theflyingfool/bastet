@@ -105,3 +105,12 @@ def test_firmware_probe_succeeds_without_secure_boot_variable(tmp_path):
     command = probe.command.replace("/sys/firmware/efi/efivars", str(tmp_path / "none"))
     r = subprocess.run(["sh", "-c", command], capture_output=True, text=True)
     assert r.returncode == 0 and "boot=" in r.stdout
+
+
+def test_prelude_puts_sbin_on_path_for_normal_users():
+    """Debian keeps ethtool, smartctl and friends in /usr/sbin, which isn't on a normal user's PATH."""
+    import subprocess
+    from bastet.core.collect import PRELUDE
+    out = subprocess.run(["sh", "-c", PRELUDE + '\necho "$PATH"'], capture_output=True, text=True,
+                         env={"PATH": "/usr/bin:/bin"}).stdout.strip().split(":")
+    assert out[:2] == ["/usr/bin", "/bin"] and {"/usr/local/sbin", "/usr/sbin", "/sbin"} <= set(out)
