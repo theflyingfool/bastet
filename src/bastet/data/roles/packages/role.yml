@@ -60,10 +60,20 @@ options:
     default: manual
     choices: [manual, auto, security]
     description: "manual: check reports pending updates, apply installs them only with --updates. auto: apply installs them. security: apply installs security updates (apt, dnf, zypper)"
+  reboot:
+    type: string
+    default: ask
+    choices: [never, ask, auto]
+    description: "After apply, when the host needs a reboot (new kernel, /run/reboot-required): never = only report it; ask = ask (never under -y); auto = reboot and wait for the host. Bastet never reboots the machine it runs on."
+  reboot_timeout: {type: int, default: 600, description: "Seconds to wait for the host to come back after a reboot"}
   updates_exclude: {type: list, items: {type: string}, description: "Never upgrade these (pacman --ignore, dnf --exclude, …)"}
   allowed: {type: list, items: {type: string}, description: "Packages that are fine without a role (not reported as unaccounted)"}
   report_unaccounted: {type: bool, default: true, description: "Report packages installed outside Bastet (explicitly installed, not in the system set, no role, not allowed)"}
 examples:
+  - title: Lab-wide (put in _roles/lab/packages.md) — apply updates, ask before rebooting
+    yaml: |
+      updates: auto
+      reboot: ask
   - title: Keep the system updated automatically, holding one package back
     yaml: |
       updates: auto

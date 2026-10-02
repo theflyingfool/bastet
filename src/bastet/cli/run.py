@@ -12,6 +12,8 @@ from bastet.core import hostkeys
 from bastet.core.errors import BastetError
 from bastet.core.frontmatter import Document
 from bastet.core.remote import SshTarget, close_master, control_path
+from bastet.cli.reboot import handle_reboot
+from bastet.engine.packages import Reboot
 from bastet.engine.report import render_host
 from bastet.engine.run import Batch, run_host
 from bastet.roles.builtin import HostInfo, batches_for
@@ -87,6 +89,7 @@ def _run(names: list[str] | None, *, apply_changes: bool, yes: bool, verbose: bo
                 continue
             try:
                 applied, batches = plan_for(ctx, doc, roles, updates)
+                reboots = [r for b in batches for r in b.resources if isinstance(r, Reboot)]
                 names = ", ".join(f"{a.role.name} ({', '.join(sorted({s.label for s in a.sources}))})" for a in applied)
                 if not applied:
                     typer.echo(f"{doc.name}: no roles")
@@ -106,15 +109,22 @@ def _run(names: list[str] | None, *, apply_changes: bool, yes: bool, verbose: bo
                 check = run_host(runner, doc.name, batches, apply=False)
                 typer.echo(render_host(check, full=full))
                 pending = check.count("would-change")
-                if not apply_changes or not pending:
+                if not apply_changes:
                     failed |= check.count("failed") > 0
                     continue
-                if not yes and not typer.confirm(f"Apply {pending} change(s) to {doc.name}?", default=False):
+                if not pending:
+                    failed |= check.count("failed") > 0
+                elif not yes and not typer.confirm(f"Apply {pending} change(s) to {doc.name}?", default=False):
                     typer.echo(f"{doc.name}: nothing applied")
                     continue
-                done = run_host(runner, doc.name, batches, apply=True)
-                typer.echo(render_host(done, full=full))
-                failed |= not done.ok
+                else:
+                    done = run_host(runner, doc.name, batches, apply=True)
+                    typer.echo(render_host(done, full=full))
+                    failed |= not done.ok
+                note = handle_reboot(runner, target, doc, reboots, yes=yes,
+                                     connect_again=lambda doc=doc: connect(ctx, doc, Path(tmp), yes=yes)[0])
+                if note:
+                    typer.echo(note)
             except BastetError as exc:
                 where = f" ({exc.file.name}{':' + exc.key if exc.key else ''})" if exc.file else ""
                 typer.secho(f"{doc.name}: {exc.message}{where}", fg="red")

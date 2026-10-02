@@ -561,6 +561,12 @@ REBOOT = ("[ -e /run/reboot-required ] && echo debian; "
 class Reboot(Resource):
     family: ClassVar[str] = "System"
     root: bool = False
+    policy: str = "ask"  # what apply does when a reboot is needed: never, ask, auto (cli.reboot)
+    timeout: int = 600
+
+    def __post_init__(self):
+        if self.policy not in ("never", "ask", "auto"):
+            raise ValueError(f"reboot policy must be never, ask or auto, not {self.policy!r}")
 
     @property
     def identity(self) -> str:
@@ -574,7 +580,7 @@ class Reboot(Resource):
         return True
 
     def desired(self):
-        return {}
+        return {"policy": self.policy}
 
     def reads(self):
         return (Read("reboot", REBOOT),)

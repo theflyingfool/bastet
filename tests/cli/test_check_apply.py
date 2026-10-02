@@ -136,3 +136,23 @@ def test_unifi_devices_are_not_role_managed(runner, box, inventory, monkeypatch)
     monkeypatch.setattr(run_mod, "connect", connect)
     result = runner.invoke(app, ["check", "ap1", "box"])
     assert "ap1: configured through the UniFi controller" in result.output
+
+
+def _no_updates(real):
+    from bastet.engine.packages import Reboot, Updates
+
+    def run(runner, host, batches, **kw):
+        for b in batches:
+            b.resources = [r for r in b.resources if not isinstance(r, (Updates, Reboot))]
+        return real(runner, host, batches, **kw)
+    return run
+
+
+def test_apply_reports_reboot_on_local_host(runner, box, inventory, monkeypatch):
+    import bastet.cli.reboot as reboot_mod
+    (inventory / "_roles" / "hosts" / "box" / "packages.md").write_text(
+        '---\nbastet: role\nrole: packages\napplies_to: "[[box]]"\nreboot: auto\nreport_unaccounted: false\n---\n')
+    monkeypatch.setattr(reboot_mod, "reboot_needed", lambda runner, host, reboots: (True, "kernel"))
+    monkeypatch.setattr(run_mod, "run_host", _no_updates(run_mod.run_host))
+    result = runner.invoke(app, ["apply", "box", "-y"])
+    assert "box: reboot needed (kernel); reboot this machine yourself" in result.output

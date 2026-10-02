@@ -134,7 +134,7 @@ def _packages(v: dict, host: HostInfo) -> list[Batch]:
     else:
         extras = [Updates(policy=policy, apply_updates=host.apply_updates, **common)]
     if not host.container:
-        extras.append(Reboot())
+        extras.append(Reboot(policy=v.get("reboot") or "ask", timeout=v.get("reboot_timeout") or 600))
     if v.get("report_unaccounted", True):
         tracked = tuple(p["name"] for p in installs) + tuple(str(t) for t in host.data.get("bastet_tools") or ())
         extras.append(Unaccounted(tracked=tracked, allowed=tuple(v.get("allowed") or ())))

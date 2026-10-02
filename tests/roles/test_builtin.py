@@ -154,3 +154,12 @@ def test_packages_role_adds_updates_reboot_unaccounted():
 def test_host_info_os_id_and_physical():
     h = HostInfo(name="h", type="server", data={"os": "Arch Linux"}, root=Path("/x"), physical=True)
     assert h.os_id == "arch" and h.physical
+
+
+def test_packages_reboot_policy_reaches_reboot():
+    from bastet.engine.packages import Reboot
+    out = resources(ap("packages", {"reboot": "auto", "reboot_timeout": 900}))
+    reboot = next(r for r in out if isinstance(r, Reboot))
+    assert (reboot.policy, reboot.timeout) == ("auto", 900)
+    default = next(r for r in resources(ap("packages", {})) if isinstance(r, Reboot))
+    assert default.policy == "ask"
