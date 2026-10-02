@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass
 from typing import ClassVar
 
-from bastet.engine.model import FieldChange, Read, ReadError, Resource
+from bastet.engine.model import FieldChange, Read, Resource, Unsupported
 
 LYNIS_REPORT = "/var/log/lynis-report.dat"
 LYNIS_AUDIT = "lynis audit system --cronjob --quiet"
@@ -125,7 +125,7 @@ class VulnerablePackages(_Report):
 
     def current(self, results):
         if results["tool"].output.strip() != "yes":
-            raise ReadError(f"{self.tool} is not installed yet")
+            raise Unsupported(f"{self.tool} isn't installed yet (apply installs it)")
         packages = []
         for line in results["scan"].output.splitlines():
             if self.tool == "arch-audit":
@@ -233,7 +233,7 @@ class ListeningPorts(_Report):
 
     def current(self, results):
         if results["ports"].missing:
-            raise ReadError("ss is not installed (iproute2)")
+            raise Unsupported("ss isn't installed yet (iproute2; apply installs it)")
         ports = []
         for line in results["ports"].output.splitlines():
             if m := _SS.match(line.strip()):

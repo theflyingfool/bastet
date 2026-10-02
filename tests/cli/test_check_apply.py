@@ -185,3 +185,33 @@ def test_failed_apply_tells_reboot_step(runner, box, inventory, monkeypatch):
     monkeypatch.setattr(run_mod, "run_host", _no_updates(run_mod.run_host))
     runner.invoke(app, ["apply", "box", "-y"])
     assert seen == {"failed": True}
+
+
+def test_apply_runs_lynis_check_does_not(runner, box, inventory, monkeypatch):
+    from bastet.engine.run import HostRun
+    calls = []
+    monkeypatch.setattr(run_mod, "run_audit", lambda runner_, doc: calls.append(doc.name) or None)
+    monkeypatch.setattr(run_mod, "run_host", lambda runner_, host, batches, **kw: HostRun(host, kw.get("apply", False), []))
+    (inventory / "_roles" / "hosts" / "box" / "harden.md").write_text(
+        '---\nbastet: role\nrole: harden\napplies_to: "[[box]]"\nlynis: true\nvulnerable_packages: false\n'
+        'service_exposure: false\nlistening_ports: false\napparmor_status: false\nsysctl_defaults: false\n---\n')
+    assert runner.invoke(app, ["check", "box"]).exit_code == 0 and calls == []
+    result = runner.invoke(app, ["apply", "box", "-y"])
+    assert result.exit_code == 0, result.output
+    assert calls == ["box"]
+
+
+def test_failed_audit_is_a_warning_not_a_failure(runner, box, inventory, monkeypatch):
+    from bastet.core.remote import CommandResult
+    from bastet.engine.run import HostRun
+
+    class Fails:
+        def run(self, script, *, timeout=120):
+            return CommandResult("", "lynis: command not found", 127)
+    monkeypatch.setattr(run_mod, "connect", lambda ctx, doc, tmp, yes: (Fails(), None))
+    monkeypatch.setattr(run_mod, "run_host", lambda runner_, host, batches, **kw: HostRun(host, kw.get("apply", False), []))
+    (inventory / "_roles" / "hosts" / "box" / "harden.md").write_text(
+        '---\nbastet: role\nrole: harden\napplies_to: "[[box]]"\nlynis: true\nvulnerable_packages: false\n'
+        'service_exposure: false\nlistening_ports: false\napparmor_status: false\nsysctl_defaults: false\n---\n')
+    result = runner.invoke(app, ["apply", "box", "-y"])
+    assert result.exit_code == 0 and "lynis audit failed" in result.output

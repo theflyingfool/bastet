@@ -10,7 +10,7 @@ import yaml
 
 from bastet.core.errors import BastetError
 
-TYPES = ("string", "int", "bool", "list", "map", "object", "any")  # any: checked by the role's builder
+TYPES = ("string", "int", "number", "bool", "list", "map", "object", "any")  # any: checked by the role's builder
 RESERVED = {"bastet", "role", "applies_to", "priority", "cssclasses", "tags", "aliases"}
 OPTION_KEYS = {"type", "description", "default", "choices", "items", "fields", "shorthand", "secret", "required"}
 
@@ -92,6 +92,9 @@ def check_value(opt: Option, value: object, where: str) -> object:
     elif opt.type == "int":
         if not isinstance(value, int) or isinstance(value, bool):
             raise BastetError(f"{where}: expected a whole number, got {value!r}")
+    elif opt.type == "number":
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            raise BastetError(f"{where}: expected a number, got {value!r}")
     elif opt.type == "bool":
         if not isinstance(value, bool):
             raise BastetError(f"{where}: expected true or false, got {value!r}")

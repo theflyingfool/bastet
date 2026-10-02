@@ -7,10 +7,13 @@ import re
 from bastet.core.errors import BastetError
 from bastet.core.osinfo import ARCH_LIKE
 from bastet.engine.command import Command
-from bastet.engine.files import File, Line
+from bastet.engine.files import File, Line, Symlink
 from bastet.engine.packages import Package, Repository, StraySources
 from bastet.engine.run import Batch
-from bastet.engine.systemd import reload
+from bastet.engine.model import Trigger
+from bastet.engine.security import AppArmorStatus, ListeningPorts, LynisReport, ServiceExposure, VulnerablePackages
+from bastet.engine.systemd import Unit, drop_in, reload, restart
+from bastet.engine.users import sudoer
 
 MICROCODE = {("arch", "intel"): "intel-ucode", ("arch", "amd"): "amd-ucode",
              ("debian", "intel"): "intel-microcode", ("debian", "amd"): "amd64-microcode"}
@@ -286,3 +289,117 @@ def ssh(v: dict, host) -> list[Batch]:
         File(path=SSHD_DROP_IN, content="\n".join(body) + "\n", mode="0644", validate=f"{SSHD} -t -f %s",
              on_change=(reload(unit),)),
     ])]
+
+
+# --- harden ----------------------------------------------------------------------------------------------------------
+
+SAFE_SYSCTL = {
+    "kernel.kptr_restrict": "1", "kernel.dmesg_restrict": "1", "fs.protected_hardlinks": "1",
+    "fs.protected_symlinks": "1", "fs.protected_fifos": "1", "fs.protected_regular": "2",
+    "net.ipv4.tcp_syncookies": "1", "net.ipv4.conf.all.accept_redirects": "0",
+    "net.ipv4.conf.default.accept_redirects": "0", "net.ipv6.conf.all.accept_redirects": "0",
+    "net.ipv6.conf.default.accept_redirects": "0",
+}
+SYSCTL_FILE = "/etc/sysctl.d/90-bastet.conf"
+FAIL2BAN_JAIL = "/etc/fail2ban/jail.d/bastet.local"
+FAIL2BAN_SANDBOX = """[Service]
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/fail2ban /run/fail2ban /var/log
+ProtectHome=read-only
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_DAC_READ_SEARCH CAP_AUDIT_READ
+SystemCallArchitectures=native
+"""
+_KEY = re.compile(r"^[A-Za-z0-9_.*/-]+$")
+
+
+def _ini_value(value) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, list):
+        return " ".join(str(v) for v in value)
+    return str(value)
+
+
+def _fail2ban(v: dict, host) -> list:
+    ports = ",".join(str(p) for p in host.ssh_ports) if host.ssh_ports else "ssh"
+    lines = ["# Managed by Bastet (harden role)", "[DEFAULT]",
+             f"bantime = {v['fail2ban_bantime']}", f"findtime = {v['fail2ban_findtime']}",
+             f"maxretry = {v['fail2ban_maxretry']}", f"ignoreip = {' '.join(v.get('fail2ban_ignoreip') or [])}",
+             f"backend = {v['fail2ban_backend']}", "", "[sshd]", "enabled = true", f"port = {ports}"]
+    for name, settings in (v.get("fail2ban_jails") or {}).items():
+        if not _KEY.match(name):
+            raise BastetError(f"harden.fail2ban_jails: {name!r} isn't a jail name")
+        lines += ["", f"[{name}]"] + [f"{k} = {_ini_value(val)}" for k, val in (settings or {}).items()]
+    unit = "fail2ban.service"
+    res: list = [Package(name="fail2ban"),
+                 File(path=FAIL2BAN_JAIL, content="\n".join(lines) + "\n", mode="0644", on_change=(restart(unit),))]
+    if v.get("fail2ban_sandbox", True):
+        res.append(drop_in(unit, "bastet-sandbox", FAIL2BAN_SANDBOX))
+    res.append(Unit(name=unit, enabled=True, state="up"))
+    return res
+
+
+def harden(v: dict, host) -> list[Batch]:
+    res: list = []
+    if v.get("fail2ban"):
+        res += _fail2ban(v, host)
+    if v.get("lynis"):
+        if not v.get("lynis_timer"):
+            # masked before lynis installs, so the package can't enable its own timer (Debian's does) in the same run
+            res.append(Symlink(path="/etc/systemd/system/lynis.timer", target="/dev/null"))
+        res.append(Package(name="lynis"))
+        res.append(LynisReport())
+    if v.get("vulnerable_packages", True):
+        if host.os_id in ARCH_LIKE:
+            res += [Package(name="arch-audit"), VulnerablePackages(tool="arch-audit")]
+        elif host.debian_like:
+            res += [Package(name="debsecan"), VulnerablePackages(tool="debsecan")]
+        else:
+            raise BastetError(f"harden.vulnerable_packages: no vulnerability scanner known for "
+                              f"{host.data.get('os') or 'this OS'}; set vulnerable_packages: false")
+    if v.get("service_exposure", True):
+        res.append(ServiceExposure(target=float(v.get("exposure_target", 5.0))))
+    if v.get("listening_ports", True):
+        accounted = (*(v.get("allowed_ports") or []), *(f"tcp/{p}" for p in host.ssh_ports or (22,)), "sshd")
+        res += [Package(name="iproute2"), ListeningPorts(accounted=tuple(dict.fromkeys(accounted)))]
+    if v.get("apparmor_status", True):
+        res.append(AppArmorStatus())
+    sysctl = dict(SAFE_SYSCTL) if v.get("sysctl_defaults", True) and not host.container else {}
+    if v.get("sysctl"):
+        if host.container:
+            raise BastetError("harden.sysctl: containers share the node's kernel; set it on the Proxmox node")
+        sysctl.update({str(k): str(val) for k, val in v["sysctl"].items()})
+    if v.get("core_dumps") == "off":
+        res.append(File(path="/etc/systemd/coredump.conf.d/bastet.conf", content="[Coredump]\nStorage=none\nProcessSizeMax=0\n",
+                        mode="0644"))
+        if not host.container:
+            sysctl["fs.suid_dumpable"] = "0"
+    for key in sysctl:
+        if not _KEY.match(key):
+            raise BastetError(f"harden.sysctl: {key!r} isn't a kernel setting name")
+    if sysctl:
+        body = "# Managed by Bastet (harden role)\n" + "".join(f"{k} = {val}\n" for k, val in sysctl.items())
+        res.append(File(path=SYSCTL_FILE, content=body, mode="0644",
+                        on_change=(Trigger("apply sysctl", f"sysctl -q -p {SYSCTL_FILE}"),)))
+    modules = v.get("block_modules") or []
+    if modules:
+        if host.container:
+            raise BastetError("harden.block_modules: containers share the node's kernel; set it on the Proxmox node")
+        if not all(_KEY.match(m) for m in modules):
+            raise BastetError("harden.block_modules: module names are letters, digits, - and _")
+        res.append(File(path="/etc/modprobe.d/bastet-blocklist.conf", mode="0644",
+                        content="# Managed by Bastet (harden role)\n" + "".join(f"install {m} /bin/false\nblacklist {m}\n" for m in modules)))
+    if v.get("sudo_defaults"):
+        res.append(sudoer("bastet_defaults", defaults=tuple(v["sudo_defaults"])))
+    return [Batch("harden", res)] if res else []

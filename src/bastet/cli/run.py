@@ -15,6 +15,8 @@ from bastet.core.remote import SshTarget, close_master, control_path
 from bastet.cli.reboot import handle_reboot
 from bastet.engine.packages import Reboot
 from bastet.engine.report import render_host
+from bastet.engine.script import exec_script, new_mark
+from bastet.engine.security import LYNIS_AUDIT, LynisReport
 from bastet.engine.run import Batch, run_host
 from bastet.roles.builtin import HostInfo, batches_for
 from bastet.roles.contract import RoleDef, load_roles
@@ -57,6 +59,22 @@ def connect(ctx: Context, doc: Document, tmp: Path, *, yes: bool):
     known = hostkeys.write_known_hosts(hostkeys.pinned(str(recorded), keys), str(address), port, tmp / doc.name)
     target = SshTarget(str(address), "bastet", key, known, port=port, control_path=control_path())
     return ssh_runner(target), target
+
+
+AUDIT_TIMEOUT = 600
+
+
+def run_audit(runner, doc: Document) -> str | None:
+    """Run a lynis audit during apply (check only reads the last report); a failure is a warning, never fatal."""
+    typer.echo(f"{doc.name}: running a lynis audit (1–3 minutes)…")
+    try:
+        res = runner.run(exec_script([LYNIS_AUDIT], root=True, mark=new_mark()), timeout=AUDIT_TIMEOUT)
+    except BastetError as exc:
+        return f"{doc.name}: lynis audit failed: {exc.message}; the security note keeps the previous report"
+    if res.returncode != 0:
+        tail = (res.stderr.strip().splitlines() or [f"exit status {res.returncode}"])[-1]
+        return f"{doc.name}: lynis audit failed: {tail}; the security note keeps the previous report"
+    return None
 
 
 def _hosts(ctx: Context, names: list[str] | None) -> list[Document]:
@@ -125,6 +143,10 @@ def _run(names: list[str] | None, *, apply_changes: bool, yes: bool, verbose: bo
                     typer.echo(render_host(done, full=full))
                     failed |= not done.ok
                     apply_failed = not done.ok
+                if any(isinstance(res, LynisReport) for b in batches for res in b.resources):
+                    warning = run_audit(runner, doc)
+                    if warning:
+                        typer.secho(warning, fg="yellow")
                 note = handle_reboot(runner, target, doc, reboots, yes=yes, apply_failed=apply_failed,
                                      connect_again=lambda doc=doc: connect(ctx, doc, Path(tmp), yes=yes)[0])
                 if note:

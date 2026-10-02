@@ -1,0 +1,39 @@
+description: "Security knobs and reports. Reports only read (vulnerable packages, service exposure, listening ports, AppArmor; lynis when on) and land in each host's security note. Changes are mostly off by default: fail2ban, lynis, kernel modules, core dumps, sudo defaults. A small safe sysctl set is on (not in containers)."
+options:
+  fail2ban: {type: bool, default: false, description: "Install fail2ban with an sshd jail (ports follow the ssh role)"}
+  fail2ban_bantime: {type: string, default: "1h", description: "How long a ban lasts"}
+  fail2ban_findtime: {type: string, default: "10m", description: "Window for counting failures"}
+  fail2ban_maxretry: {type: int, default: 5, description: "Failures before a ban"}
+  fail2ban_ignoreip: {type: list, items: {type: string}, default: ["127.0.0.1/8", "::1"], description: "Never ban these addresses/networks (add your LAN to avoid locking yourself out)"}
+  fail2ban_backend: {type: string, default: systemd, description: "Where fail2ban reads logs (systemd journal; Arch and Debian 12+ have no auth.log)"}
+  fail2ban_jails: {type: map, items: {type: map, items: {type: any}}, default: {}, description: "More jails: name → settings, written as-is"}
+  fail2ban_sandbox: {type: bool, default: true, description: "Run fail2ban sandboxed (systemd drop-in); turn off if a jail needs more access"}
+  lynis: {type: bool, default: false, description: "Install lynis; apply runs an audit (1–3 minutes) and the host's security note shows the result"}
+  lynis_timer: {type: bool, default: false, description: "Leave the lynis package's own timer alone (Debian enables a daily one); off = Bastet turns it off"}
+  vulnerable_packages: {type: bool, default: true, description: "Report installed packages with known vulnerabilities (arch-audit on Arch, debsecan on Debian/Proxmox)"}
+  service_exposure: {type: bool, default: true, description: "Report systemd-analyze security for every service"}
+  exposure_target: {type: number, default: 5.0, description: "Services Bastet's roles run should score at or under this (0 locked down, 10 exposed)"}
+  listening_ports: {type: bool, default: true, description: "Report what listens on the network (ss) and what no role accounts for"}
+  allowed_ports: {type: list, items: {type: string}, default: [], description: "Listeners that are fine: proto/port (tcp/8006) or a process name"}
+  apparmor_status: {type: bool, default: true, description: "Report whether AppArmor is on, and its profiles"}
+  sysctl_defaults: {type: bool, default: true, description: "A safe kernel set: kptr/dmesg restrict, protected links/fifos/regular, SYN cookies, ignore ICMP redirects (not in containers)"}
+  sysctl: {type: map, items: {type: string}, default: {}, description: "More kernel settings (key → value); these win over the defaults"}
+  block_modules: {type: list, items: {type: string}, default: [], description: "Kernel modules that may never load (e.g. usb-storage, dccp, sctp, rds, tipc)"}
+  core_dumps: {type: string, default: keep, choices: [keep, "off"], description: "off: no core dumps (they can hold secrets from memory)"}
+  sudo_defaults: {type: list, items: {type: string}, default: [], description: "sudo Defaults lines (e.g. use_pty, logfile=/var/log/sudo.log, timestamp_timeout=5)"}
+examples:
+  - title: Everywhere, reports plus fail2ban (put in _roles/lab/harden.md)
+    yaml: |
+      fail2ban: true
+      fail2ban_ignoreip: ["127.0.0.1/8", "::1", "10.10.0.0/24"]
+  - title: Audit with lynis on one host
+    yaml: |
+      lynis: true
+  - title: Stricter (try on one machine first)
+    yaml: |
+      core_dumps: "off"
+      block_modules: [usb-storage, dccp, sctp, rds, tipc]
+      sudo_defaults: [use_pty, "logfile=/var/log/sudo.log"]
+      sysctl:
+        kernel.yama.ptrace_scope: "1"
+        kernel.unprivileged_bpf_disabled: "1"

@@ -13,13 +13,14 @@ from bastet.engine.files import Block, Directory, File, Line, Symlink
 from bastet.engine.model import Trigger
 from bastet.engine.packages import Package, Reboot, Repository, StraySources, Unaccounted, Updates
 from bastet.engine.run import Batch
+from bastet.engine.security import ServiceExposure
 from bastet.engine.systemd import Hostname, Locale, TimeSettings, Unit, drop_in, reload, restart
 from bastet.engine.templates import render_template
 from bastet.engine.users import AuthorizedKey, Group, User, sudoer
 from bastet.roles import system
 from bastet.roles.resolve import Applied
 
-ORDER = ("proxmox", "pacman", "packages", "base", "users", "files", "ssh", "systemd")  # repositories and pacman.conf before installs
+ORDER = ("proxmox", "pacman", "packages", "base", "users", "files", "ssh", "harden", "systemd")  # repositories and pacman.conf before installs
 DEBIAN_LIKE = ("debian", "ubuntu", "proxmox", "raspbian", "mint")
 
 
@@ -32,6 +33,7 @@ class HostInfo:
     lab: dict = field(default_factory=dict)
     apply_updates: bool = False
     physical: bool = False
+    ssh_ports: tuple[int, ...] = ()  # from the ssh role, when it sets port (fail2ban's jail, listening ports)
 
     @property
     def os_id(self) -> str | None:
@@ -240,10 +242,13 @@ def _files(v: dict, host: HostInfo) -> list[Batch]:
 
 
 BUILDERS = {"systemd": _systemd, "packages": _packages, "users": _users, "files": _files, "base": system.base,
-            "pacman": system.pacman, "proxmox": system.proxmox, "ssh": system.ssh}
+            "pacman": system.pacman, "proxmox": system.proxmox, "ssh": system.ssh, "harden": system.harden}
 
 
 def batches_for(applied: list[Applied], host: HostInfo) -> list[Batch]:
+    ssh = next((a for a in applied if a.role.name == "ssh"), None)
+    if ssh is not None and ssh.values.get("port"):
+        host = replace(host, ssh_ports=tuple(ssh.values["port"]))
     batches: list[Batch] = []
     for a in sorted(applied, key=lambda a: ORDER.index(a.role.name) if a.role.name in ORDER else len(ORDER)):
         builder = BUILDERS.get(a.role.name)
@@ -256,8 +261,14 @@ def batches_for(applied: list[Applied], host: HostInfo) -> list[Batch]:
     # Everything Bastet installs is accounted for, whichever role installs it.
     present = sorted({r.name for b in batches for r in b.resources if isinstance(r, Package) and r.state == "present"})
     repos = tuple(r.name for b in batches for r in b.resources if isinstance(r, Repository))
+    units = tuple(dict.fromkeys(
+        [r.name for b in batches for r in b.resources if isinstance(r, Unit)]
+        + [r.path.split("/")[-2][:-2] for b in batches for r in b.resources
+           if isinstance(r, File) and r.path.startswith("/etc/systemd/system/") and r.path.split("/")[-2].endswith(".d")]))
     for b in batches:
         b.resources = [replace(r, tracked=tuple(dict.fromkeys((*r.tracked, *present)))) if isinstance(r, Unaccounted)
-                       else replace(r, keep=tuple(dict.fromkeys((*r.keep, *repos)))) if isinstance(r, StraySources) else r
+                       else replace(r, keep=tuple(dict.fromkeys((*r.keep, *repos)))) if isinstance(r, StraySources)
+                       else replace(r, managed=tuple(u for u in units if u.endswith(".service"))) if isinstance(r, ServiceExposure)
+                       else r
                        for r in b.resources]
     return batches

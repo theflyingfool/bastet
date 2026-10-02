@@ -209,3 +209,37 @@ def test_ssh_contract(host):
                          "|| /usr/sbin/sshd -T -C user=root,host=x,addr=127.0.0.1").stdout
     assert "x11forwarding no" in effective and "maxauthtries 4" in effective and "port 2222" in effective
     assert host.run("systemctl is-active ssh.service").stdout.strip() == "active"
+
+
+def test_harden_contract(host):
+    from bastet.cli.run import run_audit
+    from bastet.engine.security import LynisReport, ServiceExposure, VulnerablePackages
+    # a podman container can't set kernel settings; as an LXC, harden skips them, as it would on a real container
+    info = HostInfo(name="ct", type="lxc", data={"os": "Debian GNU/Linux 13 (trixie)"}, root=Path("/nonexistent"), lab={})
+    batches = batches_for([_applied("harden", {"fail2ban": True, "lynis": True})], info)
+    first = run_host(host, "ct", batches, apply=True)
+    assert first.ok, render_host(first, full=True)
+    assert host.run("systemctl is-active fail2ban.service").stdout.strip() == "active"
+    assert host.run("sudo -n fail2ban-client status sshd || fail2ban-client status sshd").returncode == 0
+
+    class Doc:
+        name = "ct"
+    assert run_audit(host, Doc()) is None
+    again = run_host(host, "ct", batches, apply=False)
+    items = {type(i.resource): i for i in again.items}
+    assert items[LynisReport].current["index"] is not None, render_host(again, full=True)
+    assert items[VulnerablePackages].status in ("compliant", "attention")
+    exposure = dict((u, s) for u, s, _ in items[ServiceExposure].current["units"])
+    print("fail2ban exposure:", exposure.get("fail2ban.service"))
+    assert exposure["fail2ban.service"] <= 5.0, exposure["fail2ban.service"]
+    assert host.run("systemctl is-enabled lynis.timer").stdout.strip() in ("disabled", "masked")
+
+
+def test_arch_harden_reports_contract(arch_host):
+    from bastet.engine.security import VulnerablePackages
+    info = HostInfo(name="ct", type="lxc", data={"os": "Arch Linux"}, root=Path("/nonexistent"), lab={})
+    batches = batches_for([_applied("harden", {"service_exposure": False, "apparmor_status": False})], info)
+    assert run_host(arch_host, "ct", batches, apply=True).ok
+    again = run_host(arch_host, "ct", batches, apply=False)
+    vuln = next(i for i in again.items if isinstance(i.resource, VulnerablePackages))
+    assert vuln.status in ("compliant", "attention") and vuln.current["installed"], render_host(again, full=True)

@@ -6,7 +6,7 @@ from bastet.roles.contract import check_values, load_roles, with_defaults
 
 def test_shipped_roles_load():
     roles = load_roles()
-    assert set(roles) == {"systemd", "packages", "users", "files", "base", "pacman", "proxmox", "ssh"}
+    assert set(roles) == {"systemd", "packages", "users", "files", "base", "pacman", "proxmox", "ssh", "harden"}
     assert roles["systemd"].options["ntp_service"].choices == ("keep", "timesyncd", "chrony")
     assert roles["packages"].options["install"].items.shorthand == "name"
     assert roles["users"].options["users"].items.fields["password_hash"].secret is True

@@ -40,8 +40,8 @@ def test_debsecan_parses():
 
 def test_missing_tool_is_not_zero_vulnerabilities():
     import pytest
-    from bastet.engine.model import ReadError
-    with pytest.raises(ReadError, match="not installed"):
+    from bastet.engine.model import Unsupported
+    with pytest.raises(Unsupported, match="isn't installed yet"):
         VulnerablePackages(tool="debsecan").current({"tool": ok(""), "scan": ok("")})
 
 
