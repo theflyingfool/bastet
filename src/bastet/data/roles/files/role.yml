@@ -51,6 +51,7 @@ options:
         path: {type: string, required: true}
         line: {type: string, required: true}
         match: {type: string, description: "Regex for the line to replace"}
+        after: {type: string, description: "Regex: when the line isn't there yet, insert it after the last line matching this (instead of at the end)"}
         validate: {type: string}
         secret: {type: bool, description: "Never show the contents"}
         restart: {type: list, items: {type: string}, description: "Units to restart when this changes"}

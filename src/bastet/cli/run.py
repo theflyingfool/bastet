@@ -22,8 +22,10 @@ from bastet.roles.resolve import Applied, resolve
 
 def host_info(ctx: Context, doc: Document, updates: bool = False) -> HostInfo:
     lab = ctx.inventory.lab
+    host_type = ctx.types.get(str(doc.data.get("type")))
     return HostInfo(name=doc.name, type=str(doc.data.get("type", "")), data=dict(doc.data), root=ctx.root,
-                    lab=dict(lab.data) if lab else {}, apply_updates=updates)
+                    lab=dict(lab.data) if lab else {}, apply_updates=updates,
+                    physical=bool(host_type and host_type.physical))
 
 
 def plan_for(ctx: Context, doc: Document, roles: dict[str, RoleDef], updates: bool = False) -> tuple[list[Applied], list[Batch]]:

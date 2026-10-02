@@ -6,6 +6,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from bastet.core.errors import BastetError
+from bastet.core.osinfo import os_id
 from bastet.engine.command import Command
 from bastet.engine.files import Block, Directory, File, Line, Symlink
 from bastet.engine.model import Trigger
@@ -28,6 +29,11 @@ class HostInfo:
     root: Path
     lab: dict = field(default_factory=dict)
     apply_updates: bool = False
+    physical: bool = False
+
+    @property
+    def os_id(self) -> str | None:
+        return os_id(self.data)
 
     @property
     def debian_like(self) -> bool:

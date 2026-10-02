@@ -57,3 +57,7 @@ def test_every_role_has_examples_that_validate():
         assert role.examples, role.name
         for ex in role.examples:
             assert ex["title"] and check_values(role, yaml.safe_load(ex["yaml"]), role.name) is not None
+
+
+def test_files_lines_expose_after():
+    assert "after" in load_roles()["files"].options["lines"].items.fields

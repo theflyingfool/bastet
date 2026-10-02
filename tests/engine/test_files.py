@@ -131,3 +131,15 @@ def test_ownership_is_kept_by_number():
 
 def test_secret_line_hides_its_value():
     assert "SUPERSECRET" not in Line(path="/etc/app.env", line="token=SUPERSECRET", secret=True).label
+
+
+def test_line_inserted_after_anchor():
+    text = "[options]\n#Color\nCheckSpace\n\n[core]\nInclude = x\n"
+    line = Line(path="/etc/pacman.conf", line="ILoveCandy", match=r"^#?ILoveCandy$", after=r"^#?Color$")
+    assert line.wanted(text) == "[options]\n#Color\nILoveCandy\nCheckSpace\n\n[core]\nInclude = x\n"
+    assert line.wanted(line.wanted(text)) == line.wanted(text)
+
+
+def test_line_after_without_anchor_appends():
+    line = Line(path="/x", line="b", after=r"^nope$")
+    assert line.wanted("a\n") == "a\nb\n"

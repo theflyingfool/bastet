@@ -299,6 +299,7 @@ class Block(_Edit):
 class Line(_Edit):
     line: str
     match: str | None = None
+    after: str | None = None  # regex: a new line goes after the last line matching this, not at the end
 
     @property
     def identity(self) -> str:
@@ -309,7 +310,7 @@ class Line(_Edit):
         return f"{self.path} (secret)" if self.secret else f"{self.path} ({self.line})"
 
     def desired(self):
-        return {"line": self.line, "match": self.match}
+        return {"line": self.line, "match": self.match, "after": self.after}
 
     def wanted(self, content):
         text = "" if content == ABSENT else str(content)
@@ -322,5 +323,12 @@ class Line(_Edit):
                 return "".join(lines)
         if self.line in stripped:
             return text
+        if self.after:
+            anchors = [i for i, line in enumerate(stripped) if re.search(self.after, line)]
+            if anchors:
+                k = anchors[-1] + 1
+                if lines and not lines[-1].endswith("\n"):
+                    lines[-1] += "\n"
+                return "".join(lines[:k] + [self.line + "\n"] + lines[k:])
         sep = "" if not text or text.endswith("\n") else "\n"
         return text + sep + self.line + "\n"

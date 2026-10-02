@@ -149,3 +149,8 @@ def test_packages_role_adds_updates_reboot_unaccounted():
     assert isinstance(unacc, Unaccounted) and unacc.tracked == ("tree", "dmidecode") and unacc.allowed == ("steam",)
     lxc = resources(ap("packages", {"report_unaccounted": False}), host=info(type_="lxc"))
     assert [type(r).__name__ for r in lxc] == ["Updates"]
+
+
+def test_host_info_os_id_and_physical():
+    h = HostInfo(name="h", type="server", data={"os": "Arch Linux"}, root=Path("/x"), physical=True)
+    assert h.os_id == "arch" and h.physical
