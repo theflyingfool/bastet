@@ -236,7 +236,8 @@ def _files(v: dict, host: HostInfo) -> list[Batch]:
     return [Batch("files", res)]
 
 
-BUILDERS = {"systemd": _systemd, "packages": _packages, "users": _users, "files": _files, "base": system.base}
+BUILDERS = {"systemd": _systemd, "packages": _packages, "users": _users, "files": _files, "base": system.base,
+            "pacman": system.pacman}
 
 
 def batches_for(applied: list[Applied], host: HostInfo) -> list[Batch]:

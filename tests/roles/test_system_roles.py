@@ -39,3 +39,27 @@ def test_microcode_only_on_physical_hosts():
 def test_microcode_needs_cpu_fact():
     with pytest.raises(BastetError, match="run bastet gather"):
         batches_for([ap("base", {})], host(physical=True))
+
+
+def test_pacman_lines():
+    from bastet.engine.files import Line
+    out = [r for b in batches_for([ap("pacman", {"parallel_downloads": 10, "candy": False})], host(os="Arch Linux"))
+           for r in b.resources]
+    by_line = {r.line: r for r in out if isinstance(r, Line)}
+    assert set(by_line) == {"Color", "#ILoveCandy", "ParallelDownloads = 10"}
+    assert by_line["Color"].match == r"^#?\s*Color\s*$"
+    assert by_line["#ILoveCandy"].after == r"^#?\s*Color\s*$"
+    text = "[options]\n#Color\n#ParallelDownloads = 5\n\n[core]\nInclude = /etc/pacman.d/mirrorlist\n"
+    for r in out:
+        text = r.wanted(text)
+    assert text == "[options]\nColor\n#ILoveCandy\nParallelDownloads = 10\n\n[core]\nInclude = /etc/pacman.d/mirrorlist\n"
+
+
+def test_pacman_refuses_non_arch():
+    with pytest.raises(BastetError, match="isn't Arch-based"):
+        batches_for([ap("pacman", {})], host())
+
+
+def test_pacman_parallel_downloads_positive():
+    with pytest.raises(BastetError, match="parallel_downloads"):
+        batches_for([ap("pacman", {"parallel_downloads": 0})], host(os="Arch Linux"))

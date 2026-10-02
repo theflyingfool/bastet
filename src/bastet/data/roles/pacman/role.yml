@@ -1,0 +1,10 @@
+description: "pacman's own settings in /etc/pacman.conf (Arch-based hosts; aim it at [[arch]])."
+options:
+  color: {type: bool, default: true, description: "Colour output (Color)"}
+  candy: {type: bool, default: true, description: "Pac-Man progress bar (ILoveCandy)"}
+  parallel_downloads: {type: int, description: "Download this many packages at once (ParallelDownloads); unset = leave as is"}
+  verbose_pkg_lists: {type: bool, description: "Show old and new versions in a table (VerbosePkgLists); unset = leave as is"}
+examples:
+  - title: All Arch hosts (put in _roles/groups/pacman.md with applies_to "[[arch]]")
+    yaml: |
+      parallel_downloads: 10

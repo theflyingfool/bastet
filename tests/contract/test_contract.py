@@ -173,3 +173,11 @@ def test_base_contract(host):
     info = HostInfo(name="ct", type="vm", data={"os": "Debian GNU/Linux 13 (trixie)"}, root=Path("/nonexistent"), lab={})
     converge(host, batches_for([_applied("base", {})], info))
     assert host.run("command -v gdu && command -v htop").returncode == 0
+
+
+def test_arch_pacman_contract(arch_host):
+    info = HostInfo(name="ct", type="vm", data={"os": "Arch Linux"}, root=Path("/nonexistent"), lab={})
+    converge(arch_host, batches_for([_applied("pacman", {"parallel_downloads": 8})], info))
+    conf = arch_host.run("cat /etc/pacman.conf").stdout
+    assert "\nColor\n" in conf and "\nILoveCandy\n" in conf and "ParallelDownloads = 8" in conf
+    assert arch_host.run("pacman-conf >/dev/null").returncode == 0  # still a valid config
