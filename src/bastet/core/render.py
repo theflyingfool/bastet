@@ -162,6 +162,15 @@ def host_summary(
         body += "\n> [!danger] Drift: Proxmox disagrees with this file\n" + "".join(f"> - {_cell(d)}\n" for d in drift)
     if warnings:
         body += "\n> [!warning] Needs attention\n" + "".join(f"> - {_cell(w)}\n" for w in warnings)
+    from bastet.core.cabling import port_rows  # lazy: cabling imports unifi
+
+    rows = port_rows(inv, doc.name)
+    if any(r.peer for r in rows):
+        body += "\n## Ports\n\n| Port | Connected to | Speed | VLANs | Note |\n|---|---|---|---|---|\n"
+        for r in rows:
+            peer = f"[[{r.peer}]] {_cell(r.peer_port)}".strip() if r.peer else "—"
+            arrow = " ↑" if r.direction == "up" else ""
+            body += f"| {_cell(r.port)} | {peer}{arrow} | {_cell(r.speed)} | {_cell(r.vlans)} | {_cell(r.note)} |\n"
     if roles_table:
         body += "\n" + roles_table
     front = {"summary_of": make_link(doc.name), "warnings": list(warnings)}

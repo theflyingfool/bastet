@@ -133,3 +133,61 @@ def merge_links(existing: object, proposals: list[dict]) -> tuple[list | None, l
             conflicts.append(f"{link['port']}: seen on {link['to']} port {link['to_port']}, "
                              f"the file says {have.get('to')} port {have.get('to_port')}")
     return (list(existing) + new if new else None), conflicts
+
+
+@dataclass
+class PortRow:
+    """One port on a device page: what's plugged in, from `links:` on either end."""
+
+    port: str
+    peer: str
+    peer_port: str
+    direction: str  # "down": a link elsewhere points here; "up": this note's own link; "": nothing linked
+    speed: str = ""
+    vlans: str = ""
+    note: str = ""
+
+
+def _owner(inv: Inventory, doc) -> str:
+    """Links on a hardware note (a NIC) belong to the host it's installed in."""
+    if doc.data.get("bastet") == "hardware":
+        return link_target(doc.data.get("installed_in")) or doc.name
+    return doc.name
+
+
+def _vlans(link: dict) -> str:
+    parts = [f"native {link['native_vlan']}" if link.get("native_vlan") is not None else ""]
+    parts.append(str(link["vlan"]) if link.get("vlan") is not None else "")
+    vlans = link.get("vlans")
+    parts += [str(v) for v in (vlans if isinstance(vlans, list) else [vlans] if vlans is not None else [])]
+    return ", ".join(p for p in parts if p)
+
+
+def _row(port: object, peer: str, peer_port: object, direction: str, link: dict) -> PortRow:
+    return PortRow(str(port), peer, str(peer_port if peer_port is not None else ""), direction,
+                   str(link.get("speed") or ""), _vlans(link), str(link.get("note") or ""))
+
+
+def _port_key(port: str) -> tuple:
+    return (0, int(port), "") if port.isdigit() else (1, 0, port)
+
+
+def port_rows(inv: Inventory, name: str) -> list[PortRow]:
+    me = name.lower()
+    rows: dict[str, PortRow] = {}
+    for doc in [*inv.of_kind("host"), *inv.of_kind("hardware")]:
+        links = doc.data.get("links")
+        for link in links if isinstance(links, list) else []:
+            if not isinstance(link, dict) or link.get("port") is None:
+                continue
+            owner, target = _owner(inv, doc), link_target(link.get("to")) or ""
+            if owner.lower() == me:
+                rows.setdefault(str(link["port"]), _row(link["port"], target, link.get("to_port"), "up", link))
+            elif target.lower() == me and link.get("to_port") is not None:
+                rows.setdefault(str(link["to_port"]), _row(link["to_port"], owner, link["port"], "down", link))
+    me_doc = inv.get(name)
+    ports = me_doc.data.get("ports") if me_doc else None
+    for p in ports if isinstance(ports, list) else []:
+        if isinstance(p, dict) and p.get("port") is not None:
+            rows.setdefault(str(p["port"]), PortRow(str(p["port"]), "", "", "", str(p.get("media") or "")))
+    return sorted(rows.values(), key=lambda r: _port_key(r.port))

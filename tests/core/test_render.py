@@ -203,3 +203,10 @@ def test_summary_of_deleted_host_is_removed(repo):
     changes = generated_changes(inv(repo), TYPES, repo)
     gone = [c for c in changes if c.after is None]
     assert [c.path for c in gone] == [stale]
+
+
+def test_host_summary_lists_ports(repo):
+    (repo.root / "hosts" / "nas.md").write_text(
+        '---\nbastet: host\ntype: server\nlinks:\n  - {port: eno1, to: "[[pve1]]", to_port: "7"}\n---\n# nas\n')
+    text = host_summary(inv(repo), inv(repo).get("pve1"), TYPES, [])
+    assert "## Ports" in text and "| 7 | [[nas]] eno1 |" in text

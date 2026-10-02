@@ -1,4 +1,4 @@
-from bastet.core.cabling import merge_links, propose_links
+from bastet.core.cabling import merge_links, port_rows, propose_links
 from bastet.core.hosttypes import load_host_types
 from bastet.core.inventory import load_inventory
 from bastet.core.unifi import parse_mca
@@ -89,3 +89,22 @@ def test_merge_links_keeps_hand_written_entries_and_reports_conflicts():
     assert merged == existing + [{"port": "eno2", "to": "[[sw]]", "to_port": "5"}]
     assert conflicts == ["eno1: seen on [[sw]] port 2, the file says [[other]] port 1"]
     assert merge_links("see rack photo", [{"port": "eno1", "to": "[[sw]]", "to_port": "2"}])[0] is None
+
+
+def test_port_rows_both_directions(tmp_path):
+    (tmp_path / "hosts").mkdir()
+    (tmp_path / "hardware").mkdir()
+    (tmp_path / "hosts" / "sw.md").write_text(
+        '---\nbastet: host\ntype: unifi-switch\nip: 10.0.0.5\nports:\n  - {port: "1", name: eth0, media: GE}\n'
+        '  - {port: "2", name: eth1, media: GE}\n  - {port: "10", name: eth9, media: SFP+}\n'
+        'links:\n  - {port: "10", to: "[[gw]]", to_port: "4"}\n---\n# sw\n')
+    (tmp_path / "hosts" / "nas.md").write_text(
+        '---\nbastet: host\ntype: server\nlinks:\n  - {port: eno1, to: "[[sw]]", to_port: "2", speed: 1G, vlans: [20]}\n---\n# nas\n')
+    (tmp_path / "hosts" / "pve.md").write_text("---\nbastet: host\ntype: proxmox-node\n---\n# pve\n")
+    (tmp_path / "hardware" / "X540.md").write_text(
+        '---\nbastet: hardware\ncategory: nic\ninstalled_in: "[[pve]]"\n'
+        'links:\n  - {port: enp1s0f0, to: "[[sw]]", to_port: "1", note: storage}\n---\n# X540\n')
+    rows = port_rows(load_inventory(tmp_path, TYPES), "sw")
+    assert [(r.port, r.peer, r.peer_port, r.direction) for r in rows] == [
+        ("1", "pve", "enp1s0f0", "down"), ("2", "nas", "eno1", "down"), ("10", "gw", "4", "up")]
+    assert rows[0].note == "storage" and rows[1].vlans == "20" and rows[1].speed == "1G"
