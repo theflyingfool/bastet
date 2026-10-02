@@ -224,3 +224,10 @@ def test_broken_host_file_keeps_its_summary(repo):
     git1 = repo.root / "hosts" / "git1.md"
     git1.write_text(git1.read_text().replace("os: Debian 13\n", "os: Debian 13\nnotes: [unclosed\n"))
     assert [c for c in generated_changes(inv(repo), TYPES, repo) if c.after is None] == []
+
+
+def test_os_groups_generated_for_seen_oses(repo):
+    paths = {c.path.relative_to(repo.root).as_posix(): c for c in generated_changes(inv(repo), TYPES, repo)}
+    debian = paths["_bastet/groups/debian.md"].after
+    assert "bastet: group" in debian and "os: debian" in debian
+    assert "_bastet/groups/arch.md" in paths  # vps1 is Arch Linux in this fixture

@@ -9,6 +9,7 @@ from bastet.core.frontmatter import Document
 from bastet.core.hosttypes import HostType
 from bastet.core.inventory import Inventory
 from bastet.core.links import link_target
+from bastet.core.osinfo import os_id
 from bastet.engine.run import ConflictError
 from bastet.roles.contract import RESERVED, Option, RoleDef, check_values, with_defaults
 
@@ -35,10 +36,28 @@ def _links(value) -> list[str]:
     return [t for t in (link_target(i) for i in items) if t]
 
 
+def _matches(group: Document, host: Document) -> bool:
+    """A group's `match:` rule (os, type): hosts that fit every key belong to it without listing it."""
+    rule = group.data.get("match")
+    if not isinstance(rule, dict) or not rule:
+        return False
+    unknown = set(rule) - {"os", "type"}
+    if unknown:
+        raise BastetError(f"match: unknown key {', '.join(sorted(map(str, unknown)))} (known: os, type)",
+                          file=group.path, key="match")
+    have = {"os": os_id(host.data), "type": str(host.data.get("type") or "")}
+    for key, wanted in rule.items():
+        options = [str(w) for w in (wanted if isinstance(wanted, list) else [wanted])]
+        if have[key] not in options:
+            return False
+    return True
+
+
 def group_distances(inv: Inventory, host: Document) -> dict[str, int]:
     """Groups the host belongs to, directly (1) or through nesting (2, 3…); the nearest path counts."""
     dist: dict[str, int] = {}
     frontier = [(name, 1) for name in _links(host.data.get("groups"))]
+    frontier += [(g.name, 1) for g in inv.of_kind("group") if _matches(g, host)]
     while frontier:
         name, d = frontier.pop(0)
         doc = inv.get(name)

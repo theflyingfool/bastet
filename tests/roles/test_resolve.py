@@ -105,3 +105,21 @@ def test_bad_role_files(tmp_path):
 def test_host_types_have_baseline_roles():
     assert TYPES["proxmox-node"].roles == {"systemd": {"ntp_service": "chrony", "manage_hostname": False}}
     assert TYPES["laptop"].roles == {}
+
+
+def test_os_group_by_match(tmp_path):
+    (tmp_path / "Homelab.md").write_text("---\nbastet: lab\n---\n# L\n")
+    (tmp_path / "hosts").mkdir()
+    (tmp_path / "hosts" / "a.md").write_text("---\nbastet: host\ntype: laptop\nos: Arch Linux\n---\n# a\n")
+    (tmp_path / "hosts" / "d.md").write_text("---\nbastet: host\ntype: laptop\nos: Debian GNU/Linux 13 (trixie)\n---\n# d\n")
+    (tmp_path / "_bastet" / "groups").mkdir(parents=True)
+    (tmp_path / "_bastet" / "groups" / "arch.md").write_text("---\nbastet: group\nmatch:\n  os: arch\n---\n# arch\n")
+    (tmp_path / "_roles" / "groups").mkdir(parents=True)
+    (tmp_path / "_roles" / "groups" / "tree.md").write_text(
+        '---\nbastet: role\nrole: packages\napplies_to: "[[arch]]"\ninstall: [tree]\n---\n')
+    types = load_host_types()
+    inv = load_inventory(tmp_path, types)
+    roles = load_roles()
+    on_arch = {a.role.name: a for a in resolve(inv, inv.get("a"), types, roles)}
+    assert on_arch["packages"].values["install"] == [{"name": "tree"}]
+    assert "packages" not in {a.role.name for a in resolve(inv, inv.get("d"), types, roles)}
