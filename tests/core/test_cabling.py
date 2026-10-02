@@ -108,3 +108,66 @@ def test_port_rows_both_directions(tmp_path):
     assert [(r.port, r.peer, r.peer_port, r.direction) for r in rows] == [
         ("1", "pve", "enp1s0f0", "down"), ("2", "nas", "eno1", "down"), ("10", "gw", "4", "up")]
     assert rows[0].note == "storage" and rows[1].vlans == "20" and rows[1].speed == "1G"
+
+
+BMC_MAC, BMC2_MAC, NAS_MAC, NAS_MAC2 = "02:00:00:00:20:01", "02:00:00:00:20:02", "02:00:00:00:10:02", "02:00:00:00:10:03"
+
+
+def bmc_lab(tmp_path):
+    """sanrio's BMC on its own cable (port 1); nas's BMC shares nas's eno1 (port 3); nas's two NICs both on port 5."""
+    import json
+    lab(tmp_path)
+    (tmp_path / "hardware").mkdir()
+    (tmp_path / "hardware" / "ASRock X470.md").write_text(
+        f'---\nbastet: hardware\ncategory: server\ninstalled_in: "[[sanrio]]"\noob:\n  type: ipmi\n  mac: {BMC_MAC}\n---\n')
+    (tmp_path / "hosts" / "nas.md").write_text(
+        f"---\nbastet: host\ntype: server\nip: 10.10.0.20\ninterfaces:\n  - name: eno1\n    mac: {NAS_MAC}\n"
+        f"  - name: eno2\n    mac: {NAS_MAC2}\n---\n")
+    (tmp_path / "hardware" / "Supermicro X11.md").write_text(
+        f'---\nbastet: hardware\ncategory: server\ninstalled_in: "[[nas]]"\noob:\n  type: ipmi\n  mac: {BMC2_MAC}\n---\n')
+    sw = json.loads(SWITCH)
+    sw["port_table"] += [
+        {"port_idx": 1, "name": "Port 1", "media": "GE", "is_uplink": False, "mac_table": [{"mac": BMC_MAC}]},
+        {"port_idx": 3, "name": "Port 3", "media": "GE", "is_uplink": False, "mac_table": [{"mac": NAS_MAC}, {"mac": BMC2_MAC}]},
+    ]
+    return load_inventory(tmp_path, TYPES), {"sw": ("unifi-switch", parse_mca(json.dumps(sw)))}
+
+
+def test_bmc_on_its_own_cable_is_linked_on_the_machine_note(tmp_path):
+    inv, devs = bmc_lab(tmp_path)
+    props = [(p.host, p.link) for p in propose_links(inv, devs)[0]]
+    assert ("ASRock X470", {"port": "bmc", "to": "[[sw]]", "to_port": "1"}) in props
+    assert ("sanrio", {"port": "enp36s0", "to": "[[sw]]", "to_port": "2"}) in props
+
+
+def test_shared_bmc_and_nic_on_one_port_both_linked(tmp_path):
+    inv, devs = bmc_lab(tmp_path)
+    props, notes = propose_links(inv, devs)
+    pairs = [(p.host, p.link) for p in props]
+    assert ("nas", {"port": "eno1", "to": "[[sw]]", "to_port": "3"}) in pairs
+    assert ("Supermicro X11", {"port": "bmc", "to": "[[sw]]", "to_port": "3"}) in pairs
+    assert not any("port 3" in n[1] for n in notes)
+
+
+def test_two_nics_of_one_host_on_one_port_is_a_warning(tmp_path):
+    import json
+    inv, _ = bmc_lab(tmp_path)
+    sw = json.loads(SWITCH)
+    sw["port_table"].append({"port_idx": 5, "name": "Port 5", "media": "GE", "is_uplink": False,
+                             "mac_table": [{"mac": NAS_MAC}, {"mac": NAS_MAC2}]})
+    props, notes = propose_links(inv, {"sw": ("unifi-switch", parse_mca(json.dumps(sw)))})
+    assert not [p for p in props if p.link["to_port"] == "5"]
+    assert any("port 5" in n[1] and "eno1" in n[1] and "eno2" in n[1] for n in notes)
+
+
+def test_port_rows_keep_every_link_on_a_shared_port(tmp_path):
+    (tmp_path / "hosts").mkdir()
+    (tmp_path / "hardware").mkdir()
+    (tmp_path / "hosts" / "sw.md").write_text("---\nbastet: host\ntype: unifi-switch\nip: 10.0.0.5\n---\n# sw\n")
+    (tmp_path / "hosts" / "nas.md").write_text(
+        '---\nbastet: host\ntype: server\nlinks:\n  - {port: eno1, to: "[[sw]]", to_port: "3"}\n---\n# nas\n')
+    (tmp_path / "hardware" / "Supermicro X11.md").write_text(
+        '---\nbastet: hardware\ncategory: server\ninstalled_in: "[[nas]]"\n'
+        'links:\n  - {port: bmc, to: "[[sw]]", to_port: "3"}\n---\n# X11\n')
+    rows = port_rows(load_inventory(tmp_path, TYPES), "sw")
+    assert sorted((r.port, r.peer, r.peer_port) for r in rows) == [("3", "nas", "bmc"), ("3", "nas", "eno1")]

@@ -28,16 +28,23 @@ def _norm(mac: object) -> str:
     return re.sub(r"[^0-9a-f]", "", str(mac).lower())
 
 
-def _host_macs(inv: Inventory) -> dict[str, tuple[str, str]]:
-    """MAC -> (host, interface) for cabled hosts (not guests, not UniFi devices), physical interfaces only."""
-    out: dict[str, tuple[str, str]] = {}
+BMC_PORT = "bmc"
+
+
+def _host_macs(inv: Inventory) -> dict[str, tuple[str, str, str]]:
+    """MAC -> (note the link goes on, machine, interface) for cabled hosts (not guests, not UniFi devices).
+
+    Physical interfaces only. A BMC is its own cable end, port "bmc", linked on its machine's hardware note
+    (it belongs to the board, not the OS); it still counts as the same machine as the host's NICs.
+    """
+    out: dict[str, tuple[str, str, str]] = {}
     hosts = {d.name.lower(): d for d in inv.of_kind("host")}
     cabled = {k: d for k, d in hosts.items()
               if not d.data.get("runs_on") and not str(d.data.get("type", "")).startswith("unifi-")}
 
-    def add(mac, host, iface):
+    def add(mac, host, iface, note=None):
         if mac and iface and not NOT_A_CABLE_END.search(str(iface)):
-            out.setdefault(_norm(mac), (host, str(iface)))
+            out.setdefault(_norm(mac), (note or host, host, str(iface)))
 
     for doc in cabled.values():
         for i in doc.data.get("interfaces") or []:
@@ -51,6 +58,9 @@ def _host_macs(inv: Inventory) -> dict[str, tuple[str, str]]:
             for i in hw.data.get(key) or []:
                 if isinstance(i, dict):
                     add(i.get("mac"), host.name, i.get("name"))
+        oob = hw.data.get("oob")
+        if isinstance(oob, dict) and oob.get("mac"):
+            add(oob["mac"], host.name, BMC_PORT, note=hw.name)
     return out
 
 
@@ -96,12 +106,17 @@ def propose_links(inv: Inventory, devices: dict[str, tuple[str, Device]]) -> tup
             if p.uplink or p.id in trunk[name] or any(_norm(m) in by_mac for m in p.macs):
                 continue
             known = sorted({host_macs[_norm(m)] for m in p.macs if _norm(m) in host_macs})
-            if len(known) > 1:
-                notes.append((name, f"port {p.id} sees {len(known)} hosts ({', '.join(h for h, _ in known)}); "
+            machines = sorted({machine for _, machine, _ in known})
+            if len(machines) > 1:
+                notes.append((name, f"port {p.id} sees {len(machines)} hosts ({', '.join(machines)}); "
                                     "behind an unmanaged switch? not linked"))
                 continue
-            if known:
-                found.setdefault(known[0], []).append((name, p.id))
+            nics = [iface for _, _, iface in known if iface != BMC_PORT]
+            if len(nics) > 1:  # one cable can't end in two NICs; a BMC sharing a NIC is the only real double
+                notes.append((name, f"port {p.id} sees {machines[0]}'s {' and '.join(nics)}; not linked"))
+                continue
+            for note, _, iface in known:
+                found.setdefault((note, iface), []).append((name, p.id))
     for (host, iface), places in found.items():
         if len(places) > 1:
             where = ", ".join(f"[[{n}]] port {pid}" for n, pid in places)
@@ -174,7 +189,7 @@ def _port_key(port: str) -> tuple:
 
 def port_rows(inv: Inventory, name: str) -> list[PortRow]:
     me = name.lower()
-    rows: dict[str, PortRow] = {}
+    rows: dict[tuple[str, str, str], PortRow] = {}  # several links can share a port (a BMC sharing a NIC)
     for doc in [*inv.of_kind("host"), *inv.of_kind("hardware")]:
         links = doc.data.get("links")
         for link in links if isinstance(links, list) else []:
@@ -182,12 +197,16 @@ def port_rows(inv: Inventory, name: str) -> list[PortRow]:
                 continue
             owner, target = _owner(inv, doc), link_target(link.get("to")) or ""
             if owner.lower() == me:
-                rows.setdefault(str(link["port"]), _row(link["port"], target, link.get("to_port"), "up", link))
+                row = _row(link["port"], target, link.get("to_port"), "up", link)
             elif target.lower() == me and link.get("to_port") is not None:
-                rows.setdefault(str(link["to_port"]), _row(link["to_port"], owner, link["port"], "down", link))
+                row = _row(link["to_port"], owner, link["port"], "down", link)
+            else:
+                continue
+            rows.setdefault((row.port, row.peer.lower(), row.peer_port), row)
     me_doc = inv.get(name)
     ports = me_doc.data.get("ports") if me_doc else None
+    linked = {r.port for r in rows.values()}
     for p in ports if isinstance(ports, list) else []:
-        if isinstance(p, dict) and p.get("port") is not None:
-            rows.setdefault(str(p["port"]), PortRow(str(p["port"]), "", "", "", str(p.get("media") or "")))
-    return sorted(rows.values(), key=lambda r: _port_key(r.port))
+        if isinstance(p, dict) and p.get("port") is not None and str(p["port"]) not in linked:
+            rows[(str(p["port"]), "", "")] = PortRow(str(p["port"]), "", "", "", str(p.get("media") or ""))
+    return sorted(rows.values(), key=lambda r: (_port_key(r.port), r.peer.lower(), r.peer_port))
