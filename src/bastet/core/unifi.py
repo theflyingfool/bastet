@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import re
 from dataclasses import dataclass, field
@@ -59,6 +60,24 @@ class Device:
     ports: list[Port] = field(default_factory=list)
     neighbours: list[Neighbour] = field(default_factory=list)
     interface_macs: set[str] = field(default_factory=set)
+    networks: list[dict] = field(default_factory=list)
+
+
+def _networks(j: dict, uplinks: set[str]) -> list[dict]:
+    """The gateway's LAN-side networks: up, a private IPv4 address, not the WAN (uplink) interface."""
+    out = []
+    for n in j.get("network_table") or []:
+        name, addr = str(n.get("name") or ""), n.get("address")
+        if not n.get("up") or not addr or name in uplinks:
+            continue
+        try:
+            iface = ipaddress.ip_interface(str(addr))
+        except ValueError:
+            continue
+        if iface.version != 4 or not iface.ip.is_private or iface.ip.is_link_local:
+            continue
+        out.append({"interface": name, "cidr": str(iface.network), "address": str(iface.ip)})
+    return sorted(out, key=lambda x: ipaddress.ip_network(x["cidr"]))
 
 
 def parse_mca(text: str) -> Device:
@@ -85,13 +104,15 @@ def parse_mca(text: str) -> Device:
     return Device(mac=mac, model=str(j.get("model_display") or j.get("model") or ""), firmware=str(j.get("version") or ""),
                   serial=clean(j.get("serial")), hostname=str(j.get("hostname") or ""),
                   ports=sorted(ports, key=lambda p: (len(p.id), p.id)), neighbours=neighbours,
-                  interface_macs=interface_macs - {""})
+                  interface_macs=interface_macs - {""}, networks=_networks(j, {p.name for p in ports if p.uplink}))
 
 
 def device_facts(d: Device) -> dict:
     facts: dict = {"mac": d.mac, "firmware": d.firmware}
     if d.ports:
         facts["ports"] = [{"port": p.id, "name": p.name, "media": p.media} for p in d.ports]
+    if d.networks:
+        facts["networks"] = d.networks
     return {k: v for k, v in facts.items() if v}
 
 

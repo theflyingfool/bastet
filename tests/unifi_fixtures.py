@@ -15,6 +15,12 @@ GATEWAY = json.dumps({
         {"port_idx": 7, "name": "eth6", "media": "SFP+", "is_uplink": True, "mac_table": [{"mac": "02:00:00:00:99:99"}]},
     ],
     "lldp_table": [{"chassis_id": AP_MAC, "is_wired": True, "local_port_idx": 4, "local_port_name": "eth3", "port_id": AP_MAC}],
+    "network_table": [
+        {"name": "eth6", "up": True, "address": "198.51.100.7/23", "mac": "02:00:00:00:00:07"},
+        {"name": "br0", "up": True, "address": "10.10.0.1/24", "mac": GW_MAC},
+        {"name": "br20", "up": True, "address": "10.10.20.1/24", "mac": GW_MAC},
+        {"name": "dummy0", "up": False, "addresses": ["2001:db8::fa/128"]},
+    ],
 })
 AP = json.dumps({
     "mac": AP_MAC, "model_display": "U7-Pro-XG-B", "version": "8.8.9", "serial": "847848000003", "hostname": "U7ProXG",

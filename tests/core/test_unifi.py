@@ -47,3 +47,12 @@ def test_redact_more_secret_shapes():
     for secret in ('"pub"', '"S"', '"pw"', '"V"', "abc123"):
         assert secret not in out, secret
     assert '"rx_bytes": 5' in out and '"max_speed": 10' in out
+
+
+def test_gateway_networks_skip_wan_and_down():
+    d = parse_mca(GATEWAY)
+    assert d.networks == [
+        {"interface": "br0", "cidr": "10.10.0.0/24", "address": "10.10.0.1"},
+        {"interface": "br20", "cidr": "10.10.20.0/24", "address": "10.10.20.1"},
+    ]
+    assert "198.51.100" not in str(device_facts(d))

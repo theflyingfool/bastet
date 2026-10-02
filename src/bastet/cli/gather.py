@@ -18,6 +18,7 @@ from bastet.core.tools import install_script, needed_tools
 from bastet.core import hostkeys
 from bastet.core.bootstrap import setup_command
 from bastet.core.cabling import merge_links, propose_links
+from bastet.core.networks import compare_networks, lab_networks
 from bastet.core.changes import Change
 from bastet.core.collect import ProbeResult, Snapshot, collect, save_snapshot
 from bastet.core.config import data_dir
@@ -250,6 +251,7 @@ def gather(
     with tempfile.TemporaryDirectory(prefix="bastet-") as tmp:
         for doc in docs:
             typer.echo(f"{doc.name}: gathering…")
+            network_notes: list[tuple[str, str]] = []
             try:
                 host_type = ctx.types.get(str(doc.data.get("type")), ctx.types["unknown"])
                 if host_type.name.startswith("unifi-"):
@@ -262,6 +264,8 @@ def gather(
                     unifi_devices[doc.name] = (host_type.name, device)
                     extracted = Extracted(facts=device_facts(device))
                     view = HardwareView(items=[machine_item(doc.name, host_type.name, device)])
+                    if host_type.name == "unifi-gateway":
+                        network_notes = compare_networks(lab_networks(inv), device.networks)
                 else:
                     snapshot, hostkey, runner = _collect(ctx, doc, Path(tmp), yes=yes, accept=accept_new_hostkey)
                     snapshot, installed = _maybe_install_tools(ctx, doc, host_type, snapshot, runner, yes)
@@ -286,6 +290,7 @@ def gather(
             for probe in extracted.missing_required:
                 notes.append(Note(doc.name, "warn", f"required probe '{probe}' failed or its tool is missing"))
             notes.extend(update.notes)
+            notes.extend(Note(doc.name, severity, message) for severity, message in network_notes)
             notes.extend(hw_notes)
             privilege = snapshot.results.get("privilege")
             if privilege is not None and privilege.output.strip() == "none":

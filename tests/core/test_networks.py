@@ -2,6 +2,7 @@ from pathlib import Path
 
 from bastet.core.hosttypes import load_host_types
 from bastet.core.inventory import load_inventory
+from bastet.core.networks import compare_networks, lab_networks
 
 TYPES = load_host_types()
 LAB = ("---\nbastet: lab\nnetworks:\n  lan: {cidr: 10.10.0.0/24}\n"
@@ -48,3 +49,15 @@ def test_no_networks_means_no_address_warnings(tmp_path):
 def test_link_vlans_must_exist(tmp_path):
     inv = make(tmp_path, LAB, a='links:\n  - {port: eno1, to: "[[sw]]", to_port: "2", vlans: [20, 30]}\n')
     assert any("VLAN 30" in m for m in messages(inv, "error"))
+
+
+def test_compare_networks(tmp_path):
+    inv = make(tmp_path, LAB.replace("  servers: {cidr: 10.10.20.0/24, vlan: 20}\n",
+                                     "  servers: {cidr: 10.10.20.0/24, vlan: 20}\n  iot: {cidr: 10.10.40.0/24, vlan: 40}\n"))
+    seen = [{"interface": "br0", "cidr": "10.10.0.0/24", "address": "10.10.0.1"},
+            {"interface": "br30", "cidr": "10.10.30.0/24", "address": "10.10.30.1"},
+            {"interface": "br20", "cidr": "10.10.20.0/24", "address": "10.10.20.1"}]
+    assert compare_networks(lab_networks(inv), seen) == [
+        ("warn", "10.10.30.0/24 (br30) is on the gateway but not in the lab file's networks"),
+        ("info", "iot (10.10.40.0/24) isn't on the gateway yet"),
+    ]

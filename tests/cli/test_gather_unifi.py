@@ -45,6 +45,8 @@ def test_gather_unifi_writes_facts_hardware_and_links(runner, unifi_lab, tmp_pat
     uxg = (unifi_lab / "hosts" / "uxg.md").read_text()
     assert "firmware: 6.0.10" in uxg and "mac: 02:00:00:00:00:01" in uxg and "media: SFP+" in uxg
     assert "SECRET" not in uxg
+    assert "interface: br0" in uxg and "198.51.100" not in uxg
+    assert "10.10.0.0/24 (br0) is on the gateway but not in the lab file's networks" in result.output
     hw = (unifi_lab / "hardware" / "Ubiquiti Gateway Fiber 1C0B8B000001.md").read_text()
     assert "category: gateway" in hw and 'installed_in: "[[uxg]]"' in hw
     assert 'to: "[[uxg]]"' in (unifi_lab / "hosts" / "ap.md").read_text()

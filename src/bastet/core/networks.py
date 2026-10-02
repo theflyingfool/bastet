@@ -117,3 +117,18 @@ def check_networks(inv: Inventory) -> None:
             for v in link_vlans(link):
                 if v not in vlans:
                     _problem(inv, "error", f"link {link.get('port')}: VLAN {v} isn't any lab network's vlan", doc, "links")
+
+
+def compare_networks(nets: dict[str, Network], seen: list[dict]) -> list[tuple[str, str]]:
+    """What the gateway has against what the lab file plans: (severity, message) pairs for gather's notes."""
+    out: list[tuple[str, str]] = []
+    seen_cidrs = set()
+    for s in seen:
+        cidr = ipaddress.ip_network(s["cidr"])
+        seen_cidrs.add(cidr)
+        if not any(n.cidr == cidr for n in nets.values()):
+            out.append(("warn", f"{cidr} ({s['interface']}) is on the gateway but not in the lab file's networks"))
+    for n in nets.values():
+        if n.cidr.version == 4 and n.cidr not in seen_cidrs:
+            out.append(("info", f"{n.name} ({n.cidr}) isn't on the gateway yet"))
+    return out
