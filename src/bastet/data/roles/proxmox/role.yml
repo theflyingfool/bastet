@@ -1,0 +1,30 @@
+description: "A Proxmox VE node's own setup: the PVE and Debian repositories, the subscription notice, Proxmox tools. Every proxmox-node gets it from its type."
+options:
+  repository:
+    type: string
+    default: no-subscription
+    choices: [no-subscription, enterprise, test]
+    description: "Which PVE repository: no-subscription (pve-no-subscription), enterprise (needs a subscription), test (pvetest)"
+  suite: {type: string, description: "Debian codename (trixie for PVE 9); default: from the gathered OS"}
+  debian_mirror: {type: string, default: "http://deb.debian.org/debian", description: "Debian mirror for the main and -updates suites"}
+  debian_components:
+    type: list
+    items: {type: string}
+    default: [main, contrib, non-free-firmware]
+    description: "Debian components; non-free-firmware carries CPU microcode"
+  subscription_notice:
+    type: string
+    default: remove
+    choices: [remove, keep]
+    description: "remove: patch out the 'No valid subscription' notice (re-applied when a Proxmox update restores it)"
+  tools: {type: list, items: {type: string}, default: [libguestfs-tools], description: "Proxmox-side tools to install"}
+  stray_sources:
+    type: string
+    default: report
+    choices: [report, remove]
+    description: "Other Debian/Proxmox source files in /etc/apt/sources.list.d (old duplicates): report them, or remove them"
+examples:
+  - title: Use your local Debian mirror and clean up old source files (on one node)
+    yaml: |
+      debian_mirror: http://ftp.us.debian.org/debian
+      stray_sources: remove

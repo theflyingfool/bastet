@@ -77,3 +77,20 @@ def test_name_validation():
     for bad in ("../x", "a b", "", "-x"):
         with pytest.raises(ValueError):
             Repository(name=bad, uris=("http://a",))
+
+
+def test_stray_sources_report_and_remove():
+    from bastet.core.collect import ProbeResult
+    from bastet.engine.packages import StraySources
+    listing = ("/etc/apt/sources.list.d/debian.sources\n"
+               "/etc/apt/sources.list.d/ftp_us_debian_org_debian.sources\n"
+               "/etc/apt/sources.list.d/security_debian_org_debian_security.sources\n")
+    s = StraySources(keep=("debian", "proxmox"))
+    cur = s.current({"stray": ProbeResult(0, listing)})
+    assert cur["stray"] == ("/etc/apt/sources.list.d/ftp_us_debian_org_debian.sources",
+                            "/etc/apt/sources.list.d/security_debian_org_debian_security.sources")
+    assert s.report_only() and [c.field for c in s.compare(cur)] == ["stray"]
+    r = StraySources(keep=("debian",), remove=True)
+    assert not r.report_only()
+    assert r.fix(r.compare(cur), cur) == ["rm -f -- /etc/apt/sources.list.d/ftp_us_debian_org_debian.sources "
+                                          "/etc/apt/sources.list.d/security_debian_org_debian_security.sources"]

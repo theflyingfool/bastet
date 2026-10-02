@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import re
+
 from bastet.core.errors import BastetError
 from bastet.core.osinfo import ARCH_LIKE
+from bastet.engine.command import Command
 from bastet.engine.files import Line
-from bastet.engine.packages import Package
+from bastet.engine.packages import Package, Repository, StraySources
 from bastet.engine.run import Batch
 
 MICROCODE = {("arch", "intel"): "intel-ucode", ("arch", "amd"): "amd-ucode",
@@ -66,3 +69,50 @@ def pacman(v: dict, host) -> list[Batch]:
         _setting("VerbosePkgLists", v.get("verbose_pkg_lists"), after=COLOR),
     ]
     return [Batch("pacman", [i for i in items if i is not None])]
+
+
+DEBIAN_KEY = "/usr/share/keyrings/debian-archive-keyring.gpg"
+PVE_KEY = "/usr/share/keyrings/proxmox-archive-keyring.gpg"
+PVE_JS = "/usr/share/javascript/proxmox-widget-toolkit/proxmoxlib.js"
+NAG = "res.data.status.toLowerCase() !== 'active'"
+NAG_SED = NAG.replace(".", "\\.")  # sed basic regex: ( ) are literal; only the dots need escaping
+
+
+def _suite(v: dict, host) -> str:
+    if v.get("suite"):
+        return str(v["suite"])
+    m = re.search(r"\(([a-z]+)\)", str(host.data.get("os") or ""))
+    if not m:
+        raise BastetError(f"proxmox.suite: can't tell the Debian codename from '{host.data.get('os')}'; "
+                          "set suite (e.g. trixie) or run bastet gather")
+    return m.group(1)
+
+
+def proxmox(v: dict, host) -> list[Batch]:
+    s = _suite(v, host)
+    comps = tuple(v.get("debian_components") or ())
+    which = v.get("repository") or "no-subscription"
+    res: list = [
+        Repository(name="debian", uris=(v["debian_mirror"],), suites=(s, f"{s}-updates"), components=comps,
+                   signed_by=DEBIAN_KEY),
+        Repository(name="debian-security", uris=("http://security.debian.org/debian-security",),
+                   suites=(f"{s}-security",), components=comps, signed_by=DEBIAN_KEY),
+        Repository(name="proxmox", uris=("http://download.proxmox.com/debian/pve",), suites=(s,),
+                   components=("pvetest" if which == "test" else "pve-no-subscription",), signed_by=PVE_KEY,
+                   enabled=which != "enterprise"),
+        Repository(name="pve-enterprise", uris=("https://enterprise.proxmox.com/debian/pve",), suites=(s,),
+                   components=("pve-enterprise",), signed_by=PVE_KEY, enabled=which == "enterprise"),
+        StraySources(keep=("debian", "debian-security", "proxmox", "pve-enterprise", "ceph"),
+                     remove=v.get("stray_sources") == "remove"),
+    ]
+    if v.get("subscription_notice") == "remove":
+        res.append(Command(
+            name="proxmox subscription notice",
+            unless=f"grep -q BASTET-NOTICE-OFF {PVE_JS}",
+            run=(f"grep -qF \"{NAG}\" {PVE_JS} || {{ echo 'pattern not found; Proxmox changed proxmoxlib.js — "
+                 f"check the notice by hand' >&2; exit 1; }}; "
+                 f"sed -i.bastet-bak \"s/{NAG_SED}/false \\/* BASTET-NOTICE-OFF *\\//g\" {PVE_JS} && "
+                 "systemctl restart pveproxy.service"),
+        ))
+    res += [Package(name=t) for t in v.get("tools") or []]
+    return [Batch("proxmox", res)]

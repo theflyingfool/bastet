@@ -103,7 +103,7 @@ def test_bad_role_files(tmp_path):
 
 
 def test_host_types_have_baseline_roles():
-    assert TYPES["proxmox-node"].roles == {"systemd": {"ntp_service": "chrony", "manage_hostname": False}}
+    assert TYPES["proxmox-node"].roles == {"systemd": {"ntp_service": "chrony", "manage_hostname": False}, "proxmox": {}}
     assert TYPES["laptop"].roles == {}
 
 

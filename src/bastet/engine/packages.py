@@ -606,6 +606,46 @@ class Reboot(Resource):
         return []
 
 
+STRAY = ("for f in /etc/apt/sources.list.d/*.sources /etc/apt/sources.list.d/*.list; do "
+         "[ -f \"$f\" ] && grep -qE 'debian\\.org|proxmox\\.com' \"$f\" && echo \"$f\"; done; true")
+
+
+@dataclass(frozen=True, kw_only=True)
+class StraySources(Resource):
+    """apt source files for Debian/Proxmox that the proxmox role doesn't own: duplicates that make apt warn."""
+
+    family: ClassVar[str] = "Packages"
+    keep: tuple[str, ...] = ()
+    remove: bool = False
+
+    @property
+    def identity(self) -> str:
+        return "stray-apt-sources"
+
+    @property
+    def label(self) -> str:
+        return "other Debian/Proxmox source files"
+
+    def report_only(self) -> bool:
+        return not self.remove
+
+    def desired(self):
+        return {"keep": self.keep, "remove": self.remove}
+
+    def reads(self):
+        return (Read("stray", STRAY),)
+
+    def current(self, results):
+        files = [line.strip() for line in results["stray"].output.splitlines() if line.strip()]
+        keep = {f"/etc/apt/sources.list.d/{k}.{ext}" for k in self.keep for ext in ("sources", "list")}
+        return {"stray": tuple(sorted(f for f in files if f not in keep))}
+
+    def compare(self, current):
+        return [FieldChange("stray", ", ".join(current["stray"]), "none")] if current["stray"] else []
+
+    def fix(self, changes, current):
+        return ["rm -f -- " + " ".join(_q(f) for f in current["stray"])]
+
 EXPLICIT = _per_manager({
     "pacman": "pacman -Qqe",
     "apt-get": "apt-mark showmanual",
