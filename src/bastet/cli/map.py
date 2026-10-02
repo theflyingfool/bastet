@@ -1,20 +1,16 @@
 import typer
 
-from bastet.cli.common import handles_errors, load_context
-from bastet.core.errors import BastetError
-from bastet.core.maps import cabling_map, networks_map
-
-VIEWS = ("cabling", "networks")
+from bastet.cli.common import handles_errors, load_context, refresh_generated
+from bastet.core.render import MAPS_DIR
 
 
 @handles_errors
-def map_(
-    view: str = typer.Argument("cabling", help="cabling or networks"),
-    around: str = typer.Option(None, "--around", help="Only this host and what's cabled to it (cabling)."),
-) -> None:
-    """Print a map as Mermaid (nothing is written; `refresh` keeps _bastet/maps/ current)."""
-    if view not in VIEWS:
-        raise BastetError(f"unknown map '{view}' (known: {', '.join(VIEWS)})")
-    inv = load_context().inventory
-    text = cabling_map(inv, around) if view == "cabling" else networks_map(inv)
-    typer.echo(text or f"Nothing to draw for {view} yet.")
+def map_() -> None:
+    """Regenerate the cabling and network maps in _bastet/maps/ (refresh does this too, along with everything else)."""
+    ctx = load_context()
+    refresh_generated(ctx)
+    maps = sorted((ctx.root / MAPS_DIR).glob("*.md")) if (ctx.root / MAPS_DIR).is_dir() else []
+    if not maps:
+        typer.echo("No maps yet: add links: to hosts (cabling) or networks: to the lab file (networks).")
+    for path in maps:
+        typer.echo(f"  {path.relative_to(ctx.root)}")
