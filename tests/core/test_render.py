@@ -269,3 +269,8 @@ def test_hardware_table_includes_network_devices_without_repeating_the_make(repo
     hardware = dashboard(inv(repo), TYPES, {}, [])
     hardware = hardware[hardware.index("## Hardware"):]
     assert "[[Ubiquiti Gateway Fiber X]]" in hardware and "| HP Spectre x360 |" in hardware
+
+
+def test_where_map_runs_top_down(repo):
+    from bastet.core.maps import where_map
+    assert "flowchart TB" in where_map(inv(repo))

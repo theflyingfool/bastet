@@ -276,7 +276,7 @@ def _where(inv: Inventory) -> str:
     for h in hosts:
         groups.setdefault(location(h, set()) or "Unplaced", []).append(h)
     ids = {h.name.lower(): f"h{n}" for n, h in enumerate(hosts)}
-    lines = ["```mermaid", "flowchart LR"]
+    lines = ["```mermaid", "flowchart TB"]  # top-down: side-by-side locations got too wide
     for n, loc in enumerate(sorted(groups, key=lambda x: (x == "Unplaced", x.lower()))):
         lines.append(f'  subgraph loc{n}["📍 {_label(loc)}"]')
         for h in groups[loc]:
