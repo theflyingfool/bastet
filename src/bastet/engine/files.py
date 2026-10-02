@@ -301,6 +301,15 @@ class Line(_Edit):
     match: str | None = None
     after: str | None = None  # regex: a new line goes after the last line matching this, not at the end
 
+    def __post_init__(self):
+        for knob in ("match", "after"):
+            pattern = getattr(self, knob)
+            if pattern is not None:
+                try:
+                    re.compile(pattern)
+                except re.error as exc:
+                    raise ValueError(f"{self.path}: {knob} {pattern!r} isn't a valid regex ({exc})") from None
+
     @property
     def identity(self) -> str:
         return f"line:{self.path}:{self.match or self.line}"

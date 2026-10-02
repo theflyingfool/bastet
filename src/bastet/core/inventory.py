@@ -117,6 +117,14 @@ def _check_hardware(inv: Inventory, doc: Document) -> None:
         _add(inv, "error", f"status '{status}' is not one of: {', '.join(HARDWARE_STATUSES)}", doc, "status")
 
 
+def _generated(root: Path, path: Path) -> bool:
+    """Bastet's own notes (_bastet/); a user's note with the same name always wins over them."""
+    try:
+        return path.relative_to(root).parts[0] == "_bastet"
+    except ValueError:
+        return False
+
+
 def load_inventory(root: Path, types: dict[str, HostType]) -> Inventory:
     inv = Inventory(root=root)
     for path in markdown_files(root):
@@ -140,6 +148,11 @@ def load_inventory(root: Path, types: dict[str, HostType]) -> Inventory:
             continue
         existing = inv.objects.get(doc.name.lower())
         if existing is not None:
+            if _generated(root, existing.path) and not _generated(root, doc.path):
+                inv.objects[doc.name.lower()] = doc  # the user's note wins over one Bastet generated
+                continue
+            if _generated(root, doc.path) and not _generated(root, existing.path):
+                continue
             _add(inv, "error", f"duplicate name '{doc.name}': also {existing.path}", doc)
             continue
         inv.objects[doc.name.lower()] = doc

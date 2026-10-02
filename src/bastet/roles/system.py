@@ -44,6 +44,8 @@ def base(v: dict, host) -> list[Batch]:
 
 PACMAN_CONF = "/etc/pacman.conf"
 COLOR = r"^#?\s*Color\s*$"
+OPTIONS = r"^\[options\]\s*$"
+IN_OPTIONS = rf"{COLOR}|{OPTIONS}"  # after Color when it's there, else right under [options]
 
 
 def _setting(name: str, on: bool | None, value: str | None = None, after: str | None = None) -> Line | None:
@@ -63,10 +65,11 @@ def pacman(v: dict, host) -> list[Batch]:
     if parallel is not None and parallel < 1:
         raise BastetError("pacman.parallel_downloads must be 1 or more")
     items = [
-        _setting("Color", v.get("color")),
-        _setting("ILoveCandy", v.get("candy"), after=COLOR),  # Color sits in [options] in every stock pacman.conf
-        _setting("ParallelDownloads", None if parallel is None else True, None if parallel is None else str(parallel)),
-        _setting("VerbosePkgLists", v.get("verbose_pkg_lists"), after=COLOR),
+        _setting("Color", v.get("color"), after=OPTIONS),
+        _setting("ILoveCandy", v.get("candy"), after=IN_OPTIONS),
+        _setting("ParallelDownloads", None if parallel is None else True, None if parallel is None else str(parallel),
+                 after=IN_OPTIONS),
+        _setting("VerbosePkgLists", v.get("verbose_pkg_lists"), after=IN_OPTIONS),
     ]
     return [Batch("pacman", [i for i in items if i is not None])]
 
@@ -102,17 +105,28 @@ def proxmox(v: dict, host) -> list[Batch]:
                    enabled=which != "enterprise"),
         Repository(name="pve-enterprise", uris=("https://enterprise.proxmox.com/debian/pve",), suites=(s,),
                    components=("pve-enterprise",), signed_by=PVE_KEY, enabled=which == "enterprise"),
+        _ceph(v, s),
         StraySources(keep=("debian", "debian-security", "proxmox", "pve-enterprise", "ceph"),
                      remove=v.get("stray_sources") == "remove"),
     ]
-    if v.get("subscription_notice") == "remove":
+    res += [Package(name=t) for t in v.get("tools") or []]
+    if v.get("subscription_notice") == "remove":  # last: a failure here mustn't stop the tools
         res.append(Command(
             name="proxmox subscription notice",
             unless=f"grep -q BASTET-NOTICE-OFF {PVE_JS}",
-            run=(f"grep -qF \"{NAG}\" {PVE_JS} || {{ echo 'pattern not found; Proxmox changed proxmoxlib.js — "
-                 f"check the notice by hand' >&2; exit 1; }}; "
+            run=(f"grep -qF \"{NAG}\" {PVE_JS} || {{ echo 'pattern not found; Proxmox changed proxmoxlib.js, or another "
+                 f"tool already patched it (apt reinstall proxmox-widget-toolkit, then apply again)' >&2; exit 1; }}; "
                  f"sed -i.bastet-bak \"s/{NAG_SED}/false \\/* BASTET-NOTICE-OFF *\\//g\" {PVE_JS} && "
                  "systemctl restart pveproxy.service"),
         ))
-    res += [Package(name=t) for t in v.get("tools") or []]
     return [Batch("proxmox", res)]
+
+
+def _ceph(v: dict, suite: str) -> Repository:
+    """ceph.sources: disabled unless asked for, so an enterprise Ceph entry can't break apt on a no-subscription node."""
+    which, release = v.get("ceph") or "none", v.get("ceph_release") or "squid"
+    if which == "no-subscription":
+        return Repository(name="ceph", uris=(f"http://download.proxmox.com/debian/ceph-{release}",), suites=(suite,),
+                          components=("no-subscription",), signed_by=PVE_KEY)
+    return Repository(name="ceph", uris=(f"https://enterprise.proxmox.com/debian/ceph-{release}",), suites=(suite,),
+                      components=("enterprise",), signed_by=PVE_KEY, enabled=which == "enterprise")

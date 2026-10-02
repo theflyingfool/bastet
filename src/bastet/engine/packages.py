@@ -61,6 +61,9 @@ def _installed(manager: str, name: str, output: str) -> list[str]:
 @dataclass(frozen=True, kw_only=True)
 class Package(Resource):
     family: ClassVar[str] = "Packages"
+    # Install knobs where the default means "no opinion": another role asking for the same package with a
+    # different value wins instead of conflicting (base's git and a host's git with refresh: false).
+    SOFT_DEFAULTS: ClassVar[tuple[str, ...]] = ("refresh", "dpkg_options", "extra_args")
     name: str
     state: str = "present"
     version: str | None = None
@@ -609,6 +612,8 @@ class Reboot(Resource):
 STRAY = ("for f in /etc/apt/sources.list.d/*.sources /etc/apt/sources.list.d/*.list; do "
          "[ -f \"$f\" ] && grep -qE 'debian\\.org|proxmox\\.com' \"$f\" && echo \"$f\"; done; true")
 
+STRAY_FILE = re.compile(r"^/etc/apt/sources\.list\.d/[^/]+\.(sources|list)$")
+
 
 @dataclass(frozen=True, kw_only=True)
 class StraySources(Resource):
@@ -636,7 +641,7 @@ class StraySources(Resource):
         return (Read("stray", STRAY),)
 
     def current(self, results):
-        files = [line.strip() for line in results["stray"].output.splitlines() if line.strip()]
+        files = [line.strip() for line in results["stray"].output.splitlines() if STRAY_FILE.match(line.strip())]
         keep = {f"/etc/apt/sources.list.d/{k}.{ext}" for k in self.keep for ext in ("sources", "list")}
         return {"stray": tuple(sorted(f for f in files if f not in keep))}
 

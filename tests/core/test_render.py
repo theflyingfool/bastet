@@ -231,3 +231,12 @@ def test_os_groups_generated_for_seen_oses(repo):
     debian = paths["_bastet/groups/debian.md"].after
     assert "bastet: group" in debian and "os: debian" in debian
     assert "_bastet/groups/arch.md" in paths  # vps1 is Arch Linux in this fixture
+
+
+def test_generated_group_removed_when_user_note_takes_the_name(repo):
+    write_changes(generated_changes(inv(repo), TYPES, repo))
+    gen = repo.root / "_bastet" / "groups" / "debian.md"
+    assert gen.exists()
+    (repo.root / "hosts" / "debian.md").write_text("---\nbastet: host\ntype: unknown\n---\n# debian\n")
+    gone = [c.path for c in generated_changes(inv(repo), TYPES, repo) if c.after is None]
+    assert gen in gone

@@ -11,7 +11,7 @@ from bastet.core.osinfo import os_id
 from bastet.engine.command import Command
 from bastet.engine.files import Block, Directory, File, Line, Symlink
 from bastet.engine.model import Trigger
-from bastet.engine.packages import Package, Reboot, Repository, Unaccounted, Updates
+from bastet.engine.packages import Package, Reboot, Repository, StraySources, Unaccounted, Updates
 from bastet.engine.run import Batch
 from bastet.engine.systemd import Hostname, Locale, TimeSettings, Unit, drop_in, reload, restart
 from bastet.engine.templates import render_template
@@ -140,10 +140,13 @@ def _packages(v: dict, host: HostInfo) -> list[Batch]:
     if v.get("report_unaccounted", True):
         tracked = tuple(p["name"] for p in installs) + tuple(str(t) for t in host.data.get("bastet_tools") or ())
         extras.append(Unaccounted(tracked=tracked, allowed=tuple(v.get("allowed") or ())))
-    aur_user = v.get("aur_user") or "bastet-aur"
-    bootstrap = _aur_bootstrap(aur_user, v.get("aur_helper") or "yay-bin") if any(p.get("aur") for p in installs) else []
+    aur_user, helper = v.get("aur_user") or "bastet-aur", v.get("aur_helper") or "yay-bin"
+    wants_aur = any(p.get("aur") for p in installs)
     packages = [Package(**_kw({**base, **p, **({"aur_user": aur_user} if p.get("aur") else {})})) for p in installs]
-    return [Batch("packages", [*repos, *removes, *bootstrap, *packages, *extras])]
+    if wants_aur:
+        extras = [replace(r, tracked=(*r.tracked, helper)) if isinstance(r, Unaccounted) else r for r in extras]
+    out = [Batch("packages (AUR setup)", _aur_bootstrap(aur_user, helper))] if wants_aur else []
+    return [*out, Batch("packages", [*repos, *removes, *packages, *extras])]
 
 
 AUR_NAME = re.compile(r"^[a-z0-9][a-z0-9._+-]*$")
@@ -252,7 +255,9 @@ def batches_for(applied: list[Applied], host: HostInfo) -> list[Batch]:
             raise BastetError(f"{a.role.name}: {exc}") from None
     # Everything Bastet installs is accounted for, whichever role installs it.
     present = sorted({r.name for b in batches for r in b.resources if isinstance(r, Package) and r.state == "present"})
+    repos = tuple(r.name for b in batches for r in b.resources if isinstance(r, Repository))
     for b in batches:
-        b.resources = [replace(r, tracked=tuple(dict.fromkeys((*r.tracked, *present)))) if isinstance(r, Unaccounted) else r
+        b.resources = [replace(r, tracked=tuple(dict.fromkeys((*r.tracked, *present)))) if isinstance(r, Unaccounted)
+                       else replace(r, keep=tuple(dict.fromkeys((*r.keep, *repos)))) if isinstance(r, StraySources) else r
                        for r in b.resources]
     return batches

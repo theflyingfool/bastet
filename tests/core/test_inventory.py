@@ -123,3 +123,16 @@ def test_connection_must_be_local_or_ssh(tmp_path):
     inv = load_inventory(tmp_path, TYPES)
     [p] = inv.errors
     assert p.error.key == "connection" and "telnet" in p.error.message
+
+
+def test_user_note_wins_over_generated_group(tmp_path):
+    from bastet.core.hosttypes import load_host_types
+    from bastet.core.inventory import load_inventory
+    (tmp_path / "Homelab.md").write_text("---\nbastet: lab\n---\n# L\n")
+    (tmp_path / "_bastet" / "groups").mkdir(parents=True)
+    (tmp_path / "_bastet" / "groups" / "debian.md").write_text("---\nbastet: group\nmatch:\n  os: debian\n---\n# debian\n")
+    (tmp_path / "hosts").mkdir()
+    (tmp_path / "hosts" / "debian.md").write_text("---\nbastet: host\ntype: laptop\n---\n# debian\n")
+    inv = load_inventory(tmp_path, load_host_types())
+    assert inv.get("debian").data["bastet"] == "host"
+    assert not any("duplicate" in str(p) for p in inv.problems)

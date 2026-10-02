@@ -112,8 +112,10 @@ def _run(names: list[str] | None, *, apply_changes: bool, yes: bool, verbose: bo
                 if not apply_changes:
                     failed |= check.count("failed") > 0
                     continue
+                apply_failed = False
                 if not pending:
                     failed |= check.count("failed") > 0
+                    apply_failed = check.count("failed") > 0
                 elif not yes and not typer.confirm(f"Apply {pending} change(s) to {doc.name}?", default=False):
                     typer.echo(f"{doc.name}: nothing applied")
                     continue
@@ -121,7 +123,8 @@ def _run(names: list[str] | None, *, apply_changes: bool, yes: bool, verbose: bo
                     done = run_host(runner, doc.name, batches, apply=True)
                     typer.echo(render_host(done, full=full))
                     failed |= not done.ok
-                note = handle_reboot(runner, target, doc, reboots, yes=yes,
+                    apply_failed = not done.ok
+                note = handle_reboot(runner, target, doc, reboots, yes=yes, apply_failed=apply_failed,
                                      connect_again=lambda doc=doc: connect(ctx, doc, Path(tmp), yes=yes)[0])
                 if note:
                     typer.echo(note)

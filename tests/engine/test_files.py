@@ -1,3 +1,5 @@
+import pytest
+
 import os
 import stat
 
@@ -143,3 +145,10 @@ def test_line_inserted_after_anchor():
 def test_line_after_without_anchor_appends():
     line = Line(path="/x", line="b", after=r"^nope$")
     assert line.wanted("a\n") == "a\nb\n"
+
+
+def test_bad_line_regex_is_a_value_error():
+    with pytest.raises(ValueError, match="after"):
+        Line(path="/x", line="a", after="(")
+    with pytest.raises(ValueError, match="match"):
+        Line(path="/x", line="a", match="[")

@@ -23,7 +23,15 @@ def reboot_needed(runner, host: str, reboots: list[Reboot]) -> tuple[bool, str]:
     return bool(item.current.get("needed")), str(item.current.get("why") or "")
 
 
-def handle_reboot(runner, target, doc, reboots: list[Reboot], *, yes: bool, connect_again,
+def _boot_id(runner) -> str | None:
+    try:
+        res = runner.run("cat /proc/sys/kernel/random/boot_id", timeout=15)
+    except BastetError:
+        return None
+    return res.stdout.strip() or None if res.returncode == 0 else None
+
+
+def handle_reboot(runner, target, doc, reboots: list[Reboot], *, yes: bool, connect_again, apply_failed: bool = False,
                   sleep=time.sleep, clock=time.monotonic) -> str | None:
     if not reboots:
         return None
@@ -34,6 +42,8 @@ def handle_reboot(runner, target, doc, reboots: list[Reboot], *, yes: bool, conn
     host = doc.name
     if doc.data.get("connection") == "local":
         return f"{host}: reboot needed ({why}); reboot this machine yourself"
+    if apply_failed:
+        return f"{host}: reboot needed ({why}); not rebooting because apply had failures — fix them first"
     if policy == "never":
         return f"{host}: reboot needed ({why}); policy is never"
     if policy == "ask":
@@ -42,10 +52,14 @@ def handle_reboot(runner, target, doc, reboots: list[Reboot], *, yes: bool, conn
                     "Run without -y, or set reboot: auto")
         if not typer.confirm(f"Reboot {host} now ({why})?", default=False):
             return f"{host}: reboot needed ({why}); not rebooted"
+    before = _boot_id(runner)
     try:
-        runner.run(exec_script(["systemctl reboot"], root=True, mark=new_mark()), timeout=30)
+        res = runner.run(exec_script(["systemctl reboot"], root=True, mark=new_mark()), timeout=30)
     except BastetError:
-        pass  # the connection dropping is the reboot happening
+        res = None  # the connection dropping is the reboot happening
+    if res is not None and res.returncode not in (0, 255):
+        tail = (res.stderr.strip().splitlines() or [f"exit status {res.returncode}"])[-1]
+        raise BastetError(f"{host}: reboot refused: {tail}")
     if target is not None:
         close_master(target)
     start = clock()
@@ -53,7 +67,8 @@ def handle_reboot(runner, target, doc, reboots: list[Reboot], *, yes: bool, conn
     while True:
         try:
             runner = connect_again()
-            if runner.run("true", timeout=15).returncode == 0:
+            now = _boot_id(runner)
+            if now is not None and now != before:  # a new boot, not sshd still answering during shutdown
                 break
         except BastetError:
             pass

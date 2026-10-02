@@ -8,15 +8,25 @@ from bastet.engine.packages import Reboot
 
 
 class Box:
-    """A fake host: needs a reboot until `systemctl reboot` arrives; then answers `true` if it comes back."""
+    """A fake host with a boot id: needs a reboot until it really reboots; `slow` polls still see the old boot."""
 
-    def __init__(self, needed=True, comes_back=True):
-        self.needed, self.comes_back, self.rebooted = needed, comes_back, False
+    def __init__(self, needed=True, comes_back=True, refuse=False, slow=0):
+        self.needed, self.comes_back, self.refuse, self.slow = needed, comes_back, refuse, slow
+        self.rebooted, self.boot = False, "boot-1"
 
     def run(self, script, *, timeout=120):
         if "systemctl reboot" in script:
+            if self.refuse:
+                return CommandResult("", "needs root: sudo -n is not available", 126)
             self.rebooted, self.needed = True, False
             return CommandResult("", "Connection closed", 255)
+        if "boot_id" in script:
+            if self.rebooted and self.slow:
+                self.slow -= 1
+                return CommandResult("boot-1\n", "", 0)
+            if self.rebooted and not self.comes_back:
+                return CommandResult("", "", 255)
+            return CommandResult(("boot-2" if self.rebooted else "boot-1") + "\n", "", 0)
         return CommandResult("", "", 0 if self.comes_back else 255)
 
 
@@ -70,3 +80,20 @@ def test_auto_times_out(box):
     box.comes_back = False
     with pytest.raises(BastetError, match="didn't come back within 30s"):
         handle_reboot(box, None, Doc(), batches("auto"), yes=True, connect_again=lambda: box, **ticks())
+
+
+def test_failed_apply_never_reboots(box):
+    msg = handle_reboot(box, None, Doc(), batches("auto"), yes=True, connect_again=lambda: box, apply_failed=True)
+    assert "apply had failures" in msg and not box.rebooted
+
+
+def test_refused_reboot_is_an_error(box):
+    box.refuse = True
+    with pytest.raises(BastetError, match="reboot refused"):
+        handle_reboot(box, None, Doc(), batches("auto"), yes=True, connect_again=lambda: box, **ticks())
+
+
+def test_waits_for_a_new_boot_not_just_ssh(box):
+    box.slow = 3  # sshd still answers from the old boot for a while
+    msg = handle_reboot(box, None, Doc(), batches("auto"), yes=True, connect_again=lambda: box, **ticks())
+    assert msg.startswith("box: rebooted, back after") and box.slow == 0

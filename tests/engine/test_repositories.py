@@ -94,3 +94,11 @@ def test_stray_sources_report_and_remove():
     assert not r.report_only()
     assert r.fix(r.compare(cur), cur) == ["rm -f -- /etc/apt/sources.list.d/ftp_us_debian_org_debian.sources "
                                           "/etc/apt/sources.list.d/security_debian_org_debian_security.sources"]
+
+
+def test_stray_sources_ignore_odd_lines():
+    from bastet.core.collect import ProbeResult
+    from bastet.engine.packages import StraySources
+    s = StraySources(keep=())
+    cur = s.current({"stray": ProbeResult(0, "grep: warning\n/etc/apt/sources.list.d/x.sources\n/etc/other\n")})
+    assert cur["stray"] == ("/etc/apt/sources.list.d/x.sources",)

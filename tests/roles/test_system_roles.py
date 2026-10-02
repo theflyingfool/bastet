@@ -48,7 +48,6 @@ def test_pacman_lines():
     by_line = {r.line: r for r in out if isinstance(r, Line)}
     assert set(by_line) == {"Color", "#ILoveCandy", "ParallelDownloads = 10"}
     assert by_line["Color"].match == r"^#?\s*Color\s*$"
-    assert by_line["#ILoveCandy"].after == r"^#?\s*Color\s*$"
     text = "[options]\n#Color\n#ParallelDownloads = 5\n\n[core]\nInclude = /etc/pacman.d/mirrorlist\n"
     for r in out:
         text = r.wanted(text)
@@ -139,3 +138,54 @@ def test_subscription_notice_fails_loudly_when_proxmox_changes(tmp_path):
 def test_proxmox_node_type_baseline_includes_proxmox():
     from bastet.core.hosttypes import load_host_types
     assert "proxmox" in load_host_types()["proxmox-node"].roles
+
+
+def test_stray_sources_keep_every_planned_repository():
+    from bastet.engine.packages import StraySources
+    batches = batches_for([ap("proxmox", {}), ap("packages", {"repositories": [
+        {"name": "backports", "uris": ["http://deb.debian.org/debian"], "suites": ["trixie-backports"]}]})], pve())
+    stray = next(r for b in batches for r in b.resources if isinstance(r, StraySources))
+    assert "backports" in stray.keep and "debian" in stray.keep
+
+
+def test_same_package_from_base_and_packages_merges():
+    from bastet.engine.run import collect_items
+    batches = batches_for([ap("base", {}), ap("packages", {"install": [{"name": "git", "refresh": False}],
+                                                          "extra_args": ["--quiet"]})], host())
+    items = [i for _, mine in collect_items(batches) for i in mine if getattr(i.resource, "name", "") == "git"]
+    assert len(items) == 1 and items[0].resource.refresh is False and items[0].resource.extra_args == ("--quiet",)
+
+
+def test_aur_setup_is_its_own_batch_and_helper_is_tracked():
+    from bastet.engine.packages import Unaccounted
+    batches = batches_for([ap("packages", {"install": [{"name": "foo-bin", "aur": True}]})], host(os="Arch Linux"))
+    assert [b.name for b in batches] == ["packages (AUR setup)", "packages"]
+    unacc = next(r for b in batches for r in b.resources if isinstance(r, Unaccounted))
+    assert "yay-bin" in unacc.tracked
+
+
+def test_proxmox_ceph_repository_managed():
+    from bastet.engine.packages import Repository
+    out = [r for b in batches_for([ap("proxmox", {})], pve()) for r in b.resources]
+    ceph = next(r for r in out if isinstance(r, Repository) and r.name == "ceph")
+    assert not ceph.enabled and ceph.uris == ("https://enterprise.proxmox.com/debian/ceph-squid",)
+    out = [r for b in batches_for([ap("proxmox", {"ceph": "no-subscription"})], pve()) for r in b.resources]
+    ceph = next(r for r in out if isinstance(r, Repository) and r.name == "ceph")
+    assert ceph.enabled and ceph.uris == ("http://download.proxmox.com/debian/ceph-squid",) and ceph.components == ("no-subscription",)
+
+
+def test_notice_comes_last_and_hints_at_old_patches():
+    from bastet.engine.command import Command
+    out = [r for b in batches_for([ap("proxmox", {})], pve()) for r in b.resources]
+    assert isinstance(out[-1], Command) and "apt reinstall proxmox-widget-toolkit" in out[-1].run
+
+
+def test_pacman_settings_fall_back_to_options_section():
+    from bastet.engine.files import Line
+    out = [r for b in batches_for([ap("pacman", {"parallel_downloads": 4})], host(os="Arch Linux")) for r in b.resources]
+    text = "[options]\nHoldPkg = pacman\n\n[core]\nInclude = x\n"
+    for r in out:
+        if isinstance(r, Line):
+            text = r.wanted(text)
+    head, core = text.split("[core]")
+    assert "Color" in head and "ILoveCandy" in head and "ParallelDownloads = 4" in head and "Color" not in core

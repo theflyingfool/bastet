@@ -156,3 +156,32 @@ def test_apply_reports_reboot_on_local_host(runner, box, inventory, monkeypatch)
     monkeypatch.setattr(run_mod, "run_host", _no_updates(run_mod.run_host))
     result = runner.invoke(app, ["apply", "box", "-y"])
     assert "box: reboot needed (kernel); reboot this machine yourself" in result.output
+
+
+def test_check_never_reboots(runner, box, inventory, monkeypatch):
+    import bastet.cli.run as rm
+
+    def boom(*a, **k):
+        raise AssertionError("check must not reach the reboot step")
+    monkeypatch.setattr(rm, "handle_reboot", boom)
+    (inventory / "_roles" / "hosts" / "box" / "packages.md").write_text(
+        '---\nbastet: role\nrole: packages\napplies_to: "[[box]]"\nreboot: auto\nreport_unaccounted: false\n---\n')
+    monkeypatch.setattr(run_mod, "run_host", _no_updates(run_mod.run_host))
+    assert runner.invoke(app, ["check", "box"]).exit_code == 0
+
+
+def test_failed_apply_tells_reboot_step(runner, box, inventory, monkeypatch):
+    import bastet.cli.run as rm
+    seen = {}
+
+    def spy(runner_, target, doc, reboots, *, yes, connect_again, apply_failed=False):
+        seen["failed"] = apply_failed
+        return None
+    monkeypatch.setattr(rm, "handle_reboot", spy)
+    (inventory / "_roles" / "hosts" / "box" / "files.md").write_text(
+        '---\nbastet: role\nrole: files\napplies_to: "[[box]]"\nfiles:\n  /proc/bastet-cannot-write:\n    content: "x"\n---\n')
+    (inventory / "_roles" / "hosts" / "box" / "packages.md").write_text(
+        '---\nbastet: role\nrole: packages\napplies_to: "[[box]]"\nreboot: auto\nreport_unaccounted: false\n---\n')
+    monkeypatch.setattr(run_mod, "run_host", _no_updates(run_mod.run_host))
+    runner.invoke(app, ["apply", "box", "-y"])
+    assert seen == {"failed": True}

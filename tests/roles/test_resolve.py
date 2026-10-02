@@ -123,3 +123,27 @@ def test_os_group_by_match(tmp_path):
     on_arch = {a.role.name: a for a in resolve(inv, inv.get("a"), types, roles)}
     assert on_arch["packages"].values["install"] == [{"name": "tree"}]
     assert "packages" not in {a.role.name for a in resolve(inv, inv.get("d"), types, roles)}
+
+
+def _match_lab(tmp_path, rule):
+    (tmp_path / "Homelab.md").write_text("---\nbastet: lab\n---\n# L\n")
+    (tmp_path / "hosts").mkdir()
+    (tmp_path / "hosts" / "a.md").write_text("---\nbastet: host\ntype: laptop\nos: Debian GNU/Linux 13 (trixie)\n---\n# a\n")
+    (tmp_path / "groups").mkdir()
+    (tmp_path / "groups" / "g.md").write_text(f"---\nbastet: group\nmatch: {rule}\n---\n# g\n")
+    types = load_host_types()
+    inv = load_inventory(tmp_path, types)
+    return inv, inv.get("a")
+
+
+@pytest.mark.parametrize("rule", ["debian", "{}", "[os]"])
+def test_match_must_be_a_rule(tmp_path, rule):
+    from bastet.core.errors import BastetError
+    inv, host = _match_lab(tmp_path, rule)
+    with pytest.raises(BastetError, match="match"):
+        group_distances(inv, host)
+
+
+def test_match_os_is_case_insensitive(tmp_path):
+    inv, host = _match_lab(tmp_path, "{os: Debian}")
+    assert "g" in group_distances(inv, host)

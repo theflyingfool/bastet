@@ -12,6 +12,12 @@ options:
     items: {type: string}
     default: [main, contrib, non-free-firmware]
     description: "Debian components; non-free-firmware carries CPU microcode"
+  ceph:
+    type: string
+    default: none
+    choices: [none, no-subscription, enterprise]
+    description: "Ceph repository (ceph.sources): none writes it disabled so an enterprise entry can't break apt"
+  ceph_release: {type: string, default: squid, description: "Ceph release name in the repository path (squid for PVE 9)"}
   subscription_notice:
     type: string
     default: remove

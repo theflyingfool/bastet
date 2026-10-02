@@ -84,10 +84,14 @@ def _merge(a: Resource, b: Resource, a_from: str, b_from: str) -> Resource:
         raise ConflictError(f"{b.label}: {a_from} and {b_from} describe it differently")
     updates: dict[str, object] = {}
     clashes: list[str] = []
+    soft = getattr(type(a), "SOFT_DEFAULTS", ())
     for f in fields(a):
         if f.name == "on_change":
             continue
         va, vb = getattr(a, f.name), getattr(b, f.name)
+        if f.name in soft and va != vb and f.default in (va, vb):
+            updates[f.name] = vb if va == f.default else va
+            continue
         if f.name == "secret":
             updates["secret"] = bool(va or vb)
         elif va is None and vb is not None:

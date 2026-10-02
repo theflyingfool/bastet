@@ -38,16 +38,18 @@ def _links(value) -> list[str]:
 
 def _matches(group: Document, host: Document) -> bool:
     """A group's `match:` rule (os, type): hosts that fit every key belong to it without listing it."""
+    if "match" not in group.data:
+        return False
     rule = group.data.get("match")
     if not isinstance(rule, dict) or not rule:
-        return False
+        raise BastetError("match: expected a rule like {os: arch} or {type: proxmox-node}", file=group.path, key="match")
     unknown = set(rule) - {"os", "type"}
     if unknown:
         raise BastetError(f"match: unknown key {', '.join(sorted(map(str, unknown)))} (known: os, type)",
                           file=group.path, key="match")
     have = {"os": os_id(host.data), "type": str(host.data.get("type") or "")}
     for key, wanted in rule.items():
-        options = [str(w) for w in (wanted if isinstance(wanted, list) else [wanted])]
+        options = [str(w).lower() if key == "os" else str(w) for w in (wanted if isinstance(wanted, list) else [wanted])]
         if have[key] not in options:
             return False
     return True
