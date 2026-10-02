@@ -192,3 +192,14 @@ def test_new_category_summaries_and_cards(repo):
     assert "[!stat] Firmware" in machine and "UEFI" in machine and "Secure Boot disabled" in machine
     host = host_summary(i, i.get("pve1"), TYPES, [])
     assert "[!stat] Bridges" in host and "vmbr0" in host
+
+
+def test_summary_of_deleted_host_is_removed(repo):
+    write_changes(generated_changes(inv(repo), TYPES, repo))
+    stale = summary_path(repo.root, "git1")
+    assert stale.exists()
+    (repo.root / "hosts" / "git1.md").unlink()
+    (repo.root / "_bastet" / "summary" / "notes.md").write_text("my own note\n")
+    changes = generated_changes(inv(repo), TYPES, repo)
+    gone = [c for c in changes if c.after is None]
+    assert [c.path for c in gone] == [stale]

@@ -394,6 +394,18 @@ def generated_changes(
         want(summary_path(root, doc.name), host_summary(inv, doc, types, current, current_drift))
     for doc in inv.of_kind("hardware"):
         want(summary_path(root, doc.name), hardware_summary(inv, doc))
+    wanted = {summary_path(root, d.name) for d in [*inv.of_kind("host"), *inv.of_kind("hardware")]}
+    summary_dir = root / SUMMARY_DIR
+    for path in sorted(summary_dir.glob("*.md")) if summary_dir.is_dir() else []:
+        if path in wanted:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+            doc = parse_document(text, path)
+        except (BastetError, OSError, UnicodeDecodeError):
+            continue
+        if doc is not None and link_target(doc.data.get("summary_of")):  # only Bastet's own summaries
+            changes.append(Change(path, text, None))
     want(root / DASHBOARD_PATH, dashboard(inv, types, by_host, _recent(repo), drift_by_host))
     want(root / GUIDE_PATH, guide())
     from bastet.roles.pages import role_pages  # lazy: roles builds on core

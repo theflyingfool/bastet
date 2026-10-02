@@ -20,3 +20,12 @@ def test_write_creates_parents(tmp_path):
     write_changes([Change(p, None, "hello\n")])
     assert p.read_text() == "hello\n"
     assert [x.name for x in p.parent.iterdir()] == ["a.md"]
+
+
+def test_change_with_no_after_deletes(tmp_path):
+    p = tmp_path / "x.md"
+    p.write_text("old\n")
+    change = Change(p, "old\n", None)
+    assert "+++ /dev/null" in render_diff(change, tmp_path)
+    write_changes([change])
+    assert not p.exists()
