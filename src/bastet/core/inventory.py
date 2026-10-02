@@ -173,4 +173,7 @@ def load_inventory(root: Path, types: dict[str, HostType]) -> Inventory:
             _add(inv, "warning", 'a role file needs `applies_to: "[[host, group or lab]]"`', doc, "applies_to")
         elif inv.get(target) is None or inv.get(target).data.get("bastet") not in ("host", "group", "lab"):
             _add(inv, "warning", f"applies_to [[{target}]], which isn't a host, group or the lab", doc, "applies_to")
+    from bastet.core.networks import check_networks  # networks builds on inventory
+
+    check_networks(inv)
     return inv
