@@ -1,0 +1,141 @@
+description: "OpenSSH server settings: every sshd_config keyword, plus Match blocks. Written to /etc/ssh/sshd_config.d/10-bastet.conf, checked with sshd -t, then sshd is reloaded. Unset = leave sshd's own setting alone; nothing is set by default. Settings that would lock Bastet out are refused."
+
+options:
+  authorized_keys_file: {type: list, items: {type: string}, description: "AuthorizedKeysFile"}
+  authorized_principals_file: {type: string, description: "AuthorizedPrincipalsFile: principals allowed per user (with certificates)"}
+  chroot_directory: {type: string, description: "ChrootDirectory"}
+  host_certificate: {type: list, items: {type: string}, description: "HostCertificate: host certificates signed by your CA"}
+  host_key: {type: list, items: {type: string}, description: "HostKey"}
+  host_key_agent: {type: string, description: "HostKeyAgent"}
+  moduli_file: {type: string, description: "ModuliFile"}
+  pid_file: {type: string, description: "PidFile"}
+  revoked_keys: {type: string, description: "RevokedKeys"}
+  trusted_user_ca_keys: {type: string, description: "TrustedUserCAKeys: CA keys trusted to sign user certificates"}
+  security_key_provider: {type: string, description: "SecurityKeyProvider"}
+  x_auth_location: {type: string, description: "XAuthLocation"}
+  sshd_session_path: {type: string, description: "SshdSessionPath"}
+  sshd_auth_path: {type: string, description: "SshdAuthPath"}
+  port: {type: list, items: {type: int}, description: "Port: ports to listen on; Bastet connects on the first"}
+  listen_address: {type: list, items: {type: string}, description: "ListenAddress"}
+  address_family: {type: string, description: "AddressFamily"}
+  rdomain: {type: string, description: "RDomain"}
+  ipqos: {type: string, description: "IPQoS"}
+  tcp_keep_alive: {type: bool, description: "TCPKeepAlive"}
+  use_dns: {type: bool, description: "UseDNS"}
+  client_alive_interval: {type: int, description: "ClientAliveInterval"}
+  client_alive_count_max: {type: int, description: "ClientAliveCountMax"}
+  channel_timeout: {type: list, items: {type: string}, description: "ChannelTimeout"}
+  unused_connection_timeout: {type: string, description: "UnusedConnectionTimeout"}
+  allow_users: {type: list, items: {type: string}, description: "AllowUsers: only these users may log in (must include bastet)"}
+  allow_groups: {type: list, items: {type: string}, description: "AllowGroups: only these groups may log in (must include bastet, or list bastet in allow_users)"}
+  deny_users: {type: list, items: {type: string}, description: "DenyUsers"}
+  deny_groups: {type: list, items: {type: string}, description: "DenyGroups"}
+  permit_root_login: {type: string, description: "PermitRootLogin: yes, prohibit-password, forced-commands-only or no"}
+  permit_empty_passwords: {type: bool, description: "PermitEmptyPasswords"}
+  permit_tty: {type: bool, description: "PermitTTY"}
+  permit_user_environment: {type: string, description: "PermitUserEnvironment"}
+  permit_user_rc: {type: bool, description: "PermitUserRC"}
+  strict_modes: {type: bool, description: "StrictModes"}
+  max_auth_tries: {type: int, description: "MaxAuthTries"}
+  max_sessions: {type: int, description: "MaxSessions"}
+  max_startups: {type: string, description: "MaxStartups"}
+  login_grace_time: {type: string, description: "LoginGraceTime"}
+  per_source_max_startups: {type: string, description: "PerSourceMaxStartups"}
+  per_source_net_block_size: {type: string, description: "PerSourceNetBlockSize"}
+  per_source_penalties: {type: list, items: {type: string}, description: "PerSourcePenalties"}
+  per_source_penalty_exempt_list: {type: list, items: {type: string}, description: "PerSourcePenaltyExemptList"}
+  refuse_connection: {type: bool, description: "RefuseConnection"}
+  force_command: {type: string, description: "ForceCommand"}
+  banner: {type: string, description: "Banner"}
+  print_motd: {type: bool, description: "PrintMotd"}
+  print_last_log: {type: bool, description: "PrintLastLog"}
+  version_addendum: {type: string, description: "VersionAddendum"}
+  pubkey_authentication: {type: bool, description: "PubkeyAuthentication: key logins (Bastet needs these)"}
+  password_authentication: {type: bool, description: "PasswordAuthentication: password logins"}
+  kbd_interactive_authentication: {type: bool, description: "KbdInteractiveAuthentication: keyboard-interactive (PAM) logins"}
+  authentication_methods: {type: string, description: "AuthenticationMethods"}
+  use_pam: {type: bool, description: "UsePAM"}
+  hostbased_authentication: {type: bool, description: "HostbasedAuthentication"}
+  hostbased_uses_name_from_packet_only: {type: bool, description: "HostbasedUsesNameFromPacketOnly"}
+  ignore_rhosts: {type: string, description: "IgnoreRhosts"}
+  ignore_user_known_hosts: {type: bool, description: "IgnoreUserKnownHosts"}
+  gssapi_authentication: {type: bool, description: "GSSAPIAuthentication"}
+  gssapi_cleanup_credentials: {type: bool, description: "GSSAPICleanupCredentials"}
+  gssapi_strict_acceptor_check: {type: bool, description: "GSSAPIStrictAcceptorCheck"}
+  kerberos_authentication: {type: bool, description: "KerberosAuthentication"}
+  kerberos_get_afs_token: {type: bool, description: "KerberosGetAFSToken"}
+  kerberos_or_local_passwd: {type: bool, description: "KerberosOrLocalPasswd"}
+  kerberos_ticket_cleanup: {type: bool, description: "KerberosTicketCleanup"}
+  authorized_keys_command: {type: string, description: "AuthorizedKeysCommand"}
+  authorized_keys_command_user: {type: string, description: "AuthorizedKeysCommandUser"}
+  authorized_principals_command: {type: string, description: "AuthorizedPrincipalsCommand"}
+  authorized_principals_command_user: {type: string, description: "AuthorizedPrincipalsCommandUser"}
+  expose_auth_info: {type: bool, description: "ExposeAuthInfo"}
+  pubkey_auth_options: {type: list, items: {type: string}, description: "PubkeyAuthOptions"}
+  required_rsa_size: {type: int, description: "RequiredRSASize"}
+  ciphers: {type: list, items: {type: string}, description: "Ciphers"}
+  macs: {type: list, items: {type: string}, description: "MACs"}
+  kex_algorithms: {type: list, items: {type: string}, description: "KexAlgorithms"}
+  host_key_algorithms: {type: list, items: {type: string}, description: "HostKeyAlgorithms"}
+  pubkey_accepted_algorithms: {type: list, items: {type: string}, description: "PubkeyAcceptedAlgorithms"}
+  hostbased_accepted_algorithms: {type: list, items: {type: string}, description: "HostbasedAcceptedAlgorithms"}
+  ca_signature_algorithms: {type: list, items: {type: string}, description: "CASignatureAlgorithms"}
+  fingerprint_hash: {type: string, description: "FingerprintHash"}
+  rekey_limit: {type: string, description: "RekeyLimit"}
+  allow_agent_forwarding: {type: bool, description: "AllowAgentForwarding"}
+  allow_tcp_forwarding: {type: string, description: "AllowTcpForwarding"}
+  allow_stream_local_forwarding: {type: string, description: "AllowStreamLocalForwarding"}
+  disable_forwarding: {type: bool, description: "DisableForwarding"}
+  gateway_ports: {type: string, description: "GatewayPorts"}
+  permit_listen: {type: list, items: {type: string}, description: "PermitListen"}
+  permit_open: {type: list, items: {type: string}, description: "PermitOpen"}
+  permit_tunnel: {type: string, description: "PermitTunnel"}
+  stream_local_bind_mask: {type: string, description: "StreamLocalBindMask"}
+  stream_local_bind_unlink: {type: bool, description: "StreamLocalBindUnlink"}
+  x11_forwarding: {type: bool, description: "X11Forwarding"}
+  x11_display_offset: {type: int, description: "X11DisplayOffset"}
+  x11_use_localhost: {type: bool, description: "X11UseLocalhost"}
+  accept_env: {type: list, items: {type: string}, description: "AcceptEnv"}
+  set_env: {type: list, items: {type: string}, description: "SetEnv"}
+  subsystem: {type: list, items: {type: string}, description: "Subsystem"}
+  compression: {type: string, description: "Compression"}
+  log_level: {type: string, description: "LogLevel"}
+  log_verbose: {type: list, items: {type: string}, description: "LogVerbose"}
+  syslog_facility: {type: string, description: "SyslogFacility"}
+  include: {type: list, items: {type: string}, description: "Include"}
+  match:
+    type: list
+    description: "Match blocks: settings for some users or addresses only (written last, then Match all)"
+    items:
+      type: object
+      fields:
+        criteria: {type: string, required: true, description: "e.g. User nick Address 10.10.0.0/24"}
+        settings: {type: map, items: {type: any}, description: "ssh role option names and values"}
+examples:
+  - title: Super hardened (not applied anywhere by default — copy into _roles/lab/ssh.md when ready)
+    yaml: |
+      password_authentication: false
+      kbd_interactive_authentication: false
+      permit_root_login: "no"
+      permit_empty_passwords: false
+      x11_forwarding: false
+      allow_agent_forwarding: false
+      allow_tcp_forwarding: "no"
+      max_auth_tries: 3
+      login_grace_time: "20"
+      client_alive_interval: 300
+      client_alive_count_max: 2
+      kex_algorithms: [sntrup761x25519-sha512@openssh.com, curve25519-sha256, curve25519-sha256@libssh.org]
+      ciphers: [chacha20-poly1305@openssh.com, aes256-gcm@openssh.com, aes128-gcm@openssh.com]
+      macs: [hmac-sha2-512-etm@openssh.com, hmac-sha2-256-etm@openssh.com]
+      host_key_algorithms: [ssh-ed25519, sk-ssh-ed25519@openssh.com, rsa-sha2-512]
+      log_level: VERBOSE
+  - title: Move to port 2222 safely (both first, then drop 22 once it works)
+    yaml: |
+      port: [2222, 22]
+  - title: Allow a forwarding user only from the LAN
+    yaml: |
+      match:
+        - criteria: "User nick Address 10.10.0.0/24"
+          settings:
+            allow_tcp_forwarding: "yes"

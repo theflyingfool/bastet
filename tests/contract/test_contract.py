@@ -195,3 +195,17 @@ def test_arch_pacman_all_kinds_contract(arch_host):
     assert arch_host.run("pacman-conf NoExtract").stdout.strip() == "usr/share/doc/*"
     assert arch_host.run("pacman-conf CleanMethod").stdout.strip() == "KeepCurrent"
     assert "VerbosePkgLists" in arch_host.run("pacman-conf").stdout and "CheckSpace" not in arch_host.run("pacman-conf").stdout
+
+
+def test_ssh_contract(host):
+    info = HostInfo(name="ct", type="vm", data={"os": "Debian GNU/Linux 13 (trixie)"}, root=Path("/nonexistent"), lab={})
+    batches = batches_for([_applied("ssh", {"x11_forwarding": False, "max_auth_tries": 4, "port": [22, 2222],
+                                            "match": [{"criteria": "User nobody", "settings": {"permit_tty": False}}]})], info)
+    first = run_host(host, "ct", batches, apply=True)  # Debian already includes sshd_config.d, so not everything changes
+    assert first.ok, render_host(first, full=True)
+    again = run_host(host, "ct", batches, apply=True)
+    assert all(i.status == "compliant" for i in again.items) and not again.triggers, render_host(again, full=True)
+    effective = host.run("sudo -n /usr/sbin/sshd -T -C user=root,host=x,addr=127.0.0.1 2>/dev/null "
+                         "|| /usr/sbin/sshd -T -C user=root,host=x,addr=127.0.0.1").stdout
+    assert "x11forwarding no" in effective and "maxauthtries 4" in effective and "port 2222" in effective
+    assert host.run("systemctl is-active ssh.service").stdout.strip() == "active"

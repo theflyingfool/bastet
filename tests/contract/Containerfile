@@ -1,6 +1,6 @@
 FROM docker.io/library/debian:trixie
 RUN apt-get update \
- && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends systemd systemd-sysv dbus tzdata locales sudo \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends systemd systemd-sysv dbus tzdata locales sudo openssh-server \
  && sed -i 's/^# *en_US.UTF-8/en_US.UTF-8/' /etc/locale.gen && locale-gen \
  && useradd -m -s /bin/sh bastet \
  && echo 'bastet ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/bastet && chmod 0440 /etc/sudoers.d/bastet \

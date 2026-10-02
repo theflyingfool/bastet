@@ -10,7 +10,7 @@ import yaml
 
 from bastet.core.errors import BastetError
 
-TYPES = ("string", "int", "bool", "list", "map", "object")
+TYPES = ("string", "int", "bool", "list", "map", "object", "any")  # any: checked by the role's builder
 RESERVED = {"bastet", "role", "applies_to", "priority", "cssclasses", "tags", "aliases"}
 OPTION_KEYS = {"type", "description", "default", "choices", "items", "fields", "shorthand", "secret", "required"}
 
@@ -83,6 +83,8 @@ def check_value(opt: Option, value: object, where: str) -> object:
     """Validate one value; returns it normalised (shorthand expanded, empty fields dropped)."""
     if opt.type == "object" and opt.shorthand and isinstance(value, str):
         value = {opt.shorthand: value}
+    if opt.type == "any":
+        return value
     if opt.type == "string":
         if not isinstance(value, str):
             hint = ' (quote it, e.g. "0644")' if isinstance(value, int) and not isinstance(value, bool) else ""

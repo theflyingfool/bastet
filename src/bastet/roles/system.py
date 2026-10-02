@@ -7,9 +7,10 @@ import re
 from bastet.core.errors import BastetError
 from bastet.core.osinfo import ARCH_LIKE
 from bastet.engine.command import Command
-from bastet.engine.files import Line
+from bastet.engine.files import File, Line
 from bastet.engine.packages import Package, Repository, StraySources
 from bastet.engine.run import Batch
+from bastet.engine.systemd import reload
 
 MICROCODE = {("arch", "intel"): "intel-ucode", ("arch", "amd"): "amd-ucode",
              ("debian", "intel"): "intel-microcode", ("debian", "amd"): "amd64-microcode"}
@@ -142,3 +143,146 @@ def _ceph(v: dict, suite: str) -> Repository:
                           components=("no-subscription",), signed_by=PVE_KEY)
     return Repository(name="ceph", uris=(f"https://enterprise.proxmox.com/debian/ceph-{release}",), suites=(suite,),
                       components=("enterprise",), signed_by=PVE_KEY, enabled=which == "enterprise")
+
+
+# --- ssh -------------------------------------------------------------------------------------------------------------
+
+# Every sshd_config(5) keyword, by kind: yesno = bool → yes/no; value = as written; words = list joined by spaces;
+# commas = list joined by commas; repeat = one line per item.
+_SSHD = """
+AuthorizedKeysFile:words AuthorizedPrincipalsFile:value ChrootDirectory:value HostCertificate:repeat HostKey:repeat
+HostKeyAgent:value ModuliFile:value PidFile:value RevokedKeys:value TrustedUserCAKeys:value SecurityKeyProvider:value
+XAuthLocation:value SshdSessionPath:value SshdAuthPath:value
+Port:repeat ListenAddress:repeat AddressFamily:value RDomain:value IPQoS:value TCPKeepAlive:yesno UseDNS:yesno
+ClientAliveInterval:value ClientAliveCountMax:value ChannelTimeout:words UnusedConnectionTimeout:value
+AllowUsers:words AllowGroups:words DenyUsers:words DenyGroups:words PermitRootLogin:value PermitEmptyPasswords:yesno
+PermitTTY:yesno PermitUserEnvironment:value PermitUserRC:yesno StrictModes:yesno MaxAuthTries:value MaxSessions:value
+MaxStartups:value LoginGraceTime:value PerSourceMaxStartups:value PerSourceNetBlockSize:value PerSourcePenalties:words
+PerSourcePenaltyExemptList:commas RefuseConnection:yesno ForceCommand:value Banner:value PrintMotd:yesno
+PrintLastLog:yesno VersionAddendum:value
+PubkeyAuthentication:yesno PasswordAuthentication:yesno KbdInteractiveAuthentication:yesno AuthenticationMethods:value
+UsePAM:yesno HostbasedAuthentication:yesno HostbasedUsesNameFromPacketOnly:yesno IgnoreRhosts:value
+IgnoreUserKnownHosts:yesno GSSAPIAuthentication:yesno GSSAPICleanupCredentials:yesno GSSAPIStrictAcceptorCheck:yesno
+KerberosAuthentication:yesno KerberosGetAFSToken:yesno KerberosOrLocalPasswd:yesno KerberosTicketCleanup:yesno
+AuthorizedKeysCommand:value AuthorizedKeysCommandUser:value AuthorizedPrincipalsCommand:value
+AuthorizedPrincipalsCommandUser:value ExposeAuthInfo:yesno PubkeyAuthOptions:words RequiredRSASize:value
+Ciphers:commas MACs:commas KexAlgorithms:commas HostKeyAlgorithms:commas PubkeyAcceptedAlgorithms:commas
+HostbasedAcceptedAlgorithms:commas CASignatureAlgorithms:commas FingerprintHash:value RekeyLimit:value
+AllowAgentForwarding:yesno AllowTcpForwarding:value AllowStreamLocalForwarding:value DisableForwarding:yesno
+GatewayPorts:value PermitListen:words PermitOpen:words PermitTunnel:value StreamLocalBindMask:value
+StreamLocalBindUnlink:yesno X11Forwarding:yesno X11DisplayOffset:value X11UseLocalhost:yesno
+AcceptEnv:words SetEnv:words Subsystem:repeat Compression:value LogLevel:value LogVerbose:commas SyslogFacility:value
+Include:repeat
+"""
+_SSHD_NAMES = {"MACs": "macs", "IPQoS": "ipqos", "RDomain": "rdomain"}
+SSHD_INTS = {"client_alive_interval", "client_alive_count_max", "max_auth_tries", "max_sessions", "x11_display_offset",
+             "required_rsa_size"}
+
+
+def _snake(keyword: str) -> str:
+    if keyword in _SSHD_NAMES:
+        return _SSHD_NAMES[keyword]
+    s = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", keyword)
+    s = re.sub(r"(?<=[A-Z])(?=[A-Z][a-z])", "_", s)
+    return s.lower()
+
+
+SSHD_KEYWORDS: dict[str, tuple[str, str]] = {
+    _snake(kw): (kw, kind) for kw, kind in (item.split(":") for item in _SSHD.split())
+}
+SSHD = "/usr/sbin/sshd"
+SSHD_DROP_IN = "/etc/ssh/sshd_config.d/10-bastet.conf"
+SSHD_INCLUDE = "Include /etc/ssh/sshd_config.d/*.conf"
+BASTET = "bastet"
+
+
+def _sshd_line(keyword: str, kind: str, value) -> list[str]:
+    if kind == "yesno":
+        return [f"{keyword} {'yes' if value else 'no'}"]
+    if kind == "repeat":
+        return [f"{keyword} {v}" for v in value]
+    if kind == "words":
+        return [f"{keyword} {' '.join(str(v) for v in value)}"]
+    if kind == "commas":
+        return [f"{keyword} {','.join(str(v) for v in value)}"]
+    return [f"{keyword} {value}"]
+
+
+def _sshd_block(settings: dict, where: str) -> list[str]:
+    lines = []
+    for knob, value in settings.items():
+        if knob not in SSHD_KEYWORDS:
+            raise BastetError(f"{where}: unknown setting {knob!r} (use the ssh role's option names, e.g. x11_forwarding)")
+        if value is None:
+            continue
+        keyword, kind = SSHD_KEYWORDS[knob]
+        if kind in ("words", "commas", "repeat") and not isinstance(value, list):
+            value = [value]
+        lines += _sshd_line(keyword, kind, value)
+    return lines
+
+
+def _names(value) -> list[str]:
+    return [str(v) for v in (value if isinstance(value, list) else [value])]
+
+
+def _excludes_bastet(criteria: str) -> bool:
+    """A Match whose User criterion lists users, none of them bastet (and no wildcard), can't touch Bastet's login."""
+    words = criteria.split()
+    for i, w in enumerate(words[:-1]):
+        if w.lower() == "user":
+            users = words[i + 1].split(",")
+            return all(u.lstrip("!") != BASTET and "*" not in u and "?" not in u for u in users)
+    return False
+
+
+def _guard_ssh(settings: dict, where: str, *, criteria: str | None = None) -> None:
+    def stop(why: str):
+        raise BastetError(f"{where}: {why} would lock Bastet out of this host")
+
+    if criteria is not None and _excludes_bastet(criteria):
+        return
+    if settings.get("pubkey_authentication") is False:
+        stop("pubkey_authentication: false")
+    methods = settings.get("authentication_methods")
+    if methods is not None and str(methods) != "any" and "publickey" not in str(methods):
+        stop("authentication_methods without publickey")
+    allow_users = settings.get("allow_users")
+    if allow_users is not None and not any(u == BASTET or u.startswith(f"{BASTET}@") or u == "*" for u in _names(allow_users)):
+        stop("allow_users without bastet")
+    allow_groups = settings.get("allow_groups")
+    if allow_groups is not None and BASTET not in _names(allow_groups) and BASTET not in _names(allow_users or []):
+        stop("allow_groups without the bastet group (or bastet in allow_users)")
+    for knob in ("deny_users", "deny_groups"):
+        if settings.get(knob) is not None and BASTET in _names(settings[knob]):
+            stop(f"{knob} with bastet")
+    for knob in ("force_command", "chroot_directory"):
+        if settings.get(knob) is not None:
+            stop(f"{knob} for every user (use a match with User …)")
+
+
+def ssh(v: dict, host) -> list[Batch]:
+    glob = {k: val for k, val in v.items() if k != "match" and val is not None}
+    matches = v.get("match") or []
+    _guard_ssh(glob, "ssh")
+    for i, m in enumerate(matches):
+        _guard_ssh(m.get("settings") or {}, f"ssh.match[{i}]", criteria=str(m["criteria"]))
+    if not glob and not matches:
+        return []
+    for p in glob.get("port") or []:
+        if not 1 <= p <= 65535:
+            raise BastetError(f"ssh.port: {p} isn't a port (1–65535)")
+    body = ["# Managed by Bastet (ssh role)", *_sshd_block(glob, "ssh")]
+    for i, m in enumerate(matches):
+        body.append(f"Match {m['criteria']}")
+        body += [f"    {line}" for line in _sshd_block(m.get("settings") or {}, f"ssh.match[{i}]")]
+    if matches:
+        body.append("Match all")  # the drop-in is included at the top: end our Matches so sshd_config stays global
+    unit = "ssh.service" if host.debian_like else "sshd.service"
+    return [Batch("ssh", [
+        Command(name="sshd_config includes drop-ins",
+                unless="grep -qE '^[[:space:]]*Include[[:space:]]+/etc/ssh/sshd_config\\.d/\\*\\.conf' /etc/ssh/sshd_config",
+                run=f"sed -i '1i {SSHD_INCLUDE}' /etc/ssh/sshd_config"),
+        File(path=SSHD_DROP_IN, content="\n".join(body) + "\n", mode="0644", validate=f"{SSHD} -t -f %s",
+             on_change=(reload(unit),)),
+    ])]
