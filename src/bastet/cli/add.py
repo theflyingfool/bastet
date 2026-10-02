@@ -159,38 +159,91 @@ def add_hardware(
         refresh_generated(ctx)
 
 
+def _choose_many(label: str, options: list[tuple[str, str]]) -> list[str]:
+    """Numbered list; several picks by number or name, comma- or space-separated."""
+    typer.echo(f"{label}:")
+    for i, (value, description) in enumerate(options, 1):
+        typer.echo(f"  {i}. {value}" + (f"  - {description}" if description else ""))
+    values = {v.lower(): v for v, _ in options}
+    while True:
+        answer = typer.prompt("Choice (one or more, e.g. 1,3)").strip()
+        picked, bad = [], []
+        for word in answer.replace(",", " ").split():
+            if word.isdigit() and 1 <= int(word) <= len(options):
+                picked.append(options[int(word) - 1][0])
+            elif word.lower() in values:
+                picked.append(values[word.lower()])
+            else:
+                bad.append(word)
+        if picked and not bad:
+            return list(dict.fromkeys(picked))
+        typer.echo(f"  '{' '.join(bad) or answer}' isn't one of the choices.")
+
+
+def _role_targets(inv) -> list[tuple[str, str]]:
+    out = [("lab", "every host")]
+    for g in inv.of_kind("group"):
+        rule = g.data.get("match") if isinstance(g.data.get("match"), dict) else {}
+        out.append((g.name, f"every {rule['os']} host" if rule.get("os") else "group"))
+    out += [(h.name, str(h.data.get("type") or "host")) for h in inv.of_kind("host")]
+    return out
+
+
 @add_app.command("role")
 @handles_errors
 def add_role(
-    role: str = typer.Argument(..., help="Role name (see _bastet/roles/)."),
-    target: str = typer.Argument(..., help="A host, a group, or `lab` for every host."),
+    roles: list[str] | None = typer.Argument(None, help="Roles to add (offered as a list if not given)."),
+    to: str | None = typer.Option(None, "--to", help="A host, a group, or `lab` for every host (asked if not given)."),
     yes: bool = typer.Option(False, "--yes", "-y", help="Don't ask; write and commit."),
 ) -> None:
-    """Write a role file for a host, a group or the whole lab, after showing the diff."""
+    """Write role files for a host, a group or the whole lab, after showing the diff."""
     ctx = load_context()
-    roles = load_roles()
-    if role not in roles:
-        raise BastetError(f"unknown role {role!r} (roles: {', '.join(sorted(roles))})")
-    if target == "lab":
+    known = load_roles()
+    names = list(roles or [])
+    targets = {name.lower() for name, _ in _role_targets(ctx.inventory)}
+    if to is None and len(names) >= 2 and names[-1].lower() in targets:
+        if names[-1] in known:
+            typer.secho(f"'{names[-1]}' is both a role and a target; treating it as a role (use --to for the target)",
+                        fg="yellow")
+        else:
+            to = names.pop()  # the old form: bastet add role <role> <target>
+    if yes and (not names or to is None):
+        raise BastetError("name the roles and --to when using -y (e.g. bastet add role base --to lab -y)")
+    if not names:
+        names = _choose_many("Roles", [(n, r.description.split(". ")[0].rstrip(".")) for n, r in sorted(known.items())])
+    for role in names:
+        if role not in known:
+            raise BastetError(f"unknown role {role!r} (roles: {', '.join(sorted(known))})")
+    if to is None:
+        to = _choose("Add to", _role_targets(ctx.inventory))
+    if to == "lab":
         doc = ctx.inventory.lab
         if doc is None:
             raise BastetError("no lab file yet; run `bastet init`")
         folder = ctx.root / "_roles" / "lab"
     else:
-        doc = ctx.inventory.get(target)
+        doc = ctx.inventory.get(to)
         if doc is None or doc.data.get("bastet") not in ("host", "group"):
-            raise BastetError(f"no host or group named '{target}'")
+            raise BastetError(f"no host or group named '{to}'")
         folder = ctx.root / "_roles" / ("hosts" if doc.data["bastet"] == "host" else "groups") / doc.name
-    path = folder / f"{role}.md"
-    if path.exists():
-        raise BastetError("already exists; edit it in Obsidian", file=path)
-    body = (f"# {role} for {doc.name}\n\nValues go in this note's properties (the frontmatter at the top), "
-            f"not in the page text below.\n\n## Examples\n\n![[{role} role#Examples]]\n\n"
-            f"## Options\n\n![[{role} role#Options]]\n")
-    data = {"bastet": "role", "role": role, "applies_to": make_link(doc.name)}
-    changes = [Change(path, None, new_document(data, body))]
+    changes, added = [], []
+    for role in names:
+        path = folder / f"{role}.md"
+        if path.exists():
+            typer.secho(f"{doc.name} already has the {role} role ({path.relative_to(ctx.root)}); edit it in Obsidian",
+                        fg="yellow")
+            continue
+        body = (f"# {role} for {doc.name}\n\nValues go in this note's properties (the frontmatter at the top), "
+                f"not in the page text below.\n\n## Examples\n\n![[{role} role#Examples]]\n\n"
+                f"## Options\n\n![[{role} role#Options]]\n")
+        data = {"bastet": "role", "role": role, "applies_to": make_link(doc.name)}
+        changes.append(Change(path, None, new_document(data, body)))
+        added.append(role)
+    if not changes:
+        raise BastetError(f"{doc.name} already has {'that role' if len(names) == 1 else 'those roles'}; "
+                          "it already exists, so edit it in Obsidian")
     if doc.data.get("bastet") in ("host", "group") and not has_roles_section(doc.body):
         text = doc.path.read_text(encoding="utf-8")
         changes.append(Change(doc.path, text, text.rstrip("\n") + "\n" + ROLES_SECTION))
-    if write_with_confirmation(ctx, changes, f"add role {role} to {doc.name}", yes):
+    if write_with_confirmation(ctx, changes, f"add role {', '.join(added)} to {doc.name}", yes):
         refresh_generated(ctx)
