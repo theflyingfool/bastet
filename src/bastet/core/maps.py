@@ -8,7 +8,7 @@ from bastet.core.cabling import _owner
 from bastet.core.inventory import Inventory, _bare_ip
 from bastet.core.links import link_target
 from bastet.core.networks import lab_networks, network_of
-from bastet.core.render import _address, _label
+from bastet.core.render import _address, _label, _where
 
 
 def _edges(inv: Inventory) -> list[tuple[str, str, str]]:
@@ -46,6 +46,7 @@ def cabling_map(inv: Inventory, around: str | None = None) -> str:
 
 
 def networks_map(inv: Inventory) -> str:
+    """One box per network listing its hosts (narrow enough to embed); planned networks with no hosts share a box."""
     nets = lab_networks(inv)
     if not nets:
         return ""
@@ -57,17 +58,26 @@ def networks_map(inv: Inventory) -> str:
             continue
         net = network_of(nets, bare)
         (groups[net.name] if net else elsewhere).append(h)
-    lines, n = ["```mermaid", "flowchart TB"], 0
-    for i, (name, members) in enumerate([*groups.items(), ("Elsewhere", elsewhere)]):
-        if name == "Elsewhere" and not members:
-            continue
-        net = nets.get(name) if name in groups else None
-        title = name if net is None else " · ".join(x for x in (name, str(net.cidr), f"VLAN {net.vlan}" if net.vlan else "") if x)
-        lines.append(f'  subgraph net{i}["{_label(title)}"]')
-        lines.append("    direction LR")
-        for h in sorted(members, key=lambda d: (ipaddress.ip_address(_bare_ip(d.data["ip"])).version, ipaddress.ip_address(_bare_ip(d.data["ip"])))):
-            lines.append(f'    h{n}["{_label(h.name)}<br/><small>{_label(_address(h) or "")}</small>"]')
-            n += 1
-        lines.append("  end")
+
+    def title(net) -> str:
+        return " · ".join(x for x in (net.name, str(net.cidr), f"VLAN {net.vlan}" if net.vlan else "") if x)
+
+    def members(hosts) -> str:
+        ordered = sorted(hosts, key=lambda d: (ipaddress.ip_address(_bare_ip(d.data["ip"])).version,
+                                               ipaddress.ip_address(_bare_ip(d.data["ip"]))))
+        return "<br/>".join(f"{_label(h.name)} <small>{_label(_address(h) or '')}</small>" for h in ordered)
+
+    boxes = [(f"<b>{_label(title(nets[name]))}</b><br/>{members(hs)}") for name, hs in groups.items() if hs]
+    if elsewhere:
+        boxes.append(f"<b>Elsewhere</b><br/>{members(elsewhere)}")
+    planned = [nets[name] for name, hs in groups.items() if not hs]
+    if planned:
+        boxes.append("<b>Planned (no hosts yet)</b><br/>" + "<br/>".join(_label(title(n)) for n in planned))
+    lines = ["```mermaid", "flowchart LR"] + [f'  n{i}["{text}"]' for i, text in enumerate(boxes)]
     lines.append("```")
     return "\n".join(lines) + "\n"
+
+
+def where_map(inv: Inventory) -> str:
+    """Locations, the machines in them and what runs on each node."""
+    return _where(inv) if inv.of_kind("host") else ""

@@ -325,12 +325,13 @@ def dashboard(
         for name in sorted(flagged):
             for w in flagged[name]:
                 out.append(f"| #warn | [[{name}]] | {_cell(w)} |\n")
-    out.append("\n## What's where\n\n" + _where(inv))
+    out.append(_hosts_table(inv, hosts))
+    out.append(_hardware_tables(hardware))
     from bastet.core.maps import cabling_map, networks_map  # lazy: maps builds on render
 
-    maps = [f"[[{t}]]" for t, f in (("Cabling", cabling_map), ("Networks", networks_map)) if f(inv)]
-    if maps:
-        out.append("\nMaps: " + " · ".join(maps) + "\n")
+    shown = [f"![[{MAPS_DIR}/{t}]]" for t, f in (("Cabling", cabling_map), ("Networks", networks_map)) if f(inv)]
+    out.append("\n## Maps\n\n" + "".join(f"{m}\n\n" for m in shown)
+               + f"Also: [[{MAPS_DIR}/Where|what runs where]] (locations, nodes and guests)\n")
 
     lab = inv.lab
     domains = (lab.data.get("domains") or {}) if lab else {}
@@ -339,23 +340,62 @@ def dashboard(
         for scope, domain in domains.items():
             out.append(f"| {_cell(scope)} | {_cell(domain)} |\n")
 
-    notable = [h for h in hardware if h.data.get("status") not in (None, "in-service")
-               or h.data.get("oob_address") or h.data.get("warranty_until")]
-    if notable:
-        out.append("\n## Hardware\n\n| | Item | Where | Notes |\n|---|---|---|---|\n")
-        for h in notable:
-            status = str(h.data.get("status") or "in-service")
-            badge = {"spare": "#spare", "failed": "#down", "in-service": "#ok"}.get(status, "#info")
-            where = link_target(h.data.get("installed_in")) or link_target(h.data.get("location"))
-            notes = " · ".join(str(x) for x in (
-                f"OOB {h.data['oob_address']}" if h.data.get("oob_address") else "",
-                f"warranty to {h.data['warranty_until']}" if h.data.get("warranty_until") else "",
-                h.data.get("size") or "",
-            ) if x)
-            out.append(f"| {badge} | [[{h.name}]] | {f'[[{where}]]' if where else '—'} | {_cell(notes)} |\n")
     if recent:
         out.append("\n## Recent changes\n\n" + "".join(f"- {r}\n" for r in recent))
     return _note({}, "".join(out))
+
+
+def _hosts_table(inv: Inventory, hosts: list[Document]) -> str:
+    if not hosts:
+        return ""
+    rows = ["\n## Hosts\n\n| Host | Type | OS | Address | Where |\n|---|---|---|---|---|\n"]
+    for h in hosts:
+        parent, loc = link_target(h.data.get("runs_on")), link_target(h.data.get("location"))
+        where = f"on [[{parent}]]" if parent else f"[[{loc}]]" if loc else "—"
+        rows.append(f"| [[{h.name}]] | {_cell(h.data.get('type') or '?')} | {_cell(h.data.get('os') or '')} | "
+                    f"{_cell(_address(h) or '')} | {where} |\n")
+    return "".join(rows)
+
+
+DEVICE_CATEGORIES = MACHINE_CATEGORIES | {"gateway", "switch", "ap", "network"}  # whole physical boxes
+
+
+def _make_model(h: Document) -> str:
+    make, model = h.data.get("make"), h.data.get("model")
+    if make and model and str(model).lower().startswith(str(make).lower()):
+        return str(model)
+    return " ".join(str(v) for v in (make, model) if v)
+
+
+def _hardware_row(h: Document, *, badge: bool) -> str:
+    status = str(h.data.get("status") or "in-service")
+    mark = {"spare": "#spare", "failed": "#down", "in-service": "#ok"}.get(status, "#info")
+    where = link_target(h.data.get("installed_in")) or link_target(h.data.get("location"))
+    notes = " · ".join(str(x) for x in (
+        _make_model(h) if h.data.get("category") in DEVICE_CATEGORIES else "",
+        f"OOB {h.data['oob_address']}" if h.data.get("oob_address") else "",
+        f"warranty to {h.data['warranty_until']}" if h.data.get("warranty_until") else "",
+        h.data.get("size") or "",
+    ) if x)
+    cells = [mark] if badge else []
+    cells += [f"[[{h.name}]]", _cell(h.data.get("category") or ""), f"[[{where}]]" if where else "—", _cell(notes)]
+    return "| " + " | ".join(cells) + " |\n"
+
+
+def _hardware_tables(hardware: list[Document]) -> str:
+    """Every machine, plus other hardware worth seeing (failed, retired, out-of-band, warranty); spares separately."""
+    spares = [h for h in hardware if h.data.get("status") == "spare"]
+    listed = [h for h in hardware if h.data.get("status") != "spare" and (
+        h.data.get("category") in DEVICE_CATEGORIES or h.data.get("status") not in (None, "in-service")
+        or h.data.get("oob_address") or h.data.get("warranty_until"))]
+    out = ""
+    if listed:
+        out += "\n## Hardware\n\n| | Item | Category | Where | Notes |\n|---|---|---|---|---|\n"
+        out += "".join(_hardware_row(h, badge=True) for h in listed)
+    if spares:
+        out += "\n## Spares\n\n| Item | Category | Where | Notes |\n|---|---|---|---|\n"
+        out += "".join(_hardware_row(h, badge=False) for h in spares)
+    return out
 
 
 def _recent(repo: GitRepo) -> list[str]:
@@ -438,10 +478,11 @@ def generated_changes(
             changes.append(Change(path, text, None))
     want(root / DASHBOARD_PATH, dashboard(inv, types, by_host, _recent(repo), drift_by_host))
     want(root / GUIDE_PATH, guide())
-    from bastet.core.maps import cabling_map, networks_map  # lazy: maps builds on render
+    from bastet.core.maps import cabling_map, networks_map, where_map  # lazy: maps builds on render
 
     for title, text, what in (("Cabling", cabling_map(inv), "cables, from `links:`"),
-                              ("Networks", networks_map(inv), "networks, from the lab file and host addresses")):
+                              ("Networks", networks_map(inv), "networks, from the lab file and host addresses"),
+                              ("Where", where_map(inv), "hosts' locations and what runs on what")):
         path = root / MAPS_DIR / f"{title}.md"
         if text:
             want(path, _note({}, f"Generated from your {what}; edit those, not this page.\n\n{text}"))

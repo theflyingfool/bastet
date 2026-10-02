@@ -48,3 +48,16 @@ def test_networks_map_mixed_ip_versions(tmp_path):
     (tmp_path / "hosts" / "pub.md").write_text("---\nbastet: host\ntype: server\nip: 203.0.113.10\n---\n# pub\n")
     text = networks_map(load_inventory(tmp_path, TYPES))
     assert "2001:db8::5" in text and "203.0.113.10" in text
+
+
+def test_networks_map_is_one_box_per_network_and_planned_ones_together(tmp_path):
+    lab(tmp_path)
+    (tmp_path / "Homelab.md").write_text(
+        "---\nbastet: lab\nnetworks:\n  lan: {cidr: 10.10.0.0/24}\n  servers: {cidr: 10.10.20.0/24, vlan: 20}\n"
+        "  iot: {cidr: 10.10.40.0/24, vlan: 40}\n  guest: {cidr: 10.10.60.0/24, vlan: 60}\n---\n# L\n")
+    text = networks_map(load_inventory(tmp_path, TYPES))
+    boxes = [line for line in text.splitlines() if line.strip().startswith("n") and '["' in line]
+    assert len(boxes) == 4  # lan, servers, Elsewhere, and one "planned" box for iot + guest
+    planned = next(b for b in boxes if "Planned" in b)
+    assert "iot · 10.10.40.0/24 · VLAN 40" in planned and "guest" in planned
+    assert "subgraph" not in text

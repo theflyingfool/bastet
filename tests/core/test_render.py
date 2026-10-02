@@ -100,8 +100,9 @@ def test_dashboard(repo):
     text = dashboard(i, TYPES, {"pve1": ["ram mismatch"]}, ["`2026-10-01` gather: pve1"])
     assert "[!stat] Hosts" in text and "**3**" in text
     assert "## Needs attention" in text and "ram mismatch" in text
-    assert "```mermaid" in text and '["📍 Closet"]' in text
-    assert any(line.strip().endswith("--> h0") or "-->" in line for line in text.splitlines())
+    assert "```mermaid" not in text  # maps are embedded notes now, not inline graphs
+    assert "## Hosts" in text and "| [[git1]] | lxc | Debian 13 | 10.0.20.21 | on [[pve1]] |" in text
+    assert "| [[pve1]] | proxmox-node |" in text and "Closet" in text
     assert "example.com" in text and "Spare WD" in text and "10.0.10.9" in text
     assert "gather: pve1" in text
 
@@ -134,9 +135,10 @@ def test_guide_generated_and_linked(repo):
 
 
 def test_mermaid_ids_safe_and_distinct(repo):
+    from bastet.core.maps import where_map
     for name in ("end", "web-1", "web.1"):
         (repo.root / "hosts" / f"{name}.md").write_text(f"---\nbastet: host\ntype: unknown\n---\n# {name}\n")
-    text = dashboard(inv(repo), TYPES, {}, [])
+    text = where_map(inv(repo))
     mermaid = text[text.index("```mermaid"):]
     ids = [line.split("[")[0].strip() for line in mermaid.splitlines() if '["' in line and "subgraph" not in line]
     assert len(ids) == len(set(ids)) and "end" not in ids
@@ -240,3 +242,30 @@ def test_generated_group_removed_when_user_note_takes_the_name(repo):
     (repo.root / "hosts" / "debian.md").write_text("---\nbastet: host\ntype: unknown\n---\n# debian\n")
     gone = [c.path for c in generated_changes(inv(repo), TYPES, repo) if c.after is None]
     assert gen in gone
+
+
+def test_dashboard_lists_every_machine_spares_and_embeds_maps(repo):
+    (repo.root / "hardware" / "HP Spectre 5CD.md").write_text(
+        '---\nbastet: hardware\ncategory: laptop\nmake: HP\nmodel: Spectre x360\nstatus: in-service\ninstalled_in: "[[vps1]]"\n---\n# x\n')
+    (repo.root / "hosts" / "nas.md").write_text(
+        '---\nbastet: host\ntype: server\nlinks:\n  - {port: eno1, to: "[[pve1]]", to_port: "3"}\n---\n# nas\n')
+    text = dashboard(inv(repo), TYPES, {}, [])
+    hardware = text[text.index("## Hardware"):]
+    assert "[[HP Spectre 5CD]]" in hardware and "laptop" in hardware
+    assert "## Spares" in text and "[[Spare WD]]" in text[text.index("## Spares"):]
+    assert "![[_bastet/maps/Cabling]]" in text and "[[_bastet/maps/Where|" in text
+
+
+def test_where_map_is_generated(repo):
+    paths = {c.path.relative_to(repo.root).as_posix() for c in generated_changes(inv(repo), TYPES, repo)}
+    assert "_bastet/maps/Where.md" in paths
+
+
+def test_hardware_table_includes_network_devices_without_repeating_the_make(repo):
+    (repo.root / "hardware" / "Ubiquiti Gateway Fiber X.md").write_text(
+        '---\nbastet: hardware\ncategory: gateway\nmake: Ubiquiti\nmodel: Gateway Fiber\nstatus: in-service\n---\n# g\n')
+    (repo.root / "hardware" / "HP Spectre 5CD.md").write_text(
+        '---\nbastet: hardware\ncategory: laptop\nmake: HP\nmodel: HP Spectre x360\nstatus: in-service\n---\n# x\n')
+    hardware = dashboard(inv(repo), TYPES, {}, [])
+    hardware = hardware[hardware.index("## Hardware"):]
+    assert "[[Ubiquiti Gateway Fiber X]]" in hardware and "| HP Spectre x360 |" in hardware
