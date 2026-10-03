@@ -8,7 +8,7 @@ from bastet.core.frontmatter import Document, parse_document
 from bastet.core.hosttypes import HostType
 from bastet.core.links import link_target
 
-KINDS = ("lab", "host", "hardware", "group", "location", "role")
+KINDS = ("lab", "host", "hardware", "group", "location", "role", "secret")
 SKIP_DIRS = {".git", ".obsidian", ".trash", ".bastet"}
 LINK_FIELDS = {
     "host": ("runs_on", "location", "groups"),
@@ -33,6 +33,7 @@ class Inventory:
     objects: dict[str, Document] = field(default_factory=dict)
     problems: list[Problem] = field(default_factory=list)
     role_files: list[Document] = field(default_factory=list)
+    secrets: list[Document] = field(default_factory=list)
 
     def get(self, name: str) -> Document | None:
         return self.objects.get(name.lower())
@@ -145,6 +146,9 @@ def load_inventory(root: Path, types: dict[str, HostType]) -> Inventory:
             continue
         if kind == "role":
             inv.role_files.append(doc)
+            continue
+        if kind == "secret":
+            inv.secrets.append(doc)
             continue
         existing = inv.objects.get(doc.name.lower())
         if existing is not None:

@@ -136,3 +136,12 @@ def test_user_note_wins_over_generated_group(tmp_path):
     inv = load_inventory(tmp_path, load_host_types())
     assert inv.get("debian").data["bastet"] == "host"
     assert not any("duplicate" in str(p) for p in inv.problems)
+
+
+def test_secret_notes_are_collected_separately(tmp_path):
+    put(tmp_path, "_secrets/git1/gitea/admin_password.md", "---\nbastet: secret\n---\n")
+    put(tmp_path, "_secrets/db1/postgres/admin_password.md", "---\nbastet: secret\n---\n")
+    inv = load_inventory(tmp_path, TYPES)
+    assert inv.problems == []
+    assert len(inv.secrets) == 2
+    assert "admin_password" not in inv.objects
