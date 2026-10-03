@@ -15,7 +15,7 @@ NOTES = {
     "PubkeyAuthentication": "key logins (Bastet needs these)",
     "AllowUsers": "only these users may log in (must include bastet)",
     "AllowGroups": "only these groups may log in (must include bastet, or list bastet in allow_users)",
-    "Port": "ports to listen on; Bastet connects on the first",
+    "Port": "ports to listen on; Bastet tries them in order, then 22",
     "TrustedUserCAKeys": "CA keys trusted to sign user certificates",
     "HostCertificate": "host certificates signed by your CA",
     "AuthorizedPrincipalsFile": "principals allowed per user (with certificates)",
@@ -44,9 +44,9 @@ EXAMPLES = '''examples:
       macs: [hmac-sha2-512-etm@openssh.com, hmac-sha2-256-etm@openssh.com]
       host_key_algorithms: [ssh-ed25519, sk-ssh-ed25519@openssh.com, rsa-sha2-512]
       log_level: VERBOSE
-  - title: Move to port 2222 safely (both first, then drop 22 once it works)
+  - title: Move to port 2222 safely (apply this, then change it to [2222] once 2222 works)
     yaml: |
-      port: [2222, 22]
+      port: [22, 2222]
   - title: Allow a forwarding user only from the LAN
     yaml: |
       match:

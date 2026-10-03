@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import fnmatch
 import re
 
 from bastet.core.errors import BastetError
@@ -229,6 +230,12 @@ def _names(value) -> list[str]:
     return [str(v) for v in (value if isinstance(value, list) else [value])]
 
 
+def _matches_bastet(pattern: str) -> bool:
+    """An AllowUsers/DenyUsers-style entry (user or user@host, with * and ?) that can match the bastet user."""
+    user = pattern.lstrip("!").split("@", 1)[0]
+    return not pattern.startswith("!") and fnmatch.fnmatchcase(BASTET, user)
+
+
 def _excludes_bastet(criteria: str) -> bool:
     """A Match whose User criterion lists users, none of them bastet (and no wildcard), can't touch Bastet's login."""
     words = criteria.split()
@@ -239,7 +246,23 @@ def _excludes_bastet(criteria: str) -> bool:
     return False
 
 
-def _guard_ssh(settings: dict, where: str, *, criteria: str | None = None) -> None:
+def _publickey_alternative(methods: str) -> bool:
+    """AuthenticationMethods: space-separated alternatives, each a comma list that must ALL succeed."""
+    if methods.strip() == "any":
+        return True
+    return any(all(part.split(":")[0] == "publickey" for part in alt.split(",")) for alt in methods.split())
+
+
+def _keeps_ed25519(algorithms: list[str]) -> bool:
+    text = ",".join(algorithms)
+    if text.startswith(("+", "^")):
+        return True  # adds to (or reorders) the default list, which has ssh-ed25519
+    if text.startswith("-"):
+        return not any(fnmatch.fnmatchcase("ssh-ed25519", a) for a in text[1:].split(","))
+    return any(fnmatch.fnmatchcase("ssh-ed25519", a) for a in text.split(","))
+
+
+def _guard_ssh(settings: dict, where: str, *, criteria: str | None = None, host=None, ports=(22,)) -> None:
     def stop(why: str):
         raise BastetError(f"{where}: {why} would lock Bastet out of this host")
 
@@ -248,33 +271,90 @@ def _guard_ssh(settings: dict, where: str, *, criteria: str | None = None) -> No
     if settings.get("pubkey_authentication") is False:
         stop("pubkey_authentication: false")
     methods = settings.get("authentication_methods")
-    if methods is not None and str(methods) != "any" and "publickey" not in str(methods):
-        stop("authentication_methods without publickey")
+    if methods is not None and not _publickey_alternative(str(methods)):
+        stop(f"authentication_methods {methods!r} (Bastet logs in with a key only; one alternative must be publickey alone)")
     allow_users = settings.get("allow_users")
-    if allow_users is not None and not any(u == BASTET or u.startswith(f"{BASTET}@") or u == "*" for u in _names(allow_users)):
+    if allow_users is not None and not any(_matches_bastet(u) for u in _names(allow_users)):
         stop("allow_users without bastet")
     allow_groups = settings.get("allow_groups")
-    if allow_groups is not None and BASTET not in _names(allow_groups) and BASTET not in _names(allow_users or []):
-        stop("allow_groups without the bastet group (or bastet in allow_users)")
-    for knob in ("deny_users", "deny_groups"):
-        if settings.get(knob) is not None and BASTET in _names(settings[knob]):
-            stop(f"{knob} with bastet")
+    if allow_groups is not None and not any(fnmatch.fnmatchcase(BASTET, g) for g in _names(allow_groups)):
+        stop("allow_groups without the bastet group (sshd checks allow_users and allow_groups separately)")
+    if settings.get("deny_users") is not None and any(_matches_bastet(u) for u in _names(settings["deny_users"])):
+        stop("deny_users matching bastet")
+    if settings.get("deny_groups") is not None and any(
+            not g.startswith("!") and fnmatch.fnmatchcase(BASTET, g) for g in _names(settings["deny_groups"])):
+        stop("deny_groups matching the bastet group")
+    if settings.get("refuse_connection") is True:
+        stop("refuse_connection: true")
+    if settings.get("max_sessions") is not None and settings["max_sessions"] < 2:
+        stop("max_sessions under 2 (Bastet reuses one connection for several sessions)")
+    keys = settings.get("authorized_keys_file")
+    if keys is not None and not any(str(k).endswith(".ssh/authorized_keys") for k in _names(keys)):
+        stop("authorized_keys_file without .ssh/authorized_keys (where Bastet's key is)")
+    algorithms = settings.get("pubkey_accepted_algorithms")
+    if algorithms is not None and not _keeps_ed25519(_names(algorithms)):
+        stop("pubkey_accepted_algorithms without ssh-ed25519 (Bastet's key type)")
     for knob in ("force_command", "chroot_directory"):
-        if settings.get(knob) is not None:
+        if settings.get(knob) is not None and criteria is None:
             stop(f"{knob} for every user (use a match with User …)")
+        if settings.get(knob) is not None:
+            stop(f"{knob} in a Match that can reach bastet")
+    listen = settings.get("listen_address")
+    if listen is not None and criteria is None:
+        reachable = {str(host.data.get(k)).split("/")[0] for k in ("ip", "address") if host is not None and host.data.get(k)}
+        ok = False
+        for entry in _names(listen):
+            m = re.match(r"^\[?([^\]]+?)\]?(?::(\d+))?(?:\s+rdomain\s+\S+)?$", entry.strip())
+            addr, port = (m.group(1), m.group(2)) if m else (entry, None)
+            if port is not None and int(port) not in ports:
+                stop(f"listen_address {entry!r} on a port that isn't in port")
+            if addr in ("0.0.0.0", "::", "*") or addr in reachable:
+                ok = True
+        if not ok:
+            stop("listen_address without a wildcard (0.0.0.0, ::) or the host's own address")
+
+
+def _typed_settings(settings: dict, where: str) -> dict:
+    """Match settings get the same type checks as the global options (the role contract only sees `any`)."""
+    from bastet.roles.contract import check_value, load_roles  # lazy: contract loads every role.yml
+
+    options = load_roles()["ssh"].options
+    out = {}
+    for knob, value in settings.items():
+        if knob not in SSHD_KEYWORDS:
+            raise BastetError(f"{where}: unknown setting {knob!r} (use the ssh role's option names, e.g. x11_forwarding)")
+        out[knob] = check_value(options[knob], value, f"{where}.{knob}")
+    return out
+
+
+def _one_line(value, where: str) -> None:
+    for v in _names(value):
+        if "\n" in v or "\r" in v:
+            raise BastetError(f"{where}: values must be one line")
 
 
 def ssh(v: dict, host) -> list[Batch]:
     glob = {k: val for k, val in v.items() if k != "match" and val is not None}
-    matches = v.get("match") or []
-    _guard_ssh(glob, "ssh")
-    for i, m in enumerate(matches):
-        _guard_ssh(m.get("settings") or {}, f"ssh.match[{i}]", criteria=str(m["criteria"]))
-    if not glob and not matches:
-        return []
+    if glob.get("port"):
+        glob["port"] = list(dict.fromkeys(glob["port"]))
     for p in glob.get("port") or []:
         if not 1 <= p <= 65535:
             raise BastetError(f"ssh.port: {p} isn't a port (1–65535)")
+    for knob, value in glob.items():
+        _one_line(value, f"ssh.{knob}")
+    ports = tuple(glob.get("port") or (22,))
+    _guard_ssh(glob, "ssh", host=host, ports=ports)
+    matches = []
+    for i, m in enumerate(v.get("match") or []):
+        where = f"ssh.match[{i}]"
+        _one_line(m["criteria"], f"{where}.criteria")
+        settings = _typed_settings(m.get("settings") or {}, where)
+        for knob, value in settings.items():
+            _one_line(value, f"{where}.{knob}")
+        _guard_ssh(settings, where, criteria=str(m["criteria"]), host=host, ports=ports)
+        matches.append({"criteria": m["criteria"], "settings": settings})
+    if not glob and not matches:
+        return []
     body = ["# Managed by Bastet (ssh role)", *_sshd_block(glob, "ssh")]
     for i, m in enumerate(matches):
         body.append(f"Match {m['criteria']}")
@@ -284,10 +364,11 @@ def ssh(v: dict, host) -> list[Batch]:
     unit = "ssh.service" if host.debian_like else "sshd.service"
     return [Batch("ssh", [
         Command(name="sshd_config includes drop-ins",
-                unless="grep -qE '^[[:space:]]*Include[[:space:]]+/etc/ssh/sshd_config\\.d/\\*\\.conf' /etc/ssh/sshd_config",
-                run=f"sed -i '1i {SSHD_INCLUDE}' /etc/ssh/sshd_config"),
+                unless="grep -qiE '^[[:space:]]*include[[:space:]]+(/etc/ssh/)?sshd_config\\.d/' /etc/ssh/sshd_config",
+                run=(f"{{ echo '{SSHD_INCLUDE}'; cat /etc/ssh/sshd_config; }} > /etc/ssh/sshd_config.bastet && "
+                     "cat /etc/ssh/sshd_config.bastet > /etc/ssh/sshd_config && rm -f /etc/ssh/sshd_config.bastet")),
         File(path=SSHD_DROP_IN, content="\n".join(body) + "\n", mode="0644", validate=f"{SSHD} -t -f %s",
-             on_change=(reload(unit),)),
+             on_change=(Trigger(f"reload {unit}", f"{SSHD} -t && systemctl reload-or-restart {unit}"),)),
     ])]
 
 
@@ -306,7 +387,9 @@ FAIL2BAN_SANDBOX = """[Service]
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
-ReadWritePaths=/var/lib/fail2ban /run/fail2ban /var/log
+RuntimeDirectory=fail2ban
+RuntimeDirectoryPreserve=yes
+ReadWritePaths=/var/lib/fail2ban /var/log
 ProtectHome=read-only
 ProtectKernelTunables=yes
 ProtectControlGroups=yes
@@ -337,7 +420,10 @@ def _fail2ban(v: dict, host) -> list:
              f"bantime = {v['fail2ban_bantime']}", f"findtime = {v['fail2ban_findtime']}",
              f"maxretry = {v['fail2ban_maxretry']}", f"ignoreip = {' '.join(v.get('fail2ban_ignoreip') or [])}",
              f"backend = {v['fail2ban_backend']}", "", "[sshd]", "enabled = true", f"port = {ports}"]
-    for name, settings in (v.get("fail2ban_jails") or {}).items():
+    jails = dict(v.get("fail2ban_jails") or {})
+    lines += [f"{k} = {_ini_value(val)}" for k, val in (jails.pop("sshd", None) or {}).items()
+              if k not in ("enabled", "port")]  # settings for the built-in sshd jail join its section
+    for name, settings in jails.items():
         if not _KEY.match(name):
             raise BastetError(f"harden.fail2ban_jails: {name!r} isn't a jail name")
         lines += ["", f"[{name}]"] + [f"{k} = {_ini_value(val)}" for k, val in (settings or {}).items()]
@@ -363,7 +449,7 @@ def harden(v: dict, host) -> list[Batch]:
     if v.get("vulnerable_packages", True):
         if host.os_id in ARCH_LIKE:
             res += [Package(name="arch-audit"), VulnerablePackages(tool="arch-audit")]
-        elif host.debian_like:
+        elif host.os_id in ("debian", "raspbian"):  # Proxmox reports Debian; debsecan only knows Debian suites
             res += [Package(name="debsecan"), VulnerablePackages(tool="debsecan")]
         else:
             raise BastetError(f"harden.vulnerable_packages: no vulnerability scanner known for "
@@ -391,7 +477,7 @@ def harden(v: dict, host) -> list[Batch]:
     if sysctl:
         body = "# Managed by Bastet (harden role)\n" + "".join(f"{k} = {val}\n" for k, val in sysctl.items())
         res.append(File(path=SYSCTL_FILE, content=body, mode="0644",
-                        on_change=(Trigger("apply sysctl", f"sysctl -q -p {SYSCTL_FILE}"),)))
+                        on_change=(Trigger("apply sysctl", f"sysctl -q -e -p {SYSCTL_FILE}"),)))
     modules = v.get("block_modules") or []
     if modules:
         if host.container:
@@ -401,5 +487,8 @@ def harden(v: dict, host) -> list[Batch]:
         res.append(File(path="/etc/modprobe.d/bastet-blocklist.conf", mode="0644",
                         content="# Managed by Bastet (harden role)\n" + "".join(f"install {m} /bin/false\nblacklist {m}\n" for m in modules)))
     if v.get("sudo_defaults"):
+        if any(re.match(r"^\s*requiretty\b", d) for d in v["sudo_defaults"]):
+            raise BastetError("harden.sudo_defaults: requiretty would lock Bastet out of root on this host "
+                              "(Bastet runs sudo -n without a terminal)")
         res.append(sudoer("bastet_defaults", defaults=tuple(v["sudo_defaults"])))
     return [Batch("harden", res)] if res else []

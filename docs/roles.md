@@ -397,10 +397,10 @@ host_key_algorithms: [ssh-ed25519, sk-ssh-ed25519@openssh.com, rsa-sha2-512]
 log_level: VERBOSE
 ```
 
-**Move to port 2222 safely (both first, then drop 22 once it works)**
+**Move to port 2222 safely (apply this, then change it to [2222] once 2222 works)**
 
 ```yaml
-port: [2222, 22]
+port: [22, 2222]
 ```
 
 **Allow a forwarding user only from the LAN**
@@ -430,7 +430,7 @@ match:
 | x_auth_location | string |  | XAuthLocation |
 | sshd_session_path | string |  | SshdSessionPath |
 | sshd_auth_path | string |  | SshdAuthPath |
-| port | list of int |  | Port: ports to listen on; Bastet connects on the first |
+| port | list of int |  | Port: ports to listen on; Bastet tries them in order, then 22 |
 | listen_address | list of string |  | ListenAddress |
 | address_family | string |  | AddressFamily |
 | rdomain | string |  | RDomain |

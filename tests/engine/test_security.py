@@ -75,3 +75,25 @@ def test_apparmor_status():
     off = r.current({"apparmor": ok("N\n")})
     assert off["enabled"] is False and r.compare(off) == []
     assert "not enabled" in r.security_section(off)
+
+
+def test_scanner_failure_is_not_none_known():
+    import pytest
+    from bastet.engine.model import Unsupported
+    r = VulnerablePackages(tool="debsecan")
+    with pytest.raises(Unsupported, match="scan failed"):
+        r.current({"tool": ok("yes"), "scan": ok("error: could not fetch https://security-tracker.debian.org\n@@RC 1")})
+    cur = r.current({"tool": ok("yes"), "scan": ok("@@RC 0")})
+    assert cur["packages"] == []
+
+
+def test_exposure_bad_row_doesnt_empty_the_report():
+    cur = ServiceExposure().current({"exposure": ok(
+        '[{"unit":"a.service","exposure":null,"predicate":"?","happy":""},{"unit":"b.service","exposure":"5.5","predicate":"MEDIUM","happy":":-|"}]')})
+    assert cur["units"] == [("b.service", 5.5, "MEDIUM")]
+
+
+def test_apparmor_profiles_unreadable():
+    r = AppArmorStatus()
+    cur = r.current({"apparmor": ok("Y\n")})
+    assert "profiles not readable" in r.security_section(cur)

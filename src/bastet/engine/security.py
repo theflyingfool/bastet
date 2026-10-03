@@ -94,6 +94,7 @@ TOOLS = {
     "arch-audit": ("arch-audit", "arch-audit --format '%n|%s|%c|%v'"),
     "debsecan": ("debsecan", "debsecan --suite \"$(. /etc/os-release; echo \"$VERSION_CODENAME\")\" --only-fixed --format summary"),
 }
+_RC = re.compile(r"^@@RC (\d+)$", re.M)
 _DEBSECAN = re.compile(r"^(\S+)\s+(\S+)\s+\(([^)]*)\)")
 
 
@@ -121,13 +122,19 @@ class VulnerablePackages(_Report):
 
     def reads(self):
         binary, command = TOOLS[self.tool]
-        return (Read("tool", f"command -v {binary} >/dev/null && echo yes; true"), Read("scan", f"{command} 2>/dev/null; true"))
+        return (Read("tool", f"command -v {binary} >/dev/null && echo yes; true"),
+                Read("scan", f"{command} 2>&1; echo \"@@RC $?\""))
 
     def current(self, results):
         if results["tool"].output.strip() != "yes":
             raise Unsupported(f"{self.tool} isn't installed yet (apply installs it)")
+        text = results["scan"].output
+        rc = _RC.findall(text)
+        if rc and rc[-1] != "0":
+            lines = [line for line in _RC.sub("", text).splitlines() if line.strip()]
+            raise Unsupported(f"{self.tool} scan failed: {lines[-1].strip() if lines else 'exit ' + rc[-1]}")
         packages = []
-        for line in results["scan"].output.splitlines():
+        for line in _RC.sub("", text).splitlines():
             if self.tool == "arch-audit":
                 parts = line.split("|")
                 if len(parts) >= 3 and parts[0]:
@@ -183,8 +190,12 @@ class ServiceExposure(_Report):
         units = []
         try:
             rows = json.loads(text)
-            units = [(r["unit"], float(r["exposure"]), r["predicate"]) for r in rows if isinstance(r, dict)]
-        except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+            for r in rows if isinstance(rows, list) else []:
+                try:
+                    units.append((r["unit"], float(r["exposure"]), r["predicate"]))
+                except (KeyError, TypeError, ValueError):
+                    continue  # one odd row doesn't empty the report
+        except json.JSONDecodeError:
             for line in text.splitlines():
                 if m := _EXPOSURE_ROW.match(line):
                     units.append((m.group(1), float(m.group(2)), m.group(3)))
@@ -295,7 +306,7 @@ class AppArmorStatus(_Report):
     def current(self, results):
         lines = results["apparmor"].output.strip().splitlines()
         enabled = bool(lines) and lines[0].strip().upper().startswith("Y")
-        enforce = complain = 0
+        enforce = complain = None
         if enabled and len(lines) > 1:
             try:
                 profiles = json.loads("\n".join(lines[1:])).get("profiles") or {}
@@ -311,6 +322,8 @@ class AppArmorStatus(_Report):
     def security_section(self, current) -> str:
         if not current["enabled"]:
             return "## AppArmor\n\nnot enabled\n"
+        if current["enforce"] is None:
+            return "## AppArmor\n\nEnabled · profiles not readable (aa-status missing or not permitted)\n"
         return f"## AppArmor\n\nEnabled · {current['enforce']} profiles enforcing · {current['complain']} complaining\n"
 
 

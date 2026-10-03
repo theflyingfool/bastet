@@ -10,7 +10,7 @@ from pathlib import Path
 
 import typer
 
-from bastet.cli.common import Context, handles_errors, load_context, refresh_generated, ssh_port, write_with_confirmation
+from bastet.cli.common import Context, handles_errors, load_context, refresh_generated, scan_first, ssh_ports, write_with_confirmation
 from bastet.core.guests import guest_drift
 from bastet.core.render import lab_embed_changes
 from bastet.core.scaffold import new_host
@@ -64,13 +64,15 @@ def _fixed_ip(value: object) -> str | None:
     return text
 
 
-def _pin(ctx: Context, doc: Document, tmp: Path, *, yes: bool, accept: bool, port: int = 22) -> tuple[str, Path, str]:
-    """Scan, check and pin the host key (first contact asks); returns address, known_hosts path, recorded key."""
+def _pin(ctx: Context, doc: Document, tmp: Path, *, yes: bool, accept: bool,
+         ports: list[int] | None = None) -> tuple[str, Path, str, int]:
+    """Scan, check and pin the host key (first contact asks); returns address, known_hosts path, recorded key, port."""
+    ports = ports or [22]
     address = doc.data.get("address") or _fixed_ip(doc.data.get("ip"))
     if not address:
         raise BastetError("no address to connect to; set `address:` (e.g. laptop.local) or a fixed `ip:`", file=doc.path)
     recorded = doc.data.get("ssh_host_key")
-    keys = scan_keys(str(address), recorded=str(recorded) if recorded else None, port=port)
+    keys, port = scan_first(scan_keys, str(address), str(recorded) if recorded else None, ports)
     best = hostkeys.preferred(keys)
     offered = hostkeys.record(best)
     status = hostkeys.check(recorded, keys)
@@ -91,12 +93,12 @@ def _pin(ctx: Context, doc: Document, tmp: Path, *, yes: bool, accept: bool, por
     else:
         trusted, hostkey = [best], offered
     known = hostkeys.write_known_hosts(trusted, str(address), port, tmp / doc.name)
-    return str(address), known, hostkey
+    return str(address), known, hostkey, port
 
 
 def _gather_unifi(ctx: Context, doc: Document, tmp: Path, *, yes: bool, accept: bool) -> tuple[str, str]:
     """UniFi devices: one read-only `mca-dump` over the user's own SSH login (UniFi's device SSH account)."""
-    address, known, hostkey = _pin(ctx, doc, tmp, yes=yes, accept=accept)
+    address, known, hostkey, _ = _pin(ctx, doc, tmp, yes=yes, accept=accept)
     user = ctx.config.ssh.bootstrap_user or getpass.getuser()
     res = ssh_runner(SshTarget(address, user, None, known)).run("mca-dump\n", timeout=60)
     if res.returncode != 0 or not res.stdout.strip():
@@ -117,8 +119,7 @@ def _collect(ctx: Context, doc: Document, tmp: Path, *, yes: bool, accept: bool)
             sudo_validate()
         runner = local_runner()
         return collect(runner, doc.name), None, runner
-    port = ssh_port(ctx, doc)
-    address, known, hostkey = _pin(ctx, doc, tmp, yes=yes, accept=accept, port=port)
+    address, known, hostkey, port = _pin(ctx, doc, tmp, yes=yes, accept=accept, ports=ssh_ports(ctx, doc))
     key = ctx.config.ssh.key
     if key is not None:
         try:

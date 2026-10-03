@@ -108,8 +108,37 @@ def refresh_generated(
     return len(changes)
 
 
+def ssh_ports(ctx: Context, doc) -> list[int]:
+    """Ports Bastet tries, in order: the host's ssh role `port` list, then 22 (a host not moved yet, or a new one)."""
+    return list(dict.fromkeys([ssh_port(ctx, doc), *_role_ports(ctx, doc), 22]))
+
+
+def scan_first(scan, address: str, recorded: str | None, ports: list[int]):
+    """Scan host keys on each port in turn; returns (keys, port) for the first that answers."""
+    from bastet.core.errors import Unreachable
+
+    last: Unreachable | None = None
+    for port in ports:
+        try:
+            return scan(address, recorded=recorded, port=port), port
+        except Unreachable as exc:
+            last = exc
+    raise last if last is not None else BastetError(f"{address}: no port to try")
+
+
+def _role_ports(ctx: Context, doc) -> list[int]:
+    from bastet.roles.contract import load_roles  # lazy: roles builds on core
+    from bastet.roles.resolve import resolve
+
+    try:
+        applied = {a.role.name: a for a in resolve(ctx.inventory, doc, ctx.types, load_roles())}
+    except BastetError:
+        return []
+    return [int(p) for p in (applied["ssh"].values.get("port") if "ssh" in applied else None) or []]
+
+
 def ssh_port(ctx: Context, doc) -> int:
-    """The port Bastet connects on: the host's ssh role `port` (first listed), else 22."""
+    """The first port the host's ssh role lists, else 22."""
     from bastet.roles.contract import load_roles  # lazy: roles builds on core
     from bastet.roles.resolve import resolve
 

@@ -122,3 +122,33 @@ def test_lynis_installs_and_turns_the_package_timer_off():
     assert res[mask].target == "/dev/null" and mask < lynis  # masked before the package can enable it
     kept = out(ap("harden", {"lynis": True, "lynis_timer": True}))
     assert not any(isinstance(r, Symlink) for r in kept)
+
+
+def test_requiretty_refused():
+    with pytest.raises(BastetError, match="requiretty"):
+        out(ap("harden", {"sudo_defaults": ["use_pty", "requiretty"]}))
+    with pytest.raises(BastetError, match="requiretty"):
+        out(ap("harden", {"sudo_defaults": ["!requiretty", "requiretty"]}))
+    assert out(ap("harden", {"sudo_defaults": ["!requiretty"]}))
+
+
+def test_sshd_jail_settings_merge_into_the_builtin_section():
+    jail = files(out(ap("harden", {"fail2ban": True, "fail2ban_jails": {"sshd": {"mode": "aggressive"}}})))[
+        "/etc/fail2ban/jail.d/bastet.local"].content
+    assert jail.count("[sshd]") == 1 and "mode = aggressive" in jail
+
+
+def test_fail2ban_sandbox_creates_its_runtime_dir():
+    sandbox = files(out(ap("harden", {"fail2ban": True})))["/etc/systemd/system/fail2ban.service.d/bastet-sandbox.conf"].content
+    assert "RuntimeDirectory=fail2ban" in sandbox and "/run/fail2ban" not in sandbox
+
+
+def test_sysctl_ignores_missing_keys():
+    f = files(out(ap("harden", {})))["/etc/sysctl.d/90-bastet.conf"]
+    assert f.on_change[0].command.startswith("sysctl -q -e -p ")
+
+
+def test_debsecan_only_on_debian_proper():
+    with pytest.raises(BastetError, match="harden.vulnerable_packages"):
+        out(ap("harden", {}), h=host(os="Ubuntu 24.04.1 LTS"))
+    assert any(isinstance(r, VulnerablePackages) for r in out(ap("harden", {}), h=host(os="Debian GNU/Linux 12 (bookworm)")))

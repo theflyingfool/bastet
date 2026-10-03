@@ -53,7 +53,7 @@ def test_drop_in_validated_and_reloads_right_unit():
     assert any("ssh.service" in t.command for t in f.on_change)
     arch = next(r for r in out({"x11_forwarding": False}, os="Arch Linux") if isinstance(r, File))
     assert any("sshd.service" in t.command for t in arch.on_change)
-    assert any(isinstance(r, Command) and "Include" in r.unless and "sshd_config" in r.unless for r in out({"x11_forwarding": False}))
+    assert any(isinstance(r, Command) and "include" in r.unless.lower() and "sshd_config" in r.unless for r in out({"x11_forwarding": False}))
 
 
 @pytest.mark.parametrize("values", [
@@ -70,9 +70,11 @@ def test_lockout_guard(values):
         out(values)
 
 
-def test_allow_groups_ok_with_bastet_group_or_user():
+def test_allow_groups_needs_bastet_whatever_allow_users_says():
     assert out({"allow_groups": ["bastet", "wheel"]})
-    assert out({"allow_groups": ["wheel"], "allow_users": ["bastet", "nick"]})
+    assert out({"allow_groups": ["bast*"]})
+    with pytest.raises(BastetError, match="lock Bastet out"):
+        out({"allow_groups": ["wheel"], "allow_users": ["bastet", "nick"]})  # sshd checks both lists
 
 
 def test_match_setting_names_are_checked():
@@ -95,3 +97,65 @@ def test_option_names_unique_and_snake_case():
     assert all(re.fullmatch(r"[a-z][a-z0-9_]*", k) for k in SSHD_KEYWORDS)
     assert len({kw for kw, _ in SSHD_KEYWORDS.values()}) == len(SSHD_KEYWORDS)
     assert set(ROLES["ssh"].options) == set(SSHD_KEYWORDS) | {"match"}
+
+
+@pytest.mark.parametrize("values", [
+    {"authentication_methods": "publickey,password"},
+    {"deny_users": ["*"]},
+    {"deny_users": ["bastet@*"]},
+    {"deny_users": ["bast*"]},
+    {"deny_groups": ["*"]},
+    {"refuse_connection": True},
+    {"max_sessions": 1},
+    {"authorized_keys_file": [".ssh/keys2"]},
+    {"pubkey_accepted_algorithms": ["rsa-sha2-512"]},
+    {"listen_address": ["192.168.99.1"]},
+    {"listen_address": ["0.0.0.0:2222"]},
+    {"match": [{"criteria": "all", "settings": {"pubkey_authentication": 0}}]},
+    {"match": [{"criteria": "User nick\nMatch all", "settings": {"x11_forwarding": False}}]},
+])
+def test_more_lockouts_refused(values):
+    with pytest.raises(BastetError):
+        out(values)
+
+
+@pytest.mark.parametrize("values", [
+    {"authentication_methods": "publickey"},
+    {"authentication_methods": "publickey publickey,password"},
+    {"authentication_methods": "any"},
+    {"listen_address": ["0.0.0.0", "::"]},
+    {"listen_address": ["10.10.0.15"]},
+    {"listen_address": ["0.0.0.0:2222"], "port": [22, 2222]},
+    {"pubkey_accepted_algorithms": ["ssh-ed25519", "rsa-sha2-512"]},
+    {"authorized_keys_file": [".ssh/authorized_keys", ".ssh/keys2"]},
+    {"max_sessions": 10},
+])
+def test_safe_settings_allowed(values):
+    h = HostInfo(name="h", type="vm", data={"os": "Debian GNU/Linux 13 (trixie)", "ip": "10.10.0.15"}, root=Path("/x"), lab={})
+    assert [r for b in batches_for([ap(values)], h) for r in b.resources]
+
+
+def test_match_settings_are_typed():
+    with pytest.raises(BastetError, match="pubkey_authentication"):
+        out({"match": [{"criteria": "User nick", "settings": {"pubkey_authentication": "no"}}]})
+    with pytest.raises(BastetError, match="deny_users"):
+        out({"match": [{"criteria": "all", "settings": {"deny_users": "nick bastet"}}]})
+
+
+def test_ports_deduplicated_and_reload_checks_full_config():
+    text = conf({"port": [2222, 2222, 22]})
+    assert text.count("Port 2222") == 1
+    f = next(r for r in out({"x11_forwarding": False}) if isinstance(r, File))
+    assert f.on_change[0].command.startswith("/usr/sbin/sshd -t && ")
+
+
+def test_include_detection_handles_variants(tmp_path):
+    import subprocess
+    cmd = next(r for r in out({"x11_forwarding": False}) if isinstance(r, Command))
+    conf_file = tmp_path / "sshd_config"
+    for text in ("Include /etc/ssh/sshd_config.d/*.conf\n", "include sshd_config.d/*.conf\n",
+                 "  Include  /etc/ssh/sshd_config.d/*.conf\n"):
+        conf_file.write_text(text)
+        assert subprocess.run(["sh", "-c", cmd.unless.replace("/etc/ssh/sshd_config", str(conf_file))]).returncode == 0, text
+    conf_file.write_text("Port 22\n")
+    assert subprocess.run(["sh", "-c", cmd.unless.replace("/etc/ssh/sshd_config", str(conf_file))]).returncode != 0

@@ -233,3 +233,41 @@ def test_check_writes_security_note(runner, box, inventory, monkeypatch):
     note = inventory / "_bastet" / "security" / "box security.md"
     assert note.exists() and "## AppArmor\n\nnot enabled" in note.read_text()
     assert "refresh: security note box" in git(inventory, "log", "--format=%s")
+
+
+def test_security_note_not_recommitted_when_only_time_changes(runner, box, inventory, monkeypatch):
+    from bastet.engine.run import HostRun, Item
+    from bastet.engine.security import AppArmorStatus
+
+    def fake(runner_, host, batches, **kw):
+        res = next(r for b in batches for r in b.resources if isinstance(r, AppArmorStatus))
+        return HostRun(host, False, [Item(res, ["harden"], [], current={"enabled": False, "enforce": None, "complain": None})])
+    monkeypatch.setattr(run_mod, "run_host", fake)
+    (inventory / "_roles" / "hosts" / "box" / "harden.md").write_text(
+        '---\nbastet: role\nrole: harden\napplies_to: "[[box]]"\nvulnerable_packages: false\n'
+        'service_exposure: false\nlistening_ports: false\nsysctl_defaults: false\n---\n')
+    import datetime as real_dt
+    import types
+    times = iter([real_dt.datetime(2026, 10, 2, 10, 0), real_dt.datetime(2026, 10, 2, 11, 30)])
+    monkeypatch.setattr(run_mod, "dt", types.SimpleNamespace(datetime=types.SimpleNamespace(now=lambda: next(times))))
+    runner.invoke(app, ["check", "box"])
+    first = git(inventory, "log", "--format=%s").count("security note box")
+    runner.invoke(app, ["check", "box"])
+    assert first == 1 and git(inventory, "log", "--format=%s").count("security note box") == 1
+
+
+def test_security_note_failure_never_stops_the_check(runner, box, inventory, monkeypatch):
+    from bastet.engine.run import HostRun, Item
+    from bastet.engine.security import AppArmorStatus
+    import bastet.cli.run as rm
+
+    def fake(runner_, host, batches, **kw):
+        res = next(r for b in batches for r in b.resources if isinstance(r, AppArmorStatus))
+        return HostRun(host, False, [Item(res, ["harden"], [], current={"enabled": False, "enforce": None, "complain": None})])
+    monkeypatch.setattr(run_mod, "run_host", fake)
+    monkeypatch.setattr(rm, "security_note", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+    (inventory / "_roles" / "hosts" / "box" / "harden.md").write_text(
+        '---\nbastet: role\nrole: harden\napplies_to: "[[box]]"\nvulnerable_packages: false\n'
+        'service_exposure: false\nlistening_ports: false\nsysctl_defaults: false\n---\n')
+    result = runner.invoke(app, ["check", "box"])
+    assert result.exit_code == 0 and "security note not written" in result.output

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import typer
 
-from bastet.cli.common import Context, handles_errors, load_context, refresh_generated, ssh_port
+from bastet.cli.common import Context, handles_errors, load_context, refresh_generated, scan_first, ssh_ports
 from bastet.cli.gather import _fixed_ip, local_runner, scan_keys, ssh_runner, sudo_validate
 from bastet.core import hostkeys
 from bastet.core.errors import BastetError
@@ -51,8 +51,7 @@ def connect(ctx: Context, doc: Document, tmp: Path, *, yes: bool):
     recorded = doc.data.get("ssh_host_key")
     if not recorded:
         raise BastetError("no confirmed host key yet; run `bastet gather` on this host first", file=doc.path)
-    port = ssh_port(ctx, doc)
-    keys = scan_keys(str(address), recorded=str(recorded), port=port)
+    keys, port = scan_first(scan_keys, str(address), str(recorded), ssh_ports(ctx, doc))
     if hostkeys.check(str(recorded), keys) != "match":
         raise BastetError("the host's key doesn't match ssh_host_key; run `bastet gather` "
                           "(with --accept-new-hostkey after a reinstall)", file=doc.path, key="ssh_host_key")
@@ -71,11 +70,24 @@ def _write_security_note(ctx: Context, doc: Document, items) -> bool:
     """Write the host's security note from this run's reports (a Bastet-owned file: no confirmation)."""
     if not security_items(items) or not ctx.repo.is_repo():
         return False
-    path = security_path(ctx.root, doc.name)
-    text = security_note(doc.name, items, dt.datetime.now().strftime("%Y-%m-%d %H:%M"))
-    before = path.read_text(encoding="utf-8") if path.exists() else None
-    write_changes([Change(path, before, text)])
-    return ctx.repo.commit([path], f"refresh: security note {doc.name}")
+    try:
+        if ctx.repo.busy():
+            typer.secho(f"{doc.name}: security note not written: a git merge or rebase is in progress", fg="yellow")
+            return False
+        path = security_path(ctx.root, doc.name)
+        text = security_note(doc.name, items, dt.datetime.now().strftime("%Y-%m-%d %H:%M"))
+        before = path.read_text(encoding="utf-8") if path.exists() else None
+        if before is not None and _without_checked(before) == _without_checked(text):
+            return False  # nothing new but the time: no commit on every check
+        write_changes([Change(path, before, text)])
+        return ctx.repo.commit([path], f"refresh: security note {doc.name}")
+    except Exception as exc:  # a note must never stop a check or an apply
+        typer.secho(f"{doc.name}: security note not written: {exc.__class__.__name__}: {exc}", fg="yellow")
+        return False
+
+
+def _without_checked(text: str) -> str:
+    return "\n".join(line for line in text.splitlines() if not line.startswith("checked:"))
 
 
 def run_audit(runner, doc: Document) -> str | None:
