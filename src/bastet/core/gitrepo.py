@@ -82,7 +82,11 @@ class GitRepo:
         return set(r.stdout.split())
 
     def squash_since(self, base: str, message: str) -> bool:
-        """Squash every commit since `base` into one, only when none of them are pushed."""
+        """Squash every commit since `base` into one, only when none of them are pushed.
+
+        Commits only the paths that actually changed between `base` and the old HEAD, so anything
+        else a user had already staged stays staged and out of the squash commit.
+        """
         head = self.head()
         if head == base:
             return False
@@ -90,8 +94,11 @@ class GitRepo:
         unpushed = self._unpushed()
         if unpushed is not None and not since <= unpushed:
             return False
+        paths = self._git("diff", "--name-only", base, head).stdout.split("\n")
+        paths = [p for p in paths if p]
         self._git("reset", "--soft", base)
-        self._git("-c", f"user.name={BASTET_NAME}", "-c", f"user.email={bastet_email()}", "commit", "-q", "-m", message)
+        identity = ["-c", f"user.name={BASTET_NAME}", "-c", f"user.email={bastet_email()}"]
+        self._git(*identity, "commit", "-q", "-m", message, "--", *paths)
         return True
 
     def pull(self) -> None:

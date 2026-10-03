@@ -118,3 +118,63 @@ def test_push_timeout_is_false_not_crash(tmp_path, repo, monkeypatch):
 
     monkeypatch.setattr(g.subprocess, "run", slow)
     assert repo.push() is False
+
+
+def test_head_is_the_current_commit(repo):
+    a = repo.root / "a.md"
+    a.write_text("a\n")
+    repo.commit([a], "add a")
+    assert repo.head() == git(repo.root, "rev-parse", "HEAD").strip()
+
+
+def test_squash_since_combines_unpushed_commits(repo):
+    a = repo.root / "a.md"
+    a.write_text("a\n")
+    repo.commit([a], "seed")
+    base = repo.head()
+    b = repo.root / "b.md"
+    b.write_text("b\n")
+    repo.commit([b], "add b")
+    c = repo.root / "c.md"
+    c.write_text("c\n")
+    repo.commit([c], "add c")
+    assert repo.squash_since(base, "squashed") is True
+    log = git(repo.root, "log", "--format=%H")
+    assert len(log.strip().splitlines()) == 2  # seed + the squash
+    assert git(repo.root, "log", "-1", "--format=%s").strip() == "squashed"
+    assert (repo.root / "b.md").exists() and (repo.root / "c.md").exists()
+
+
+def test_squash_since_leaves_other_staged_files_alone(repo):
+    a = repo.root / "a.md"
+    a.write_text("a\n")
+    repo.commit([a], "seed")
+    base = repo.head()
+    b = repo.root / "b.md"
+    b.write_text("b\n")
+    repo.commit([b], "add b")
+    unrelated = repo.root / "unrelated.md"
+    unrelated.write_text("unrelated\n")
+    git(repo.root, "add", "unrelated.md")
+    assert repo.squash_since(base, "squashed") is True
+    assert "unrelated.md" not in git(repo.root, "show", "--name-only", "--format=", "HEAD")
+    assert "A  unrelated.md" in git(repo.root, "status", "--porcelain")
+
+
+def test_squash_since_refuses_when_some_commits_are_already_pushed(tmp_path, repo):
+    bare = tmp_path / "remote.git"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(bare)], check=True)
+    repo.add_remote(str(bare))
+    a = repo.root / "a.md"
+    a.write_text("a\n")
+    repo.commit([a], "seed")
+    base = repo.head()
+    b = repo.root / "b.md"
+    b.write_text("b\n")
+    repo.commit([b], "add b")
+    assert repo.push() is True  # "add b" is now pushed
+    c = repo.root / "c.md"
+    c.write_text("c\n")
+    repo.commit([c], "add c")
+    assert repo.squash_since(base, "squashed") is False
+    assert git(repo.root, "log", "--format=%s").strip().splitlines() == ["add c", "add b", "seed"]

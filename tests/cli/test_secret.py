@@ -1,3 +1,5 @@
+import subprocess
+
 import pytest
 
 import bastet.cli.secret as secret_mod
@@ -52,9 +54,19 @@ def test_role(inventory, tmp_path, monkeypatch):
         "    generate:\n"
         "      kind: password\n"
         "      length: 16\n"
-        "  plain_token:\n"
-        "    type: string\n"
-        "    secret: true\n"
+    )
+    # A second role, deliberately never applied to any host: used only to exercise the
+    # "no generate: Enter asks again" prompt directly (`secret set box othersecret plain_token`),
+    # without it also showing up as a needed secret via resolve().
+    (roles_dir / "othersecret").mkdir(parents=True)
+    (roles_dir / "othersecret" / "role.yml").write_text(
+        "description: a role for secrets tests\noptions:\n  plain_token:\n    type: string\n    secret: true\n"
+    )
+    # A third role, applied to a host but with its secret option left unset in the role file: needed
+    # implicitly, by the contract alone (no `secret:` reference written anywhere).
+    (roles_dir / "impliedsecret").mkdir(parents=True)
+    (roles_dir / "impliedsecret" / "role.yml").write_text(
+        "description: a role for secrets tests\noptions:\n  api_key:\n    type: string\n    secret: true\n"
     )
     merged = {**load_roles(), **load_roles(roles_dir)}
     monkeypatch.setattr(secret_mod, "load_roles", lambda: merged)
@@ -104,10 +116,9 @@ def test_enter_generates_when_contract_allows(runner, secret_keys, inventory, in
 
 def test_enter_with_no_generate_asks_again(runner, secret_keys, inventory, interactive, test_role):
     result = runner.invoke(
-        app, ["secret", "set", "box", "testsecret", "plain_token"], input=f"\n{SENTINEL}\n{SENTINEL}\n"
+        app, ["secret", "set", "box", "othersecret", "plain_token"], input=f"\n{SENTINEL}\n{SENTINEL}\n"
     )
     assert result.exit_code == 0, result.output
-    assert "asks again" not in result.output  # sanity: just checking it didn't crash
     assert "Enter a value, or e to fill it in yourself." in result.output
 
 
@@ -195,3 +206,66 @@ def test_bastet_secret_lists_without_values(runner, secret_keys, inventory):
     assert result.exit_code == 0, result.output
     assert SENTINEL not in result.output
     assert "lab/dns_token" in result.output
+
+
+def test_unset_secret_option_is_implied_needed(runner, secret_keys, inventory, interactive, test_role):
+    """A role file that leaves a `secret: true` option unset still needs that secret (spec 15.3)."""
+    from bastet.cli.common import load_context
+
+    roles = inventory / "_roles" / "hosts" / "box"
+    (roles / "impliedsecret.md").write_text('---\nbastet: role\nrole: impliedsecret\napplies_to: "[[box]]"\n---\n')
+    git(inventory, "add", ".")
+    git(inventory, "commit", "-q", "-m", "implied secret role")
+
+    ctx = load_context()
+    needed = {n.sp.text for n in secret_mod.needed_secrets(ctx)}
+    assert "box/impliedsecret/api_key" in needed
+
+    listed = runner.invoke(app, ["secret"])
+    assert listed.exit_code == 0, listed.output
+    assert "box/impliedsecret/api_key" in listed.output and "missing" in listed.output
+
+
+def test_squash_does_not_sweep_in_an_unrelated_staged_file(runner, secret_keys, inventory, interactive, test_role):
+    (inventory / "unrelated.md").write_text("---\nbastet: host\ntype: laptop\n---\n# unrelated\n")
+    git(inventory, "add", "unrelated.md")
+
+    result = runner.invoke(app, ["secret", "set"], input="0\n\n\n")
+    assert result.exit_code == 0, result.output
+
+    assert "secret: set 2 secrets" in git(inventory, "log", "-1", "--format=%s")
+    show = git(inventory, "show", "--name-only", "--format=", "HEAD")
+    assert "unrelated.md" not in show
+    status = git(inventory, "status", "--porcelain")
+    assert "A  unrelated.md" in status  # still staged, untouched by the squash
+
+
+def test_single_named_set_pushes(runner, secret_keys, inventory, interactive, tmp_path):
+    bare = tmp_path / "remote.git"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(bare)], check=True)
+    git(inventory, "remote", "add", "origin", str(bare))
+    git(inventory, "push", "-q", "-u", "origin", "main")
+
+    result = runner.invoke(app, ["secret", "set", "lab", "dns_token"], input=f"{SENTINEL}\n{SENTINEL}\n")
+    assert result.exit_code == 0, result.output
+
+    remote_log = subprocess.run(
+        ["git", "--git-dir", str(bare), "log", "--format=%s"], capture_output=True, text=True
+    ).stdout
+    assert "secret: set lab/dns_token" in remote_log
+
+
+def test_piped_replace_refuses(runner, secret_keys, inventory):
+    sp = SecretPath.parse("lab/dns_token")
+    _seed_note(inventory, sp, "old-value", secret_keys["pub"])
+    result = runner.invoke(app, ["secret", "set", "lab", "dns_token"], input=f"{SENTINEL}\n")
+    assert result.exit_code != 0
+    assert SENTINEL not in result.output
+    note = SecretNote.load(inventory, sp)
+    assert crypto.open_sealed(note.body.strip(), sp.text, [crypto.identity(secret_keys["key_path"])]).value == "old-value"
+
+
+def test_piped_set_with_no_words_refuses(runner, secret_keys, inventory):
+    result = runner.invoke(app, ["secret", "set"], input="0\n")
+    assert result.exit_code != 0
+    assert "pipe" in result.output or "terminal" in result.output

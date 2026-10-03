@@ -93,6 +93,14 @@ def _refs_in(opt: Option, value: object, host: str, role: str):
                 yield from _refs_in(opt.fields[k], v, host, role)
 
 
+def _record(uses: dict[str, Needed], sp: SecretPath, opt: Option, host: str) -> None:
+    existing = uses.get(sp.text)
+    if existing is None:
+        uses[sp.text] = Needed(sp, opt, [host])
+    elif host not in existing.used_by:
+        existing.used_by.append(host)
+
+
 def _collect_uses(ctx: Context) -> dict[str, Needed]:
     uses: dict[str, Needed] = {}
     roles = load_roles()
@@ -108,12 +116,14 @@ def _collect_uses(ctx: Context) -> dict[str, Needed]:
                 opt = a.role.options.get(key)
                 if opt is None:
                     continue
+                if value is None:
+                    # a `secret: true` option with no value at all still needs a secret, implicitly
+                    # at the host/role/option path (no explicit `secret:` reference required).
+                    if opt.secret:
+                        _record(uses, SecretPath(doc.name, a.role.name, key), opt, doc.name)
+                    continue
                 for sp, leaf in _refs_in(opt, value, doc.name, a.role.name):
-                    existing = uses.get(sp.text)
-                    if existing is None:
-                        uses[sp.text] = Needed(sp, leaf, [doc.name])
-                    elif doc.name not in existing.used_by:
-                        existing.used_by.append(doc.name)
+                    _record(uses, sp, leaf, doc.name)
     return uses
 
 
@@ -203,16 +213,20 @@ def _write_fill_in_note(ctx: Context, sp: SecretPath, exists: bool) -> None:
 def _set_one(ctx: Context, sp: SecretPath, opt: Option | None, *, piped_value: str | None = None) -> bool:
     """Returns True when a value was sealed and committed (False for `e`, a skip, or a declined replace)."""
     exists = (ctx.root / sp.rel).exists()
-    if exists and piped_value is None:
-        if not typer.confirm(f"Replace {sp.text}? The old value stays only in encrypted git history", default=False):
-            typer.echo("Not replaced.")
-            return False
     if piped_value is not None:
-        value = piped_value.rstrip("\n")
+        if exists:
+            # a confirm would read from the same, already-consumed pipe; refuse rather than guess
+            raise BastetError(f"{sp.text} already exists; run without piping a value to replace it")
+        value = piped_value[:-1] if piped_value.endswith("\n") else piped_value
+        value = value[:-1] if value.endswith("\r") else value
         if not value:
             raise BastetError(f"{sp.text}: empty value from stdin")
         source = opt.source if opt and opt.source else "chosen"
     else:
+        if exists:
+            if not typer.confirm(f"Replace {sp.text}? The old value stays only in encrypted git history", default=False):
+                typer.echo("Not replaced.")
+                return False
         value = None
         source = "chosen"
         while value is None:
@@ -275,6 +289,15 @@ def _set_walk(ctx: Context) -> None:
             typer.secho("warning: push failed; the commit(s) are kept locally", fg="yellow", err=True)
 
 
+def _pull_quietly(ctx: Context) -> None:
+    if not ctx.repo.is_repo():
+        return
+    try:
+        ctx.repo.pull()
+    except BastetError as exc:
+        typer.secho(f"warning: {exc}; continuing on the last pulled state", fg="yellow", err=True)
+
+
 @secret_app.command("set")
 @handles_errors
 def secret_set(
@@ -282,14 +305,19 @@ def secret_set(
 ) -> None:
     """Set one secret (named), or walk the list of secrets that need a value."""
     ctx = load_context()
+    _pull_quietly(ctx)
     if words:
         sp = SecretPath.from_cli(words)
         opt = _opt_for(sp)
         if not _stdin_is_tty():
-            _set_one(ctx, sp, opt, piped_value=sys.stdin.read())
+            committed = _set_one(ctx, sp, opt, piped_value=sys.stdin.read())
         else:
-            _set_one(ctx, sp, opt)
+            committed = _set_one(ctx, sp, opt)
+        if committed and ctx.repo.is_repo() and not ctx.repo.push():
+            typer.secho("warning: push failed; the commit is kept locally", fg="yellow", err=True)
         return
+    if not _stdin_is_tty():
+        raise BastetError("the secret list only works at a terminal; name a secret to pipe a value into it")
     _set_walk(ctx)
 
 
@@ -305,13 +333,12 @@ def secret_show(words: list[str] = typer.Argument(..., help="host role option, o
     ctx = load_context()
     sp = SecretPath.from_cli(words)
     value = ctx.secrets.get(sp)
-    choice = typer.prompt("1) display  2) clipboard  q) cancel", default="q", show_default=False).strip().lower()
+    tool = _clipboard_tool()
+    menu = "1) display  2) clipboard  q) cancel" if tool else "1) display  q) cancel"
+    choice = typer.prompt(menu, default="q", show_default=False).strip().lower()
     if choice == "1":
         typer.echo(value)
-    elif choice == "2":
-        tool = _clipboard_tool()
-        if tool is None:
-            raise BastetError("no clipboard available (wl-copy or xclip, and not over SSH)")
+    elif choice == "2" and tool:
         _copy_to_clipboard(tool, value)
         typer.echo("Copied to the clipboard; it clears in 45s.")
     else:
