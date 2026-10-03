@@ -66,12 +66,28 @@ The first gather can set up a `bastet` user on each host, from your own SSH logi
 key login only (no password) and passwordless sudo. Setting it up needs `useradd`, `usermod`, `install`, `getent`
 and `visudo` on the host (shadow-utils/passwd, coreutils, sudo).
 
+## Install
+
+Bastet runs from its source folder. Install it as a uv tool in editable mode, so `bastet` on your PATH always runs
+the code in that folder: pulling or editing it takes effect on the next run, with no reinstall.
+
+    git clone <this repo> ~/Repos/bastet
+    uv tool install --editable ~/Repos/bastet
+    bastet --version
+
+If `bastet` isn't found, run `uv tool update-shell` once (it adds `~/.local/bin` to your PATH) and open a new shell.
+
+Reinstall only when Bastet's dependencies change (`pyproject.toml`):
+
+    uv tool install --editable --reinstall ~/Repos/bastet
+
+Without installing, `uv run bastet …` from the source folder works the same way.
+
 ## Getting started
 
-    git clone <this repo> && cd bastet
-    uv run bastet init
-    uv run bastet add host          # walks you through it
-    uv run bastet show
+    bastet init
+    bastet add host                 # walks you through it
+    bastet show
 
 Config lives at `$BASTET_CONFIG`, else `$XDG_CONFIG_HOME/bastet/bastet.yml`,
 else `~/.config/bastet/bastet.yml`.
