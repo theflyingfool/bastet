@@ -86,9 +86,13 @@ else `~/.config/bastet/bastet.yml`.
 | `bastet gather [HOST…]` | Collects facts and writes them into host files after a diff; `--take FIELD` accepts a value you'd set by hand |
 | `bastet refresh` | Regenerates page summaries and the dashboard (`_bastet/`) from your files; `show`, `add` and `gather` do this too |
 | `bastet show [NAME]` | Lists the inventory and problems, or one object and what links to it |
-| `bastet add role <role> <host\|group\|lab>` | Writes a role file under `_roles/` after showing the diff |
+| `bastet add role [ROLE…] [--to TARGET]` | Writes role files under `_roles/` after showing the diff; offers the roles and targets as lists when left out |
 | `bastet check [HOST…]` | Shows what differs between each host and its roles; changes nothing |
 | `bastet apply [HOST…] [-y] [--updates]` | Shows the check, asks, applies the changes and verifies them; `--updates` also installs pending updates on hosts whose policy is manual |
+
+## Roles
+
+Every role Bastet ships, with its options and examples: [docs/roles.md](docs/roles.md).
 
 ## Development
 

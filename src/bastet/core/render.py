@@ -339,7 +339,8 @@ def dashboard(
 
     shown = [f"![[{MAPS_DIR}/{t}]]" for t, f in (("Cabling", cabling_map), ("Networks", networks_map)) if f(inv)]
     out.append("\n## Maps\n\n" + "".join(f"{m}\n\n" for m in shown)
-               + f"Also: [[{MAPS_DIR}/Where|what runs where]] (locations, nodes and guests)\n")
+               + f"Also: [[{MAPS_DIR}/Where|what runs where]] (locations, nodes and guests)\n"
+               + "\nRoles: [[_bastet/Roles|every role Bastet ships]]\n")
 
     lab = inv.lab
     domains = (lab.data.get("domains") or {}) if lab else {}

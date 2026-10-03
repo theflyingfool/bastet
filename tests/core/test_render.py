@@ -285,3 +285,9 @@ def test_summary_links_security_note_and_deleted_hosts_lose_theirs(repo):
     assert "[[pve1 security|security report]]" in text and "2026-10-02 10:00" in text
     removed = [c.path.name for c in generated_changes(inv(repo), TYPES, repo) if c.after is None]
     assert "gone security.md" in removed and "pve1 security.md" not in removed
+
+
+def test_roles_index_generated_and_linked(repo):
+    changes = {c.path.relative_to(repo.root).as_posix(): c for c in generated_changes(inv(repo), TYPES, repo)}
+    assert "_bastet/Roles.md" in changes and "| Role | What it does | Used by |" in changes["_bastet/Roles.md"].after
+    assert "[[_bastet/Roles|" in dashboard(inv(repo), TYPES, {}, [])

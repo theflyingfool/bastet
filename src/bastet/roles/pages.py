@@ -56,8 +56,46 @@ def role_page(role: RoleDef, used_by: list[tuple[str, list[str]]]) -> str:
     return f"---\ngenerated: true\nrole: {role.name}\n---\n" + "\n".join(lines) + "\n"
 
 
-def role_pages(inv: Inventory, types: dict[str, HostType]) -> dict[Path, str]:
-    roles = load_roles()
+ROLES_INDEX_PATH = "_bastet/Roles.md"
+
+
+def _summary(role: RoleDef) -> str:
+    """The first sentence of a role's description."""
+    return role.description.split(". ")[0].rstrip(".")
+
+
+def roles_index(roles: dict[str, RoleDef], used: dict[str, list[str]]) -> str:
+    """The vault note listing every role Bastet ships, what it does, and which hosts use it."""
+    lines = ["Every role Bastet ships. Add one with `bastet add role`; each name opens its full reference "
+             "(options and examples).", "", "| Role | What it does | Used by |", "|---|---|---|"]
+    for name in sorted(roles):
+        hosts = used.get(name) or []
+        users = (f"{len(hosts)}: " + ", ".join(f"[[{h}]]" for h in hosts[:5])
+                 + (f" +{len(hosts) - 5} more" if len(hosts) > 5 else "")) if hosts else "—"
+        lines.append(f"| [[{name} role\\|{name}]] | {_cell(_summary(roles[name]))} | {users} |")
+    return "---\ngenerated: true\n---\n" + "\n".join(lines) + "\n"
+
+
+def roles_markdown(roles: dict[str, RoleDef]) -> str:
+    """The repo document (docs/roles.md): every role with its options and examples, no inventory data."""
+    lines = ["# Roles", "", "Every role Bastet ships. Put values in a role file's properties "
+             "(`_roles/lab/<role>.md`, `_roles/groups/<group>/<role>.md` or `_roles/hosts/<host>/<role>.md`), "
+             "or run `bastet add role`.", "", "| Role | What it does |", "|---|---|"]
+    lines += [f"| [{n}](#{n}) | {_cell(_summary(roles[n]))} |" for n in sorted(roles)]
+    for name in sorted(roles):
+        role = roles[name]
+        lines += ["", f"## {name}", "", role.description, ""]
+        if role.examples:
+            lines += ["### Examples", ""]
+            for ex in role.examples:
+                lines += [f"**{ex['title']}**", "", "```yaml", ex["yaml"].rstrip("\n"), "```", ""]
+        lines += ["### Options", "", "| Option | Type | Default | Description |", "|---|---|---|---|"]
+        for opt_name, opt in role.options.items():
+            lines += _rows(opt_name, opt)
+    return re.sub(r"\[\[([^\]|]+)(?:\|[^\]]*)?\]\]", r"`\1`", "\n".join(lines)) + "\n"  # no vault links on GitHub
+
+
+def roles_used(inv: Inventory, types: dict[str, HostType], roles: dict[str, RoleDef]) -> dict[str, list[tuple[str, list[str]]]]:
     used: dict[str, list[tuple[str, list[str]]]] = {name: [] for name in roles}
     for host in sorted(inv.of_kind("host"), key=lambda d: d.name.lower()):
         try:
@@ -66,7 +104,15 @@ def role_pages(inv: Inventory, types: dict[str, HostType]) -> dict[Path, str]:
             continue
         for a in applied:
             used[a.role.name].append((host.name, sorted({s.label for s in a.sources})))
-    return {role_page_path(inv.root, name): role_page(role, used[name]) for name, role in roles.items()}
+    return used
+
+
+def role_pages(inv: Inventory, types: dict[str, HostType]) -> dict[Path, str]:
+    roles = load_roles()
+    used = roles_used(inv, types, roles)
+    pages = {role_page_path(inv.root, name): role_page(role, used[name]) for name, role in roles.items()}
+    pages[inv.root / ROLES_INDEX_PATH] = roles_index(roles, {n: [h for h, _ in u] for n, u in used.items()})
+    return pages
 
 
 _OPTION_LINE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*):(\s|$)")
