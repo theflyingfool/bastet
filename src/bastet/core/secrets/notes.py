@@ -120,7 +120,7 @@ class SecretNote:
     def write(self, root: Path) -> None:
         path = root / self.path.rel
         path.parent.mkdir(parents=True, exist_ok=True)
-        ordered = {key: self.data.get(key, "") for key in FIELD_ORDER}
+        ordered = {key: self.data.get(key, None) for key in FIELD_ORDER}
         for key, value in self.data.items():
             if key not in ordered:
                 ordered[key] = value

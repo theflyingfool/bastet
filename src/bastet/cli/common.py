@@ -1,5 +1,5 @@
 import functools
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import typer
@@ -11,6 +11,10 @@ from bastet.core.gitrepo import GitRepo
 from bastet.core.hosttypes import HostType, load_host_types
 from bastet.core.inventory import Inventory, load_inventory
 from bastet.core.render import generated_changes
+from bastet.core.secrets.notes import SecretNote, SecretPath
+from bastet.core.secrets.redact import Redactor
+from bastet.core.secrets.refs import MissingSecret
+from bastet.core.secrets.store import AgeStore, for_note
 
 
 def handles_errors(fn):
@@ -25,6 +29,46 @@ def handles_errors(fn):
     return wrapper
 
 
+class SecretsContext:
+    """Recipients, the decrypting identity, and the redactor: built lazily, so a run with no secrets needs no keys."""
+
+    def __init__(self, root: Path, recipients: list[str], identity_path: Path | None) -> None:
+        self.root = root
+        self.recipients = recipients
+        self.identity_path = identity_path
+        self.redactor = Redactor()
+        self._identities: list | None = None
+
+    def _ensure_identities(self) -> list:
+        if self._identities is None:
+            if self.identity_path is None:
+                raise BastetError("no Bastet SSH key or secrets.age_identity configured; run `bastet init`")
+            from bastet.core.secrets.crypto import identity  # lazy: only touched when a secret is actually read
+
+            self._identities = [identity(self.identity_path)]
+        return self._identities
+
+    def get(self, sp: SecretPath) -> str:
+        if not (self.root / sp.rel).exists():
+            raise MissingSecret(sp)
+        note = SecretNote.load(self.root, sp)
+        store = for_note(note, {"age": AgeStore(self.recipients, self._ensure_identities())})
+        value = store.get(note)
+        self.redactor.add(value)
+        return value
+
+
+def _own_recipients(ctx: "Context") -> list[str]:
+    lab = ctx.inventory.lab
+    recipients = list((lab.data.get("secrets") or {}).get("recipients") or []) if lab is not None else []
+    key = ctx.config.ssh.key
+    if key is not None:
+        pub = Path(str(key) + ".pub")
+        if pub.is_file():
+            recipients.append(pub.read_text(encoding="utf-8").strip())
+    return recipients
+
+
 @dataclass
 class Context:
     config: Config
@@ -32,6 +76,14 @@ class Context:
     repo: GitRepo
     types: dict[str, HostType]
     inventory: Inventory
+    _secrets: SecretsContext | None = field(default=None, init=False, repr=False)
+
+    @property
+    def secrets(self) -> SecretsContext:
+        if self._secrets is None:
+            identity_path = self.config.secrets.age_identity or self.config.ssh.key
+            self._secrets = SecretsContext(self.root, _own_recipients(self), identity_path)
+        return self._secrets
 
 
 def load_context() -> Context:

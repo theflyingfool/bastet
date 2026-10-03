@@ -21,6 +21,7 @@ from bastet.engine.report import render_host
 from bastet.engine.script import exec_script, new_mark
 from bastet.engine.security import LYNIS_AUDIT, LynisReport
 from bastet.engine.run import Batch, run_host
+from bastet.core.secrets.refs import resolve_refs
 from bastet.roles.builtin import HostInfo, batches_for
 from bastet.roles.contract import RoleDef, load_roles
 from bastet.roles.pages import options_in_body
@@ -37,6 +38,8 @@ def host_info(ctx: Context, doc: Document, updates: bool = False) -> HostInfo:
 
 def plan_for(ctx: Context, doc: Document, roles: dict[str, RoleDef], updates: bool = False) -> tuple[list[Applied], list[Batch]]:
     applied = resolve(ctx.inventory, doc, ctx.types, roles)
+    for a in applied:
+        a.values, _ = resolve_refs(a.values, host=doc.name, role=a.role.name, options=a.role.options, sctx=ctx.secrets)
     return applied, batches_for(applied, host_info(ctx, doc, updates=updates))
 
 
@@ -80,7 +83,7 @@ def _write_security_note(ctx: Context, doc: Document, items) -> bool:
         if before is not None and _without_checked(before) == _without_checked(text):
             return False  # nothing new but the time: no commit on every check
         write_changes([Change(path, before, text)])
-        return ctx.repo.commit([path], f"refresh: security note {doc.name}")
+        return ctx.repo.commit([path], ctx.secrets.redactor.mask(f"refresh: security note {doc.name}"))
     except Exception as exc:  # a note must never stop a check or an apply
         typer.secho(f"{doc.name}: security note not written: {exc.__class__.__name__}: {exc}", fg="yellow")
         return False
@@ -153,7 +156,7 @@ def _run(names: list[str] | None, *, apply_changes: bool, yes: bool, verbose: bo
                 typer.echo(f"roles: {names}")
                 runner, target = connect(ctx, doc, Path(tmp), yes=yes)
                 check = run_host(runner, doc.name, batches, apply=False)
-                typer.echo(render_host(check, full=full))
+                typer.echo(ctx.secrets.redactor.mask(render_host(check, full=full)))
                 notes_written |= _write_security_note(ctx, doc, check.items)
                 pending = check.count("would-change")
                 if not apply_changes:
@@ -168,7 +171,7 @@ def _run(names: list[str] | None, *, apply_changes: bool, yes: bool, verbose: bo
                     continue
                 else:
                     done = run_host(runner, doc.name, batches, apply=True)
-                    typer.echo(render_host(done, full=full))
+                    typer.echo(ctx.secrets.redactor.mask(render_host(done, full=full)))
                     failed |= not done.ok
                     apply_failed = not done.ok
                 if any(isinstance(res, LynisReport) for b in batches for res in b.resources):
@@ -185,7 +188,7 @@ def _run(names: list[str] | None, *, apply_changes: bool, yes: bool, verbose: bo
                     typer.echo(note)
             except BastetError as exc:
                 where = f" ({exc.file.name}{':' + exc.key if exc.key else ''})" if exc.file else ""
-                typer.secho(f"{doc.name}: {exc.message}{where}", fg="red")
+                typer.secho(ctx.secrets.redactor.mask(f"{doc.name}: {exc.message}{where}"), fg="red")
                 failed = True
             finally:
                 if target is not None:

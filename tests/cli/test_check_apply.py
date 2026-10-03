@@ -1,9 +1,15 @@
+import os
+import subprocess
+from pathlib import Path
+
 import pytest
 
 import bastet.cli.run as run_mod
 from bastet.cli.app import app
 from bastet.core.errors import BastetError, Unreachable
 from bastet.core.remote import LocalRunner
+from bastet.core.secrets import crypto
+from bastet.core.secrets.notes import SecretNote, SecretPath
 from conftest import git
 
 
@@ -271,3 +277,51 @@ def test_security_note_failure_never_stops_the_check(runner, box, inventory, mon
         'service_exposure: false\nlistening_ports: false\nsysctl_defaults: false\n---\n')
     result = runner.invoke(app, ["check", "box"])
     assert result.exit_code == 0 and "security note not written" in result.output
+
+
+def test_secret_reference_is_resolved_and_redacted(runner, box, inventory):
+    key_path = inventory.parent / "bastet_key"
+    subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(key_path)], check=True)
+    pub = (inventory.parent / "bastet_key.pub").read_text().strip()
+
+    cfg_path = Path(os.environ["BASTET_CONFIG"])
+    cfg_path.write_text(cfg_path.read_text() + f"ssh:\n  key: {key_path}\n")
+
+    homelab = inventory / "Homelab.md"
+    homelab.write_text(homelab.read_text().replace("networks:", f"secrets:\n  recipients:\n    - {pub}\nnetworks:"))
+
+    for name in ("motd", "link_target"):
+        sp = SecretPath.parse(f"box/files/{name}")
+        note = SecretNote.new(sp, source="chosen", created="2026-10-03T00:00", applies_to="box")
+        note.body = crypto.seal(sp.text, "SENTINEL-4242", [pub])
+        note.write(inventory)
+    git(inventory, "add", ".")
+    git(inventory, "commit", "-q", "-m", "seed secret")
+
+    # `content:` is marked secret automatically (engine/model.py hides it); `links:` has no such field at
+    # all, so a plaintext target can only be kept out of the report by the redactor backstop.
+    (inventory / "_roles" / "hosts" / "box" / "files.md").write_text(
+        f'---\nbastet: role\nrole: files\napplies_to: "[[box]]"\nfiles:\n  {box}/motd:\n    content: "secret:motd"\n'
+        f'links:\n  {box}/motdlink: "secret:link_target"\n---\n')
+
+    result = runner.invoke(app, ["check", "box"])
+    assert result.exit_code == 0, result.output
+    assert "SENTINEL-4242" not in result.output
+    assert not (box / "motd").exists()
+
+    applied = runner.invoke(app, ["apply", "box", "-y"])
+    assert applied.exit_code == 0, applied.output
+    assert "SENTINEL-4242" not in applied.output
+    assert (box / "motd").read_text() == "SENTINEL-4242"
+    assert (box / "motdlink").is_symlink()
+
+    log = git(inventory, "log", "-p")
+    assert "SENTINEL-4242" not in log
+
+
+def test_missing_secret_fails_that_host_and_continues(runner, box, inventory):
+    (inventory / "_roles" / "hosts" / "box" / "files.md").write_text(
+        f'---\nbastet: role\nrole: files\napplies_to: "[[box]]"\nfiles:\n  {box}/motd:\n    content: "secret:motd"\n---\n')
+    result = runner.invoke(app, ["check", "box"])
+    assert result.exit_code == 1
+    assert "missing secret box/files/motd (bastet secret set box files motd)" in result.output

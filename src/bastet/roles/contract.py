@@ -11,6 +11,7 @@ import yaml
 from bastet.core.errors import BastetError
 
 TYPES = ("string", "int", "number", "bool", "list", "map", "object", "any")  # any: checked by the role's builder
+SECRET_PREFIX = "secret:"  # a reference, resolved and re-checked against the option's type later (spec 15.1)
 RESERVED = {"bastet", "role", "applies_to", "priority", "cssclasses", "tags", "aliases"}
 OPTION_KEYS = {"type", "description", "default", "choices", "items", "fields", "shorthand", "secret", "required"}
 
@@ -81,6 +82,8 @@ def load_roles(directory: Path | None = None) -> dict[str, RoleDef]:
 
 def check_value(opt: Option, value: object, where: str) -> object:
     """Validate one value; returns it normalised (shorthand expanded, empty fields dropped)."""
+    if isinstance(value, str) and value.startswith(SECRET_PREFIX):
+        return value  # unresolved reference: the real value is checked against this type once it's resolved
     if opt.type == "object" and opt.shorthand and isinstance(value, str):
         value = {opt.shorthand: value}
     if opt.type == "any":

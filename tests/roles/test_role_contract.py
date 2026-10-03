@@ -1,7 +1,7 @@
 import pytest
 
 from bastet.core.errors import BastetError
-from bastet.roles.contract import check_values, load_roles, with_defaults
+from bastet.roles.contract import Option, check_value, check_values, load_roles, with_defaults
 
 
 def test_shipped_roles_load():
@@ -61,3 +61,15 @@ def test_every_role_has_examples_that_validate():
 
 def test_files_lines_expose_after():
     assert "after" in load_roles()["files"].options["lines"].items.fields
+
+
+def test_unresolved_secret_reference_passes_any_type_check():
+    """An unresolved `secret:` reference is checked once more, against the real value, after it's resolved."""
+    assert check_value(Option(type="int"), "secret:count", "w") == "secret:count"
+    assert check_value(Option(type="bool"), "secret:flag", "w") == "secret:flag"
+    assert check_value(Option(type="string", choices=("a", "b")), "secret:x", "w") == "secret:x"
+
+
+def test_secret_reference_survives_check_values_on_a_non_string_option():
+    out = check_values(load_roles()["users"], {"users": {"nick": {"uid": "secret:nick_uid"}}}, "f")
+    assert out["users"]["nick"]["uid"] == "secret:nick_uid"
