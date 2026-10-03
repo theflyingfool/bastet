@@ -13,7 +13,10 @@ from bastet.core.errors import BastetError
 TYPES = ("string", "int", "number", "bool", "list", "map", "object", "any")  # any: checked by the role's builder
 SECRET_PREFIX = "secret:"  # a reference, resolved and re-checked against the option's type later (spec 15.1)
 RESERVED = {"bastet", "role", "applies_to", "priority", "cssclasses", "tags", "aliases"}
-OPTION_KEYS = {"type", "description", "default", "choices", "items", "fields", "shorthand", "secret", "required"}
+OPTION_KEYS = {"type", "description", "default", "choices", "items", "fields", "shorthand", "secret", "required",
+               "generate", "source"}
+GENERATE_KINDS = ("password", "token")
+SECRET_SOURCES = ("generated", "chosen", "issued")
 
 
 @dataclass
@@ -27,6 +30,8 @@ class Option:
     shorthand: str | None = None
     secret: bool = False
     required: bool = False
+    generate: dict | None = None  # {kind: password|token, length: int}; offered by `bastet secret set` (15.3)
+    source: str | None = None  # generated | chosen | issued: this option's default `source` when set (15.1, 15.3)
 
 
 @dataclass
@@ -44,9 +49,16 @@ def _option(where: str, raw: object, path: Path) -> Option:
     unknown = set(raw) - OPTION_KEYS
     if unknown:
         raise BastetError(f"{where}: unknown keys {sorted(unknown)}", file=path)
+    generate = raw.get("generate")
+    if generate is not None and (not isinstance(generate, dict) or generate.get("kind") not in GENERATE_KINDS):
+        raise BastetError(f"{where}: generate needs a kind ({', '.join(GENERATE_KINDS)})", file=path)
+    source = raw.get("source")
+    if source is not None and source not in SECRET_SOURCES:
+        raise BastetError(f"{where}: source must be one of {', '.join(SECRET_SOURCES)}", file=path)
     opt = Option(type=raw["type"], description=str(raw.get("description", "")), default=raw.get("default"),
                  choices=tuple(raw["choices"]) if "choices" in raw else None, shorthand=raw.get("shorthand"),
-                 secret=bool(raw.get("secret", False)), required=bool(raw.get("required", False)))
+                 secret=bool(raw.get("secret", False)), required=bool(raw.get("required", False)),
+                 generate=generate, source=source)
     if opt.type in ("list", "map"):
         if "items" not in raw:
             raise BastetError(f"{where}: a {opt.type} option needs items", file=path)

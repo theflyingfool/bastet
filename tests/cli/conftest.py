@@ -1,3 +1,4 @@
+import os
 import subprocess
 from pathlib import Path
 
@@ -33,3 +34,18 @@ def inventory(tmp_path, monkeypatch) -> Path:
 @pytest.fixture
 def runner() -> CliRunner:
     return CliRunner()
+
+
+@pytest.fixture
+def secret_keys(inventory: Path) -> dict:
+    """Throwaway Bastet key, set as `ssh.key` and as a `secrets.recipients` line in Homelab.md."""
+    key_path = inventory.parent / "bastet_key"
+    subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(key_path)], check=True)
+    pub = (inventory.parent / "bastet_key.pub").read_text().strip()
+    cfg_path = Path(os.environ["BASTET_CONFIG"])
+    cfg_path.write_text(cfg_path.read_text() + f"ssh:\n  key: {key_path}\n")
+    homelab = inventory / "Homelab.md"
+    homelab.write_text(homelab.read_text().replace("networks:", f"secrets:\n  recipients:\n    - {pub}\nnetworks:"))
+    git(inventory, "add", ".")
+    git(inventory, "commit", "-q", "-m", "secrets recipients")
+    return {"pub": pub, "key_path": key_path}

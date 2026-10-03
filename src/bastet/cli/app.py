@@ -45,3 +45,6 @@ app.command()(apply)
 from bastet.cli.map import map_  # noqa: E402
 
 app.command(name="map")(map_)
+from bastet.cli.secret import secret_app  # noqa: E402
+
+app.add_typer(secret_app, name="secret")

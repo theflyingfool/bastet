@@ -69,6 +69,31 @@ class GitRepo:
             return False
         return self._git("config", "--get", f"branch.{branch}.merge", check=False).returncode == 0
 
+    def head(self) -> str:
+        return self._git("rev-parse", "HEAD").stdout.strip()
+
+    def _unpushed(self) -> set[str] | None:
+        """Commit hashes not yet pushed, or None when there's no upstream (everything counts as unpushed)."""
+        if not self._has_upstream():
+            return None
+        r = self._git("rev-list", "@{u}..HEAD", check=False)
+        if r.returncode != 0:
+            return None
+        return set(r.stdout.split())
+
+    def squash_since(self, base: str, message: str) -> bool:
+        """Squash every commit since `base` into one, only when none of them are pushed."""
+        head = self.head()
+        if head == base:
+            return False
+        since = set(self._git("rev-list", f"{base}..HEAD").stdout.split())
+        unpushed = self._unpushed()
+        if unpushed is not None and not since <= unpushed:
+            return False
+        self._git("reset", "--soft", base)
+        self._git("-c", f"user.name={BASTET_NAME}", "-c", f"user.email={bastet_email()}", "commit", "-q", "-m", message)
+        return True
+
     def pull(self) -> None:
         if not self.has_remote() or not self._has_upstream():
             return
