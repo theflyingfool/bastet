@@ -69,7 +69,7 @@ def _now() -> str:
 @dataclass
 class Needed:
     sp: SecretPath
-    opt: Option | None
+    contract_opt: Option | None
     used_by: list[str] = field(default_factory=list)
 
 
@@ -177,7 +177,7 @@ def secret_main(ctx_typer: typer.Context) -> None:
 
 def _generate(gen: dict) -> str:
     kind = gen.get("kind", "password")
-    length = int(gen.get("length") or (32 if kind == "password" else 43))
+    length = int(gen.get("length") or 32)
     if kind == "password":
         alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.~"
         return "".join(stdsecrets.choice(alphabet) for _ in range(length))
@@ -272,12 +272,12 @@ def _set_walk(ctx: Context) -> None:
             break
         if choice == "0":
             for n in needed:
-                if _set_one(ctx, n.sp, n.opt):
+                if _set_one(ctx, n.sp, n.contract_opt):
                     committed.append(n.sp)
             break
         if choice.isdigit() and 1 <= int(choice) <= len(needed):
             n = needed[int(choice) - 1]
-            if _set_one(ctx, n.sp, n.opt):
+            if _set_one(ctx, n.sp, n.contract_opt):
                 committed.append(n.sp)
             continue
         typer.echo(f"'{choice}' isn't a choice.")
