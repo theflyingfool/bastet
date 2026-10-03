@@ -20,3 +20,8 @@ class Redactor:
         for value in sorted(self._values, key=len, reverse=True):
             text = text.replace(value, MASK)
         return text
+
+
+# Every value decrypted in this process: the last line of defence for output that has no context at hand
+# (the top-level error handler).
+ACTIVE = Redactor()

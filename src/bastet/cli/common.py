@@ -12,7 +12,7 @@ from bastet.core.hosttypes import HostType, load_host_types
 from bastet.core.inventory import Inventory, load_inventory
 from bastet.core.render import generated_changes
 from bastet.core.secrets.notes import SecretNote, SecretPath
-from bastet.core.secrets.redact import Redactor
+from bastet.core.secrets.redact import ACTIVE
 from bastet.core.secrets.refs import MissingSecret
 from bastet.core.secrets.store import AgeStore, for_note
 
@@ -23,7 +23,7 @@ def handles_errors(fn):
         try:
             return fn(*args, **kwargs)
         except BastetError as exc:
-            typer.secho(f"error: {exc}", fg="red", err=True)
+            typer.secho(ACTIVE.mask(f"error: {exc}"), fg="red", err=True)
             raise typer.Exit(1) from None
 
     return wrapper
@@ -36,7 +36,7 @@ class SecretsContext:
         self.root = root
         self.recipients = recipients
         self.identity_path = identity_path
-        self.redactor = Redactor()
+        self.redactor = ACTIVE  # one per process, so the top-level error handler masks too
         self._identities: list | None = None
 
     def _ensure_identities(self) -> list:
