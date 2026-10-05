@@ -1,4 +1,5 @@
 import re
+from pathlib import Path
 
 import pytest
 
@@ -120,16 +121,11 @@ def test_cli_init_recipients_are_idempotent(runner, tmp_path, monkeypatch, inter
     assert lab_after == lab_before
 
 
-def test_cli_init_offers_recipients_for_existing_inventory(runner, tmp_path, monkeypatch, interactive):
-    """An inventory from before secrets existed: `bastet init` offers to add recipients, as a diff."""
-    cfg = tmp_path / "c" / "bastet.yml"
-    monkeypatch.setenv("BASTET_CONFIG", str(cfg))
-    inv = tmp_path / "Homelab"
-    first = runner.invoke(app, ["init", "--inventory", str(inv), "-y"])
-    assert first.exit_code == 0, first.output
-    lab = inv / "Homelab.md"
+def _strip_secrets_key(lab: Path) -> None:
+    """Drop the `secrets:` block `-y` adds by default, to simulate an inventory from before secrets
+    existed."""
     text = lab.read_text()
-    assert "secrets:" in text  # -y adds them by default; drop them to simulate an older inventory
+    assert "secrets:" in text
     lines = text.splitlines()
     start = lines.index("secrets:")
     end = start + 1
@@ -138,6 +134,17 @@ def test_cli_init_offers_recipients_for_existing_inventory(runner, tmp_path, mon
     del lines[start:end]
     lab.write_text("\n".join(lines) + "\n")
     assert "secrets:" not in lab.read_text()
+
+
+def test_cli_init_offers_recipients_for_existing_inventory(runner, tmp_path, monkeypatch, interactive):
+    """An inventory from before secrets existed: `bastet init` offers to add recipients, as a diff."""
+    cfg = tmp_path / "c" / "bastet.yml"
+    monkeypatch.setenv("BASTET_CONFIG", str(cfg))
+    inv = tmp_path / "Homelab"
+    first = runner.invoke(app, ["init", "--inventory", str(inv), "-y"])
+    assert first.exit_code == 0, first.output
+    lab = inv / "Homelab.md"
+    _strip_secrets_key(lab)
 
     result = runner.invoke(
         app,
@@ -169,13 +176,20 @@ def test_cli_init_without_a_terminal_does_not_create_a_recovery_key(runner, tmp_
 def test_cli_init_without_a_terminal_for_an_existing_inventory_does_not_offer_recipients(
     runner, tmp_path, monkeypatch, interactive
 ):
+    """Same scenario as test_cli_init_offers_recipients_for_existing_inventory (an inventory from
+    before secrets existed, so no recipients yet) but the second run isn't at a terminal: it must not
+    create recipients or print a recovery key, same as a brand new inventory."""
     cfg = tmp_path / "c" / "bastet.yml"
     monkeypatch.setenv("BASTET_CONFIG", str(cfg))
     inv = tmp_path / "Homelab"
     first = runner.invoke(app, ["init", "--inventory", str(inv), "-y"])
     assert first.exit_code == 0, first.output
+    lab = inv / "Homelab.md"
+    _strip_secrets_key(lab)
 
     monkeypatch.setattr(init_mod, "_stdout_is_tty", lambda: False)
     second = runner.invoke(app, ["init", "-y"])
     assert second.exit_code == 0, second.output
     assert "Recovery key" not in second.output
+    assert not RECOVERY_RE.search(second.output)
+    assert "secrets:" not in lab.read_text()
