@@ -129,10 +129,29 @@ class GitRepo:
         self._git(*identity, "commit", "-q", "-m", message, "--", *paths)
         return True
 
-    def pull(self) -> None:
+    def pull(self) -> list[str]:
+        """Pull (fast-forward only); returns the paths that changed, relative to the root (spec 15.8)."""
         if not self.has_remote() or not self._has_upstream():
-            return
+            return []
+        before = self._git("rev-parse", "HEAD", check=False)
+        start = before.stdout.strip() if before.returncode == 0 else None
         self._git("pull", "--ff-only", "-q")
+        if start is None:
+            return []
+        end = self.head()
+        if start == end:
+            return []
+        r = self._git("diff", "--name-only", start, end, check=False)
+        return [p for p in r.stdout.splitlines() if p]
+
+    def last_author(self, path: Path) -> tuple[str, str, str] | None:
+        """(name, email, date YYYY-MM-DD) of the last commit that touched `path`; None if it has no history."""
+        r = self._git("log", "-1", "--format=%an%x1f%ae%x1f%as", "--", self._rel(path), check=False)
+        line = r.stdout.strip()
+        if not line or line.count("\x1f") != 2:
+            return None
+        name, email, date = line.split("\x1f")
+        return name, email, date
 
     def push(self) -> bool:
         if not self.has_remote():

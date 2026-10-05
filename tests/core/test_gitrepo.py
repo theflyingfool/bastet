@@ -62,7 +62,7 @@ def test_dirty_lists_untracked_and_modified(repo):
 
 def test_no_remote_pull_push_are_noops(repo):
     assert not repo.has_remote()
-    repo.pull()
+    assert repo.pull() == []
     assert repo.push() is True
 
 
@@ -79,11 +79,29 @@ def test_pull_and_push_with_remote(tmp_path, repo):
     git(other, "config", "user.name", "Tester")
     git(other, "config", "user.email", "tester@example.com")
     (other / "b.md").write_text("b\n")
-    git(other, "add", "b.md")
+    (other / "_secrets").mkdir()
+    (other / "_secrets" / "lab").mkdir()
+    (other / "_secrets" / "lab" / "x.md").write_text("secret note\n")
+    git(other, "add", "b.md", "_secrets")
     git(other, "commit", "-q", "-m", "b")
     git(other, "push", "-q")
-    repo.pull()
+    changed = repo.pull()
     assert (repo.root / "b.md").exists()
+    assert sorted(changed) == ["_secrets/lab/x.md", "b.md"]
+
+
+def test_last_author(repo):
+    a = repo.root / "a.md"
+    a.write_text("a\n")
+    repo.commit([a], "add a")
+    name, email, date = repo.last_author(a)
+    assert name == "Bastet" and "@" in email and len(date) == 10
+
+
+def test_last_author_no_history_is_none(repo):
+    a = repo.root / "a.md"
+    a.write_text("a\n")
+    assert repo.last_author(a) is None
 
 
 def test_pull_failure_is_bastet_error(tmp_path, repo):

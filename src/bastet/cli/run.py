@@ -2,6 +2,8 @@
 
 import datetime as dt
 import os
+import select
+import sys
 import tempfile
 from pathlib import Path
 
@@ -9,6 +11,7 @@ import typer
 
 import bastet.cli.secret as secret_mod
 from bastet.cli.common import Context, handles_errors, load_context, refresh_generated, scan_first, ssh_ports
+from bastet.core.secrets import health as secret_health
 from bastet.cli.gather import _fixed_ip, local_runner, scan_keys, ssh_runner, sudo_validate
 from bastet.core import hostkeys
 from bastet.core.errors import BastetError
@@ -140,6 +143,31 @@ def _ask_missing(ctx: Context, needed: list, *, yes: bool) -> None:
         typer.secho("warning: push failed; the commit(s) are kept locally", fg="yellow", err=True)
 
 
+UPSTREAM_SECRETS_TIMEOUT = 60
+
+
+def _wait_answer(prompt: str, timeout: float) -> str | None:
+    """Reads one line from stdin, waiting up to `timeout` seconds; None on timeout. Patchable for tests."""
+    typer.echo(prompt, nl=False)
+    ready, _, _ = select.select([sys.stdin], [], [], timeout)
+    if not ready:
+        return None
+    return sys.stdin.readline()
+
+
+def _confirm_upstream_secrets(ctx: Context) -> bool:
+    """Spec 15.8: a pull that changed a secret note asks before `apply` goes on, even with `-y`; no terminal,
+    no answer within 60s, or "no" stops the whole run (no host is touched)."""
+    if not secret_mod._stdin_is_tty():
+        typer.secho("Secrets changed upstream and no terminal is attached; stopping.", fg="red", err=True)
+        return False
+    answer = _wait_answer("Use these? [y/N] ", UPSTREAM_SECRETS_TIMEOUT)
+    if answer is None:
+        typer.secho(f"No answer within {UPSTREAM_SECRETS_TIMEOUT}s; stopping.", fg="red", err=True)
+        return False
+    return answer.strip().lower() in ("y", "yes")
+
+
 def _prepare_secrets(ctx: Context, docs: list[Document], *, yes: bool) -> None:
     """Before any host is touched: generate every missing, generatable secret, then ask for the rest."""
     needed = secret_mod.needed_secrets(ctx, hosts=[d.name for d in docs])
@@ -163,6 +191,8 @@ def _hosts(ctx: Context, names: list[str] | None) -> list[Document]:
 
 def _run(names: list[str] | None, *, apply_changes: bool, yes: bool, verbose: bool, updates: bool = False) -> None:
     ctx = load_context()
+    if apply_changes and ctx.upstream_secrets and not _confirm_upstream_secrets(ctx):
+        raise typer.Exit(1)
     roles = load_roles()
     docs = _hosts(ctx, names)
     for problem in ctx.inventory.problems:  # a role file that applies nowhere would otherwise be silently ignored
@@ -245,6 +275,10 @@ def _run(names: list[str] | None, *, apply_changes: bool, yes: bool, verbose: bo
                     close_master(target)
     if notes_written and not ctx.repo.push():
         typer.secho("warning: push failed; the security notes are committed locally", fg="yellow", err=True)
+    scope = [d.name for d in docs]
+    if secret_health.relevant_secrets(ctx, scope):
+        for line in secret_health.summary_lines(secret_health.findings(ctx, scope_hosts=scope)):
+            typer.echo(ctx.secrets.redactor.mask(line))
     refresh_generated(ctx)
     if failed:
         raise typer.Exit(1)

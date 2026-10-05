@@ -80,6 +80,7 @@ class Context:
     repo: GitRepo
     types: dict[str, HostType]
     inventory: Inventory
+    upstream_secrets: list[str] = field(default_factory=list)  # `_secrets/` paths a pull just changed (spec 15.8)
     _secrets: SecretsContext | None = field(default=None, init=False, repr=False)
 
     @property
@@ -99,18 +100,43 @@ def _refuse_if_plaintext(root: Path) -> None:
         raise BastetError(f"{n} secret(s) are plain text: finish them and run `bastet secret lock`")
 
 
+def alert_upstream_secrets(repo: GitRepo, root: Path, changed: list[str]) -> list[str]:
+    """A pull that changed any `_secrets/` note: a red alert naming who, from where, and when (spec 15.8)."""
+    secret_paths = sorted(p for p in changed if p.startswith("_secrets/") and p.endswith(".md"))
+    if not secret_paths:
+        return []
+    typer.secho("ALERT: secrets changed upstream:", fg="red", err=True, bold=True)
+    for rel in secret_paths:
+        info = repo.last_author(root / rel)
+        if info is None:
+            typer.secho(f"  {rel}", fg="red", err=True)
+            continue
+        name, email, date = info
+        machine = email.split("@", 1)[1] if "@" in email else email
+        typer.secho(f"  {rel} — {name} on {machine}, {date}", fg="red", err=True)
+    return secret_paths
+
+
 def load_context(*, allow_plaintext: bool = False) -> Context:
     config = load_config(config_path())
     root = inventory_dir(config, data_dir())
     if not root.is_dir():
         raise BastetError("inventory directory does not exist; run `bastet init`", file=root)
     repo = GitRepo(root)
+    upstream_secrets: list[str] = []
     if repo.is_repo():
         repo.ensure_hook()
+        try:
+            changed = repo.pull()
+        except BastetError as exc:
+            typer.secho(f"warning: {exc}; continuing on the last pulled state", fg="yellow", err=True)
+            changed = []
+        upstream_secrets = alert_upstream_secrets(repo, root, changed)
     if not allow_plaintext:
         _refuse_if_plaintext(root)
     types = load_host_types()
-    return Context(config=config, root=root, repo=repo, types=types, inventory=load_inventory(root, types))
+    return Context(config=config, root=root, repo=repo, types=types, inventory=load_inventory(root, types),
+                   upstream_secrets=upstream_secrets)
 
 
 def write_with_confirmation(ctx: Context, changes: list[Change], message: str, yes: bool) -> bool:
@@ -118,9 +144,11 @@ def write_with_confirmation(ctx: Context, changes: list[Change], message: str, y
         raise BastetError("the inventory is not a git repository; run `bastet init`", file=ctx.root)
     _refuse_if_plaintext(ctx.root)
     try:
-        ctx.repo.pull()
+        changed = ctx.repo.pull()
     except BastetError as exc:
         typer.secho(f"warning: {exc}; continuing on the last pulled state", fg="yellow", err=True)
+        changed = []
+    ctx.upstream_secrets = alert_upstream_secrets(ctx.repo, ctx.root, changed)
     targets = {c.path for c in changes}
     bastet_files = {d.path.resolve() for d in ctx.inventory.objects.values()} | {t.resolve() for t in targets}
     pending = [p for p in ctx.repo.dirty() if p.suffix == ".md" and p.resolve() in bastet_files]
