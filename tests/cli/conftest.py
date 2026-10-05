@@ -34,6 +34,9 @@ def inventory(tmp_path, monkeypatch) -> Path:
     cfg.write_text(f"inventory:\n  path: {root}\n")
     monkeypatch.setenv("BASTET_CONFIG", str(cfg))
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    # `connect()` creates its SSH control-socket directory for real (core/remote.py:control_path);
+    # keep it under tmp_path instead of the real $XDG_RUNTIME_DIR or ~/.cache.
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
     return root
 
 

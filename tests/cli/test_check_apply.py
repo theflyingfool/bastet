@@ -424,6 +424,9 @@ def test_connect_local_host_builds_ssh_target_to_loopback(secret_keys, inventory
     assert target.user == "bastet"
     assert target.key == ctx.config.ssh.key
     assert target.known_hosts.read_text() == f"127.0.0.1 ssh-ed25519 {blob}\n"
+    # control_path() creates its socket directory for real; it must land under tmp_path, never the
+    # real $XDG_RUNTIME_DIR or ~/.cache.
+    assert str(inventory.parent) in str(target.control_path)
 
 
 def test_connect_local_host_ignores_its_lan_ip(secret_keys, inventory, monkeypatch):
@@ -447,3 +450,4 @@ def test_connect_local_host_ignores_its_lan_ip(secret_keys, inventory, monkeypat
     doc = ctx.inventory.get("laptop1")
     _, target = run_mod.connect(ctx, doc, inventory, yes=True)
     assert target.address == "127.0.0.1"
+    assert str(inventory.parent) in str(target.control_path)
