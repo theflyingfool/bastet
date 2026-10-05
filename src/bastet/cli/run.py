@@ -125,8 +125,12 @@ def _generate_missing(ctx: Context, needed: list) -> None:
         texts.append(n.sp.text)
         typer.echo(f"Generated {n.sp.text}.")
     if ctx.repo.is_repo():
+        from bastet.core.secrets import confirm as secrets_confirm
+
+        was_pending = secrets_confirm.pending(ctx.repo, ctx.root)
         message = f"secret: generate {len(texts)} secrets ({', '.join(texts)})"
         ctx.repo.commit(paths, message)
+        secrets_confirm.confirm_own_commit(ctx.repo, ctx.root, was_pending)
         if not ctx.repo.push():
             typer.secho("warning: push failed; the commit is kept locally", fg="yellow", err=True)
 
@@ -195,7 +199,7 @@ def _run(names: list[str] | None, *, apply_changes: bool, yes: bool, verbose: bo
     if apply_changes and ctx.upstream_secrets:
         if not _confirm_upstream_secrets(ctx):
             raise typer.Exit(1)
-        confirm_upstream_secrets(ctx.root)
+        confirm_upstream_secrets(ctx)
     roles = load_roles()
     docs = _hosts(ctx, names)
     for problem in ctx.inventory.problems:  # a role file that applies nowhere would otherwise be silently ignored

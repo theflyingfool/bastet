@@ -276,7 +276,11 @@ def _set_one(
     _write_note(ctx, sp, value, source, exists)
     ctx.secrets.redactor.add(value)
     typer.echo(f"Set {sp.text} ({source}, {len(value)} characters).")
+    from bastet.core.secrets import confirm as secrets_confirm
+
+    was_pending = secrets_confirm.pending(ctx.repo, ctx.root)
     ctx.repo.commit([ctx.root / sp.rel], f"secret: set {sp.text}")
+    secrets_confirm.confirm_own_commit(ctx.repo, ctx.root, was_pending)
     return "committed"
 
 
@@ -310,6 +314,11 @@ def _set_walk(ctx: Context) -> None:
         if len(committed) > 1 and base is not None:
             words = ", ".join(sp.text for sp in committed)
             ctx.repo.squash_since(base, f"secret: set {len(committed)} secrets ({words})")
+            # the squash rewrote the commits each _set_one already confirmed into one new commit:
+            # re-point the confirmed baseline at it (these are still only Bastet's own secret commits).
+            from bastet.core.secrets import confirm as secrets_confirm
+
+            secrets_confirm.confirm(ctx.repo, ctx.root)
         if not ctx.repo.push():
             typer.secho("warning: push failed; the commit(s) are kept locally", fg="yellow", err=True)
 

@@ -1,5 +1,4 @@
 import functools
-import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -12,6 +11,7 @@ from bastet.core.gitrepo import GitRepo
 from bastet.core.hosttypes import HostType, load_host_types
 from bastet.core.inventory import Inventory, load_inventory
 from bastet.core.render import generated_changes
+from bastet.core.secrets import confirm as secrets_confirm
 from bastet.core.secrets.notes import SecretNote, SecretPath
 from bastet.core.secrets.redact import ACTIVE
 from bastet.core.secrets.refs import MissingSecret
@@ -102,38 +102,23 @@ def _refuse_if_plaintext(root: Path) -> None:
         raise BastetError(f"{n} secret(s) are plain text: finish them and run `bastet secret lock`")
 
 
-UNCONFIRMED = ".bastet/unconfirmed-secrets.json"
+def confirm_upstream_secrets(ctx: "Context") -> None:
+    """The person accepted the pending secret changes (in `apply`), or Bastet just made its own
+    secret commit: stop alerting about everything up to the current HEAD."""
+    secrets_confirm.confirm(ctx.repo, ctx.root)
 
 
-def _unconfirmed(root: Path) -> list[str]:
-    try:
-        return sorted(set(json.loads((root / UNCONFIRMED).read_text(encoding="utf-8"))))
-    except (OSError, ValueError, TypeError):
-        return []
-
-
-def confirm_upstream_secrets(root: Path) -> None:
-    """The person accepted the pulled secret changes (in apply): stop alerting about them."""
-    (root / UNCONFIRMED).unlink(missing_ok=True)
-
-
-def alert_upstream_secrets(repo: GitRepo, root: Path, changed: list[str]) -> list[str]:
-    """Secret notes a pull changed and nobody has confirmed yet: a red alert naming who, from where, and when
-    (spec 15.8). They stay unconfirmed across commands until an `apply` confirms them, so a change pulled by
-    `check` still stops the next `apply`."""
-    new = [p for p in changed if p.startswith("_secrets/") and p.endswith(".md")]
-    secret_paths = sorted(set(_unconfirmed(root)) | set(new))
-    if new:
-        from bastet.core.secrets.plaintext import _ensure_gitignored  # keeps .bastet/ out of git
-
-        _ensure_gitignored(root)
-        (root / UNCONFIRMED).parent.mkdir(parents=True, exist_ok=True)
-        (root / UNCONFIRMED).write_text(json.dumps(secret_paths), encoding="utf-8")
+def alert_upstream_secrets(repo: GitRepo, root: Path) -> list[str]:
+    """Secret notes changed since the last confirmed commit, however that happened -- a red alert
+    naming who, from where, and when (spec 15.8). They stay unconfirmed across commands until an
+    `apply` confirms them (or Bastet made the change itself), because the confirmed-commit baseline
+    only ever moves forward on those two events, not on being alerted about."""
+    secret_paths = secrets_confirm.changed_since_confirmed(repo, root)
     if not secret_paths:
         return []
     typer.secho("ALERT: secrets changed upstream:", fg="red", err=True, bold=True)
     for rel in secret_paths:
-        info = repo.last_author(root / rel)
+        info = repo.last_author(root / rel) if (root / rel).exists() else None
         if info is None:
             typer.secho(f"  {rel}", fg="red", err=True)
             continue
@@ -152,12 +137,15 @@ def load_context(*, allow_plaintext: bool = False) -> Context:
     upstream_secrets: list[str] = []
     if repo.is_repo():
         repo.ensure_hook()
+        # Before pulling: a fresh confirmed-commit baseline is today's HEAD, not tomorrow's -- so a
+        # secret change this very pull is about to bring in still gets caught below, while nothing
+        # already in history before Bastet ever ran here gets alerted on retroactively.
+        secrets_confirm.ensure_baseline(repo, root)
         try:
-            changed = repo.pull()
+            repo.pull()
         except BastetError as exc:
             typer.secho(f"warning: {exc}; continuing on the last pulled state", fg="yellow", err=True)
-            changed = []
-        upstream_secrets = alert_upstream_secrets(repo, root, changed)
+        upstream_secrets = alert_upstream_secrets(repo, root)
     if not allow_plaintext:
         _refuse_if_plaintext(root)
     types = load_host_types()
@@ -170,11 +158,10 @@ def write_with_confirmation(ctx: Context, changes: list[Change], message: str, y
         raise BastetError("the inventory is not a git repository; run `bastet init`", file=ctx.root)
     _refuse_if_plaintext(ctx.root)
     try:
-        changed = ctx.repo.pull()
+        ctx.repo.pull()
     except BastetError as exc:
         typer.secho(f"warning: {exc}; continuing on the last pulled state", fg="yellow", err=True)
-        changed = []
-    ctx.upstream_secrets = alert_upstream_secrets(ctx.repo, ctx.root, changed)
+    ctx.upstream_secrets = alert_upstream_secrets(ctx.repo, ctx.root)
     targets = {c.path for c in changes}
     bastet_files = {d.path.resolve() for d in ctx.inventory.objects.values()} | {t.resolve() for t in targets}
     pending = [p for p in ctx.repo.dirty() if p.suffix == ".md" and p.resolve() in bastet_files]

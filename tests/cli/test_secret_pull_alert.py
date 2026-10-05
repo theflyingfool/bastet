@@ -132,3 +132,37 @@ def test_confirmed_change_stops_alerting(
     assert runner.invoke(app, ["apply", "box", "-y"]).exit_code == 0
     again = runner.invoke(app, ["check", "box"])
     assert "ALERT" not in again.output
+
+
+# --- C3: the gate must catch a secret change however it reached this machine, not just a pull one
+# of Bastet's own commands just did ---
+
+
+def test_a_secret_change_pulled_by_a_plain_git_pull_still_gates_the_next_apply(
+    runner, box, inventory, secret_keys, test_role, remote, tmp_path, monkeypatch
+):
+    """A secret change that arrives via a manual `git pull` (not `bastet check`/`apply`, not
+    `secret set`'s quiet pull, not `bastet refresh`) must still stop the next `apply -y` with no
+    terminal attached -- no host run -- exactly as if Bastet's own pull had seen it."""
+    calls: list[str] = []
+    real_run_host = run_mod.run_host
+
+    def tracking_run_host(*a, **k):
+        calls.append("called")
+        return real_run_host(*a, **k)
+
+    monkeypatch.setattr(run_mod, "run_host", tracking_run_host)
+
+    # Establish a confirmed baseline the way a real inventory would: some Bastet command ran here
+    # before the upstream change ever existed.
+    assert runner.invoke(app, ["check", "box"]).exit_code == 0
+
+    _push_secret_change(remote, tmp_path, secret_keys["pub"])
+    git(inventory, "pull", "-q", "--ff-only")  # not through Bastet at all
+
+    result = runner.invoke(app, ["apply", "box", "-y"])
+
+    assert result.exit_code == 1
+    assert "ALERT" in result.output
+    assert calls == []
+    assert not (box / "motd").exists()
