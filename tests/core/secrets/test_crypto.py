@@ -5,7 +5,7 @@ import pytest
 import pyrage
 
 from bastet.core.secrets import crypto
-from bastet.core.secrets.crypto import SecretError
+from bastet.core.secrets.crypto import PathMismatch, SecretError
 
 
 @pytest.fixture
@@ -26,7 +26,7 @@ def test_seal_and_open_with_either_key(keys):
 
 def test_copied_into_another_note_fails(keys):
     armored = crypto.seal("git1/gitea/admin_password", "s3cret", [keys["ssh_pub"]])
-    with pytest.raises(SecretError, match="sealed for git1/gitea/admin_password"):
+    with pytest.raises(PathMismatch, match="sealed for git1/gitea/admin_password"):
         crypto.open_sealed(armored, "db1/postgres/gitea_password", [crypto.identity(keys["ssh_key"])])
 
 

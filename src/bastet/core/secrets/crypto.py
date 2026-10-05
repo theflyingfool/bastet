@@ -15,6 +15,10 @@ class SecretError(BastetError):
     """A secret couldn't be sealed, opened or found."""
 
 
+class PathMismatch(SecretError):
+    """A sealed payload decrypted fine, but its path doesn't match the note it was found in (health: `path_mismatch`)."""
+
+
 @dataclass
 class Sealed:
     value: str
@@ -72,5 +76,5 @@ def open_sealed(armored: str, path: str, identities) -> Sealed:
     except (json.JSONDecodeError, KeyError, TypeError):
         raise SecretError(f"{path}: can't decrypt (not sealed by Bastet?)") from None
     if payload.get("path") != path:
-        raise SecretError(f"{path}: sealed for {payload.get('path')}")
+        raise PathMismatch(f"{path}: sealed for {payload.get('path')}")
     return Sealed(value=value, next=payload.get("next"))

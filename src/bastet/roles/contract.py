@@ -12,9 +12,9 @@ from bastet.core.errors import BastetError
 
 TYPES = ("string", "int", "number", "bool", "list", "map", "object", "any")  # any: checked by the role's builder
 SECRET_PREFIX = "secret:"  # a reference, resolved and re-checked against the option's type later (spec 15.1)
-RESERVED = {"bastet", "role", "applies_to", "priority", "cssclasses", "tags", "aliases"}
+RESERVED = {"bastet", "role", "applies_to", "priority", "cssclasses", "tags", "aliases", "rotate_every"}
 OPTION_KEYS = {"type", "description", "default", "choices", "items", "fields", "shorthand", "secret", "required",
-               "generate", "source"}
+               "generate", "source", "rotate_every"}
 GENERATE_KINDS = ("password", "token")
 SECRET_SOURCES = ("generated", "chosen", "issued")
 
@@ -32,6 +32,7 @@ class Option:
     required: bool = False
     generate: dict | None = None  # {kind: password|token, length: int}; offered by `bastet secret set` (15.3)
     source: str | None = None  # generated | chosen | issued: this option's default `source` when set (15.1, 15.3)
+    rotate_every: object = None  # a per-source map ({generated: 180d, ...}) or a bare duration; the weakest policy level (15.6)
 
 
 @dataclass
@@ -58,7 +59,7 @@ def _option(where: str, raw: object, path: Path) -> Option:
     opt = Option(type=raw["type"], description=str(raw.get("description", "")), default=raw.get("default"),
                  choices=tuple(raw["choices"]) if "choices" in raw else None, shorthand=raw.get("shorthand"),
                  secret=bool(raw.get("secret", False)), required=bool(raw.get("required", False)),
-                 generate=generate, source=source)
+                 generate=generate, source=source, rotate_every=raw.get("rotate_every"))
     if opt.type in ("list", "map"):
         if "items" not in raw:
             raise BastetError(f"{where}: a {opt.type} option needs items", file=path)

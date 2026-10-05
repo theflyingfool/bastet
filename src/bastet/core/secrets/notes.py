@@ -4,6 +4,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from bastet.core.errors import BastetError
 from bastet.core.frontmatter import new_document, parse_document
 from bastet.core.links import make_link
 from bastet.core.secrets.crypto import SecretError
@@ -157,3 +158,28 @@ def all_notes(root: Path) -> list[SecretNote]:
         sp = _path_from_parts(rel.with_suffix("").parts)
         notes.append(SecretNote.load(root, sp))
     return notes
+
+
+@dataclass
+class BadNote:
+    """A secret note under `_secrets/` that couldn't be loaded (bad nesting, bad YAML, unreadable)."""
+
+    rel: str
+    error: str
+
+
+def all_notes_safe(root: Path) -> tuple[list[SecretNote], list[BadNote]]:
+    """Like `all_notes`, but a note that fails to load is reported, not raised (health, `bastet secret`)."""
+    base = root / "_secrets"
+    if not base.exists():
+        return [], []
+    notes: list[SecretNote] = []
+    bad: list[BadNote] = []
+    for path in sorted(base.rglob("*.md")):
+        rel = path.relative_to(base)
+        try:
+            sp = _path_from_parts(rel.with_suffix("").parts)
+            notes.append(SecretNote.load(root, sp))
+        except (BastetError, OSError, UnicodeDecodeError) as exc:
+            bad.append(BadNote(rel=str(path.relative_to(root)), error=str(exc)))
+    return notes, bad
