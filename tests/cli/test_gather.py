@@ -22,8 +22,10 @@ class FakeRunner:
         self.name = name
 
     def run(self, script, *, timeout=120):
-        mark = re.search(r"'(@@BASTET[^']*@@)'", script).group(1)
-        return CommandResult(stdout_for(self.outputs, mark), "", 0)
+        match = re.search(r"'(@@BASTET[^']*@@)'", script)
+        if match is None:
+            return CommandResult("", "", 0)  # the cheap `true` probe: always succeeds
+        return CommandResult(stdout_for(self.outputs, match.group(1)), "", 0)
 
 
 def git(root: Path, *args: str) -> str:
@@ -370,8 +372,10 @@ class InstallingRunner:
         if "BASTET-INSTALL" in script:
             self.installs.append(script)
             return CommandResult("", "", 0)
-        mark = re.search(r"'(@@BASTET[^']*@@)'", script).group(1)
-        return CommandResult(stdout_for(self.after if self.installs else self.before, mark), "", 0)
+        match = re.search(r"'(@@BASTET[^']*@@)'", script)
+        if match is None:
+            return CommandResult("", "", 0)  # the cheap `true` probe: always succeeds
+        return CommandResult(stdout_for(self.after if self.installs else self.before, match.group(1)), "", 0)
 
 
 def _rack_host(inventory):

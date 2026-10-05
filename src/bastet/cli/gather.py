@@ -4,6 +4,7 @@ import json
 import ipaddress
 import shlex
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 
 import typer
@@ -11,6 +12,7 @@ import typer
 from bastet.cli.common import (
     Context,
     find_named_host,
+    guard_prompts,
     handles_errors,
     load_context,
     print_problems,
@@ -37,7 +39,9 @@ from bastet.core.frontmatter import Document, parse_document, set_keys
 from bastet.core.unifi import device_facts, machine_item, parse_mca, redact
 from bastet.core.gatherplan import Note, plan_update
 from bastet.core.hardware import HardwareView, RunState, observe_hardware, plan_hardware
+from bastet.core.parallel import HostLog, Outcome, in_worker, run_parallel
 from bastet.core.remote import SshRunner, SshTarget, run_interactive
+from bastet.core.secrets.redact import ACTIVE
 from bastet.core.shell import ProbeResult
 
 LOCAL_ADDRESS = "127.0.0.1"
@@ -116,16 +120,6 @@ def _pin(ctx: Context, doc: Document, tmp: Path, *, yes: bool, accept: bool,
     return str(address), known, hostkey, port
 
 
-def _gather_unifi(ctx: Context, doc: Document, tmp: Path, *, yes: bool, accept: bool) -> tuple[str, str]:
-    """UniFi devices: one read-only `mca-dump` over the user's own SSH login (UniFi's device SSH account)."""
-    address, known, hostkey, _ = _pin(ctx, doc, tmp, yes=yes, accept=accept)
-    user = ctx.config.ssh.bootstrap_user or getpass.getuser()
-    res = ssh_runner(SshTarget(address, user, None, known)).run("mca-dump\n", timeout=60)
-    if res.returncode != 0 or not res.stdout.strip():
-        raise BastetError("mca-dump failed or isn't there; is this a UniFi device, and does the device SSH login work?")
-    return res.stdout, hostkey
-
-
 def _group(proposals) -> dict[str, list[dict]]:
     out: dict[str, list[dict]] = {}
     for p in proposals:
@@ -133,13 +127,28 @@ def _group(proposals) -> dict[str, list[dict]]:
     return out
 
 
-def _collect(ctx: Context, doc: Document, tmp: Path, *, yes: bool, accept: bool) -> tuple[Snapshot, str | None, object]:
+@dataclass
+class Prepared:
+    """A host ready for its (parallel) collection: its pinned key, and a runner already logged in."""
+
+    hostkey: str | None
+    runner: object
+    is_unifi: bool
+
+
+def _prepare(ctx: Context, doc: Document, host_type, tmp: Path, *, yes: bool, accept: bool) -> Prepared:
+    """Pin the host key and log in (asking as needed); the collection itself happens later, in parallel."""
+    if host_type.name.startswith("unifi-"):
+        address, known, hostkey, _ = _pin(ctx, doc, tmp, yes=yes, accept=accept)
+        user = ctx.config.ssh.bootstrap_user or getpass.getuser()
+        return Prepared(hostkey, ssh_runner(SshTarget(address, user, None, known)), True)
     address, known, hostkey, port = _pin(ctx, doc, tmp, yes=yes, accept=accept, ports=ssh_ports(ctx, doc))
     key = ctx.config.ssh.key
     if key is not None:
         try:
             runner = ssh_runner(SshTarget(str(address), "bastet", key, known, port=port))
-            return collect(runner, doc.name), hostkey, runner
+            runner.run("true\n")  # cheap: just prove the login works before committing to it
+            return Prepared(hostkey, runner, False)
         except AuthFailed:
             pass
     user = ctx.config.ssh.bootstrap_user or getpass.getuser()
@@ -155,43 +164,110 @@ def _collect(ctx: Context, doc: Document, tmp: Path, *, yes: bool, accept: bool)
         if interactive(own, setup_command(public_key)) == 0:
             try:
                 runner = ssh_runner(SshTarget(str(address), "bastet", key, known, port=port))
-                return collect(runner, doc.name), hostkey, runner
+                runner.run("true\n")
+                return Prepared(hostkey, runner, False)
             except AuthFailed:
                 typer.secho(f"{doc.name}: bastet user set up, but its login was refused; continuing as {user}", fg="yellow")
         else:
             typer.secho(f"{doc.name}: setting up the bastet user failed; continuing as {user}", fg="yellow")
-    runner = ssh_runner(own)
-    return collect(runner, doc.name), hostkey, runner
+    return Prepared(hostkey, ssh_runner(own), False)
 
 
-def _maybe_install_tools(ctx: Context, doc: Document, host_type, snapshot: Snapshot, runner, yes: bool):
-    """Install useful gather tools the host is missing (per config and host), then collect again."""
-    installed: list[str] = []
+def _collect_one(prepared: Prepared, host: str):
+    """The actual collection, run in a worker: `collect()`, or a UniFi `mca-dump`."""
+    if prepared.is_unifi:
+        res = prepared.runner.run("mca-dump\n", timeout=60)
+        if res.returncode != 0 or not res.stdout.strip():
+            raise BastetError("mca-dump failed or isn't there; is this a UniFi device, and does the device SSH login work?")
+        return res.stdout
+    return collect(prepared.runner, host)
+
+
+def _echo_outcome(outcome: Outcome, done: str) -> None:
+    """Print a finished parallel host's buffered lines, then its own result line."""
+    for text, fg in outcome.log.lines:
+        typer.secho(ACTIVE.mask(text), fg=fg)
+    if outcome.status == "done":
+        typer.echo(ACTIVE.mask(f"{outcome.host}: {done}"))
+    elif outcome.status == "error":
+        typer.secho(ACTIVE.mask(f"{outcome.host}: {outcome.error}"), fg="yellow")
+    # "not-started" (e.g. after Ctrl-C): nothing to report, this host never ran.
+
+
+def _tools_ask(ctx: Context, doc: Document, host_type, snapshot: Snapshot, installed: list[str], yes: bool):
+    """Decide (asking if needed) whether to install missing tools on this host; None skips it."""
     mode = ctx.config.gather.install_tools
     if mode == "never" or doc.data.get("install_tools") is False or (mode == "ask" and yes):
-        return snapshot, installed
-    for _ in range(2):  # a second round catches tools only found to be useful after the first (e.g. a BMC)
-        tools = [t for t in needed_tools(snapshot.results, host_type) if t not in installed]
-        if not tools:
-            break
-        manager = (snapshot.results.get("pkg_mgr").output.strip() if snapshot.results.get("pkg_mgr") else "") or None
-        script = install_script(manager, tools)
-        if script is None:
-            typer.secho(f"{doc.name}: missing {', '.join(tools)}, but no supported package manager was found", fg="yellow")
-            break
-        if mode == "ask" and not typer.confirm(
-            f"{doc.name}: install {', '.join(tools)} for fuller hardware info?", default=True
-        ):
-            break
-        result = runner.run(script, timeout=600)
+        return None
+    tools = [t for t in needed_tools(snapshot.results, host_type) if t not in installed]
+    if not tools:
+        return None
+    manager = (snapshot.results.get("pkg_mgr").output.strip() if snapshot.results.get("pkg_mgr") else "") or None
+    script = install_script(manager, tools)
+    if script is None:
+        typer.secho(f"{doc.name}: missing {', '.join(tools)}, but no supported package manager was found", fg="yellow")
+        return None
+    if mode == "ask" and not typer.confirm(
+        f"{doc.name}: install {', '.join(tools)} for fuller hardware info?", default=True
+    ):
+        return None
+    return script, tools
+
+
+def _tools_round(
+    ctx: Context, docs: list[Document], host_types: dict[str, object], prepared: dict[str, Prepared],
+    collected: dict[str, Snapshot], installed: dict[str, list[str]], *, yes: bool, jobs: int,
+) -> set[str]:
+    """One ask-then-install round over `docs` (serial asks, then parallel installs + re-collects).
+
+    Returns the hosts whose install and re-collect both succeeded -- the only ones worth asking again.
+    """
+    to_run: dict[str, tuple[str, list[str]]] = {}
+    for doc in docs:
+        host = doc.name
+        if host not in collected or host_types[host].name.startswith("unifi-"):
+            continue
+        decision = _tools_ask(ctx, doc, host_types[host], collected[host], installed[host], yes)
+        if decision is not None:
+            to_run[host] = decision
+    if not to_run:
+        return set()
+
+    def work(host: str, log: HostLog):
+        script, tools = to_run[host]
+        result = prepared[host].runner.run(script, timeout=600)
         if result.returncode != 0:
             tail = (result.stderr or result.stdout).strip().splitlines()[-1:] or ["no output"]
-            typer.secho(f"{doc.name}: installing {', '.join(tools)} failed: {tail[0]}", fg="yellow")
-            break
-        installed += tools
-        typer.echo(f"{doc.name}: installed {', '.join(tools)}")
-        snapshot = collect(runner, doc.name)
-    return snapshot, installed
+            return ("failed", tail[0])
+        return ("ok", collect(prepared[host].runner, host), tools)
+
+    succeeded: set[str] = set()
+
+    def on_done(outcome: Outcome) -> None:
+        for text, fg in outcome.log.lines:
+            typer.secho(ACTIVE.mask(text), fg=fg)
+        if outcome.status == "error":
+            typer.secho(ACTIVE.mask(f"{outcome.host}: {outcome.error}"), fg="yellow")
+            collected.pop(outcome.host, None)  # a real failure here drops the host, same as any other phase
+            return
+        if outcome.status == "not-started":
+            collected.pop(outcome.host, None)
+            return
+        kind = outcome.value[0]
+        if kind == "failed":
+            tools = to_run[outcome.host][1]
+            typer.secho(
+                ACTIVE.mask(f"{outcome.host}: installing {', '.join(tools)} failed: {outcome.value[1]}"), fg="yellow"
+            )
+            return
+        _, new_snapshot, tools = outcome.value
+        collected[outcome.host] = new_snapshot
+        installed[outcome.host] += tools
+        succeeded.add(outcome.host)
+        typer.echo(ACTIVE.mask(f"{outcome.host}: installed {', '.join(tools)}"))
+
+    run_parallel(list(to_run), work, jobs=jobs, on_done=on_done)
+    return succeeded
 
 
 def _guest_command(node: str, guest: dict) -> str:
@@ -239,8 +315,15 @@ def gather(
     jobs: int | None = typer.Option(None, "--jobs", "-j", min=1, help="How many hosts to gather at once (default: the config value)."),
 ) -> None:
     """Collect facts from hosts and write them into their files, after showing the diff."""
+    with guard_prompts():
+        _gather(hosts, take, accept_new_hostkey, yes, jobs)
+
+
+def _gather(
+    hosts: list[str] | None, take: list[str], accept_new_hostkey: bool, yes: bool, jobs: int | None
+) -> None:
     ctx = load_context()
-    _ = resolve_jobs(jobs, ctx.config)  # accepted and validated; hosts still run one at a time
+    run_jobs = resolve_jobs(jobs, ctx.config)
     print_problems(ctx)
     inv = ctx.inventory
     if hosts:
@@ -264,13 +347,63 @@ def gather(
     run_state = RunState()
     unifi_devices: dict = {}
     with tempfile.TemporaryDirectory(prefix="bastet-") as tmp:
+        tmp_path = Path(tmp)
+
+        # Connect, serially, in inventory order -- pinning keys and logging in may ask.
+        host_types: dict[str, object] = {}
+        prepared: dict[str, Prepared] = {}
+        live_docs: list[Document] = []
         for doc in docs:
             typer.echo(f"{doc.name}: gathering…")
-            network_notes: list[tuple[str, str]] = []
+            host_type = ctx.types.get(str(doc.data.get("type")), ctx.types["unknown"])
+            host_types[doc.name] = host_type
             try:
-                host_type = ctx.types.get(str(doc.data.get("type")), ctx.types["unknown"])
+                prepared[doc.name] = _prepare(ctx, doc, host_type, tmp_path, yes=yes, accept=accept_new_hostkey)
+                live_docs.append(doc)
+            except BastetError as exc:
+                typer.secho(f"{doc.name}: {exc}", fg="yellow")
+            except Exception as exc:  # one host's surprise must not lose the others' results
+                typer.secho(f"{doc.name}: unexpected error: {exc.__class__.__name__}: {exc}", fg="yellow")
+
+        # Collect, in parallel.
+        collected: dict[str, object] = {}
+        installed: dict[str, list[str]] = {}
+
+        def collect_work(host: str, log: HostLog):
+            return _collect_one(prepared[host], host)
+
+        def on_collect_done(outcome: Outcome) -> None:
+            _echo_outcome(outcome, "collected")
+
+        outcomes = run_parallel(
+            [d.name for d in live_docs], collect_work, jobs=run_jobs, on_done=on_collect_done
+        )
+        for outcome in outcomes:
+            if outcome.status == "done":
+                collected[outcome.host] = outcome.value
+                installed[outcome.host] = []
+
+        # Tools: ask serially (inventory order), then install + re-collect in parallel.
+        # A second round only revisits hosts whose round-1 install and re-collect both succeeded.
+        round1 = _tools_round(
+            ctx, live_docs, host_types, prepared, collected, installed, yes=yes, jobs=run_jobs
+        )
+        if round1:
+            _tools_round(
+                ctx, [d for d in live_docs if d.name in round1], host_types, prepared, collected, installed,
+                yes=yes, jobs=run_jobs,
+            )
+
+        # Plan and write, serially, in inventory order -- not thread-safe.
+        for doc in live_docs:
+            if doc.name not in collected:
+                continue  # already reported, in phase 2 or 3
+            host_type = host_types[doc.name]
+            network_notes: list[tuple[str, str]] = []
+            hostkey = prepared[doc.name].hostkey
+            try:
                 if host_type.name.startswith("unifi-"):
-                    raw, hostkey = _gather_unifi(ctx, doc, Path(tmp), yes=yes, accept=accept_new_hostkey)
+                    raw = collected[doc.name]
                     device = parse_mca(raw)
                     taken = dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
                     snapshot = Snapshot(doc.name, "ssh", taken,
@@ -282,11 +415,10 @@ def gather(
                     if host_type.name == "unifi-gateway" and (nets := lab_networks(inv)):
                         network_notes = compare_networks(nets, device.networks)
                 else:
-                    snapshot, hostkey, runner = _collect(ctx, doc, Path(tmp), yes=yes, accept=accept_new_hostkey)
-                    snapshot, installed = _maybe_install_tools(ctx, doc, host_type, snapshot, runner, yes)
+                    snapshot = collected[doc.name]
                     save_snapshot(snapshot, data_dir())
                     extracted = extract(snapshot.results)
-                    tools = sorted(set(doc.data.get("bastet_tools") or []) | set(installed))
+                    tools = sorted(set(doc.data.get("bastet_tools") or []) | set(installed[doc.name]))
                     if tools:
                         extracted.facts["bastet_tools"] = tools
                     view = observe_hardware(doc.name, snapshot.results, extracted) if host_type.physical else None
