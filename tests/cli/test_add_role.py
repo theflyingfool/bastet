@@ -1,4 +1,5 @@
 from bastet.cli.app import app
+from bastet.core.secrets.notes import SecretNote, SecretPath
 from conftest import git
 
 
@@ -72,3 +73,32 @@ def test_existing_role_skipped_others_written(runner, inventory):
     result = runner.invoke(app, ["add", "role", "base", "harden", "--to", "pve1", "-y"])
     assert result.exit_code == 0 and "already" in result.output
     assert (inventory / "_roles" / "hosts" / "pve1" / "harden.md").exists()
+
+
+# --- add role offers to set the secrets it needs (spec 15.3; plan task 5) ---
+
+
+def test_add_role_asks_to_set_needed_secrets(runner, secret_keys, inventory, test_role):
+    result = runner.invoke(app, ["add", "role", "impliedsecret", "box"], input="y\ny\ns\n")
+    assert result.exit_code == 0, result.output
+    assert "Set them now?" in result.output
+    assert "bastet secret set box impliedsecret api_key" in result.output
+    assert not (inventory / "_secrets" / "box" / "impliedsecret" / "api_key.md").exists()
+
+
+def test_add_role_yes_prints_commands_without_asking(runner, secret_keys, inventory, test_role):
+    result = runner.invoke(app, ["add", "role", "impliedsecret", "box", "-y"])
+    assert result.exit_code == 0, result.output
+    assert "Set them now?" not in result.output
+    assert "bastet secret set box impliedsecret api_key" in result.output
+    assert not (inventory / "_secrets" / "box" / "impliedsecret" / "api_key.md").exists()
+
+
+def test_add_role_set_now_writes_the_secret(runner, secret_keys, inventory, test_role, interactive):
+    result = runner.invoke(
+        app, ["add", "role", "impliedsecret", "box"], input="y\ny\nSENTINEL-API\nSENTINEL-API\n"
+    )
+    assert result.exit_code == 0, result.output
+    assert "SENTINEL-API" not in result.output
+    note = SecretNote.load(inventory, SecretPath.parse("box/impliedsecret/api_key"))
+    assert note.is_sealed

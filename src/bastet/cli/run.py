@@ -7,6 +7,7 @@ from pathlib import Path
 
 import typer
 
+import bastet.cli.secret as secret_mod
 from bastet.cli.common import Context, handles_errors, load_context, refresh_generated, scan_first, ssh_ports
 from bastet.cli.gather import _fixed_ip, local_runner, scan_keys, ssh_runner, sudo_validate
 from bastet.core import hostkeys
@@ -21,7 +22,7 @@ from bastet.engine.report import render_host
 from bastet.engine.script import exec_script, new_mark
 from bastet.engine.security import LYNIS_AUDIT, LynisReport
 from bastet.engine.run import Batch, run_host
-from bastet.core.secrets.refs import resolve_refs
+from bastet.core.secrets.refs import MissingSecret, resolve_refs
 from bastet.roles.builtin import HostInfo, batches_for
 from bastet.roles.contract import RoleDef, load_roles
 from bastet.roles.pages import options_in_body
@@ -106,6 +107,48 @@ def run_audit(runner, doc: Document) -> str | None:
     return None
 
 
+def _generate_missing(ctx: Context, needed: list) -> None:
+    """Generate every missing secret the contract can generate, in one commit, before any host is touched."""
+    if not needed:
+        return
+    paths: list[Path] = []
+    texts: list[str] = []
+    for n in needed:
+        value = secret_mod._generate(n.contract_opt.generate)
+        secret_mod._write_note(ctx, n.sp, value, "generated", exists=False)
+        ctx.secrets.redactor.add(value)
+        paths.append(ctx.root / n.sp.rel)
+        texts.append(n.sp.text)
+        typer.echo(f"Generated {n.sp.text}.")
+    if ctx.repo.is_repo():
+        message = f"secret: generate {len(texts)} secrets ({', '.join(texts)})"
+        ctx.repo.commit(paths, message)
+        if not ctx.repo.push():
+            typer.secho("warning: push failed; the commit is kept locally", fg="yellow", err=True)
+
+
+def _ask_missing(ctx: Context, needed: list, *, yes: bool) -> None:
+    """Ask, through the same per-secret prompt `secret set` uses, for missing secrets the contract can't
+    generate. Only when interactive: with `-y` or no terminal, these are left missing, so the host that
+    needs them fails (and is reported) when its role is resolved, same as any other missing secret.
+    """
+    if not needed or yes or not secret_mod._stdin_is_tty():
+        return
+    for n in needed:
+        secret_mod._set_one(ctx, n.sp, n.contract_opt)
+    if ctx.repo.is_repo() and not ctx.repo.push():
+        typer.secho("warning: push failed; the commit(s) are kept locally", fg="yellow", err=True)
+
+
+def _prepare_secrets(ctx: Context, docs: list[Document], *, yes: bool) -> None:
+    """Before any host is touched: generate every missing, generatable secret, then ask for the rest."""
+    needed = secret_mod.needed_secrets(ctx, hosts=[d.name for d in docs])
+    generatable = [n for n in needed if n.contract_opt and n.contract_opt.generate]
+    others = [n for n in needed if n not in generatable]
+    _generate_missing(ctx, generatable)
+    _ask_missing(ctx, others, yes=yes)
+
+
 def _hosts(ctx: Context, names: list[str] | None) -> list[Document]:
     if names:
         docs = []
@@ -126,6 +169,8 @@ def _run(names: list[str] | None, *, apply_changes: bool, yes: bool, verbose: bo
         f = problem.error.file
         if f is not None and "_roles" in Path(f).parts:
             typer.secho(f"{Path(f).relative_to(ctx.root)}: {problem}", fg="yellow")
+    if apply_changes:
+        _prepare_secrets(ctx, docs, yes=yes)
     full = verbose or len(docs) == 1
     failed = False
     notes_written = False
@@ -187,6 +232,11 @@ def _run(names: list[str] | None, *, apply_changes: bool, yes: bool, verbose: bo
                 if note:
                     typer.echo(note)
             except BastetError as exc:
+                if not apply_changes and isinstance(exc, MissingSecret):
+                    opt = secret_mod._opt_for(exc.sp)
+                    if opt and opt.generate:
+                        typer.echo(f"{doc.name}: would generate {exc.sp.text}")
+                        continue
                 where = f" ({exc.file.name}{':' + exc.key if exc.key else ''})" if exc.file else ""
                 typer.secho(ctx.secrets.redactor.mask(f"{doc.name}: {exc.message}{where}"), fg="red")
                 failed = True

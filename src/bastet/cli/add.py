@@ -2,11 +2,13 @@ import socket
 
 import typer
 
+import bastet.cli.secret as secret_mod
 from bastet.cli.common import handles_errors, load_context, refresh_generated, write_with_confirmation
 from bastet.core.render import lab_embed_changes
 from bastet.core.changes import Change
 from bastet.core.errors import BastetError
 from bastet.core.frontmatter import new_document
+from bastet.core.inventory import load_inventory
 from bastet.core.links import make_link
 from bastet.core.views import ROLES_SECTION, has_roles_section
 from bastet.roles.contract import load_roles
@@ -180,6 +182,44 @@ def _choose_many(label: str, options: list[tuple[str, str]]) -> list[str]:
         typer.echo(f"  '{' '.join(bad) or answer}' isn't one of the choices.")
 
 
+def _print_secret_commands(needed: list) -> None:
+    for n in needed:
+        typer.echo(f"  bastet secret set {secret_mod.secret_words(n.sp)}")
+
+
+def _offer_secrets(ctx, added: list[str], doc, *, yes: bool) -> None:
+    """After writing the new role file(s): list the secrets they need on this target, and offer to set them.
+
+    Filtered to the roles just added (today, a role's own secrets only: nothing provides credentials yet),
+    and, for a single host target, to that host's own needs.
+    """
+    ctx.inventory = load_inventory(ctx.root, ctx.types)  # see the role file(s) just written
+    needed = [
+        n for n in secret_mod.needed_secrets(ctx)
+        if n.sp.role in added and (doc.data.get("bastet") != "host" or doc.name in n.used_by)
+    ]
+    if not needed:
+        return
+    if yes:
+        typer.echo("Secrets this role needs (run these to set them):")
+        _print_secret_commands(needed)
+        return
+    typer.echo("Secrets this role needs:")
+    for n in needed:
+        typer.echo(f"  {n.sp.text}")
+    if not typer.confirm("Set them now?", default=True):
+        _print_secret_commands(needed)
+        return
+    skipped = []
+    for n in needed:
+        if secret_mod._set_one(ctx, n.sp, n.contract_opt, allow_skip=True) == "skipped":
+            skipped.append(n)
+    if skipped:
+        _print_secret_commands(skipped)
+    if ctx.repo.is_repo() and not ctx.repo.push():
+        typer.secho("warning: push failed; the commit(s) are kept locally", fg="yellow", err=True)
+
+
 def _role_targets(inv) -> list[tuple[str, str]]:
     out = [("lab", "every host")]
     for g in inv.of_kind("group"):
@@ -247,3 +287,4 @@ def add_role(
         changes.append(Change(doc.path, text, text.rstrip("\n") + "\n" + ROLES_SECTION))
     if write_with_confirmation(ctx, changes, f"add role {', '.join(added)} to {doc.name}", yes):
         refresh_generated(ctx)
+        _offer_secrets(ctx, added, doc, yes=yes)

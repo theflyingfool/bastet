@@ -102,10 +102,13 @@ def _record(uses: dict[str, Needed], sp: SecretPath, opt: Option, host: str) -> 
         existing.used_by.append(host)
 
 
-def _collect_uses(ctx: Context) -> dict[str, Needed]:
+def _collect_uses(ctx: Context, hosts: list[str] | None = None) -> dict[str, Needed]:
     uses: dict[str, Needed] = {}
     roles = load_roles()
+    wanted = set(hosts) if hosts is not None else None
     for doc in ctx.inventory.of_kind("host"):
+        if wanted is not None and doc.name not in wanted:
+            continue
         if doc.data.get("state", "present") == "destroyed":
             continue
         try:
@@ -128,9 +131,13 @@ def _collect_uses(ctx: Context) -> dict[str, Needed]:
     return uses
 
 
-def needed_secrets(ctx: Context) -> list[Needed]:
-    """Secrets referenced by a role option reaching a host, whose note doesn't exist yet."""
-    uses = _collect_uses(ctx)
+def needed_secrets(ctx: Context, hosts: list[str] | None = None) -> list[Needed]:
+    """Secrets referenced by a role option reaching a host, whose note doesn't exist yet.
+
+    `hosts`, when given, scopes the scan to those host names only (used by `apply`/`check`, which only
+    care about the hosts being run, and by `add role`, which cares about the target's hosts).
+    """
+    uses = _collect_uses(ctx, hosts)
     missing = [n for n in uses.values() if not (ctx.root / n.sp.rel).exists()]
     return sorted(missing, key=lambda n: n.sp.text)
 
@@ -140,6 +147,11 @@ def _opt_for(sp: SecretPath) -> Option | None:
         return None
     role = load_roles().get(sp.role)
     return role.options.get(sp.name) if role else None
+
+
+def secret_words(sp: SecretPath) -> str:
+    """The `host role option` (or `host option`) words `bastet secret set` takes for this path."""
+    return " ".join(part for part in (sp.host, sp.role, sp.name) if part)
 
 
 # --- `bastet secret`: the inventory, never values ---
@@ -211,8 +223,11 @@ def _write_fill_in_note(ctx: Context, sp: SecretPath, exists: bool) -> None:
     typer.echo(f"Wrote an unlocked note for {sp.text}; fill in the value, then run `bastet secret lock`.")
 
 
-def _set_one(ctx: Context, sp: SecretPath, opt: Option | None, *, piped_value: str | None = None) -> bool:
-    """Returns True when a value was sealed and committed (False for `e`, a skip, or a declined replace)."""
+def _set_one(
+    ctx: Context, sp: SecretPath, opt: Option | None, *, piped_value: str | None = None, allow_skip: bool = False
+) -> str:
+    """Returns "committed", "filled_in" (via `e`), "skipped" (via `s`, only offered when `allow_skip`), or
+    "declined" (an existing secret, not replaced)."""
     exists = (ctx.root / sp.rel).exists()
     if piped_value is not None:
         if exists:
@@ -227,13 +242,17 @@ def _set_one(ctx: Context, sp: SecretPath, opt: Option | None, *, piped_value: s
         if exists:
             if not typer.confirm(f"Replace {sp.text}? The old value stays only in encrypted git history", default=False):
                 typer.echo("Not replaced.")
-                return False
+                return "declined"
         value = None
         source = "chosen"
         while value is None:
             prompt = ("Enter value, Enter to generate, or e to fill it in yourself"
                       if opt and opt.generate else "Enter value, or e to fill it in yourself")
+            if allow_skip:
+                prompt += ", or s to skip"
             first = typer.prompt(prompt, hide_input=True, default="", show_default=False)
+            if allow_skip and first.strip().lower() == "s":
+                return "skipped"
             if first == "":
                 if opt and opt.generate:
                     value, source = _generate(opt.generate), "generated"
@@ -242,7 +261,7 @@ def _set_one(ctx: Context, sp: SecretPath, opt: Option | None, *, piped_value: s
                     continue
             elif first.strip().lower() == "e":
                 _write_fill_in_note(ctx, sp, exists)
-                return False
+                return "filled_in"
             else:
                 second = typer.prompt("Confirm", hide_input=True)
                 if second != first:
@@ -253,7 +272,7 @@ def _set_one(ctx: Context, sp: SecretPath, opt: Option | None, *, piped_value: s
     ctx.secrets.redactor.add(value)
     typer.echo(f"Set {sp.text} ({source}, {len(value)} characters).")
     ctx.repo.commit([ctx.root / sp.rel], f"secret: set {sp.text}")
-    return True
+    return "committed"
 
 
 def _set_walk(ctx: Context) -> None:
@@ -273,12 +292,12 @@ def _set_walk(ctx: Context) -> None:
             break
         if choice == "0":
             for n in needed:
-                if _set_one(ctx, n.sp, n.contract_opt):
+                if _set_one(ctx, n.sp, n.contract_opt) == "committed":
                     committed.append(n.sp)
             break
         if choice.isdigit() and 1 <= int(choice) <= len(needed):
             n = needed[int(choice) - 1]
-            if _set_one(ctx, n.sp, n.contract_opt):
+            if _set_one(ctx, n.sp, n.contract_opt) == "committed":
                 committed.append(n.sp)
             continue
         typer.echo(f"'{choice}' isn't a choice.")
@@ -311,10 +330,10 @@ def secret_set(
         sp = SecretPath.from_cli(words)
         opt = _opt_for(sp)
         if not _stdin_is_tty():
-            committed = _set_one(ctx, sp, opt, piped_value=sys.stdin.read())
+            result = _set_one(ctx, sp, opt, piped_value=sys.stdin.read())
         else:
-            committed = _set_one(ctx, sp, opt)
-        if committed and ctx.repo.is_repo() and not ctx.repo.push():
+            result = _set_one(ctx, sp, opt)
+        if result == "committed" and ctx.repo.is_repo() and not ctx.repo.push():
             typer.secho("warning: push failed; the commit is kept locally", fg="yellow", err=True)
         return
     if not _stdin_is_tty():

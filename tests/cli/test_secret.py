@@ -6,17 +6,9 @@ import bastet.cli.secret as secret_mod
 from bastet.cli.app import app
 from bastet.core.secrets import crypto
 from bastet.core.secrets.notes import SecretNote, SecretPath
-from bastet.roles.contract import load_roles
 from conftest import git
 
 SENTINEL = "SENTINEL-4242"
-
-
-@pytest.fixture
-def interactive(monkeypatch):
-    """Pretend stdin/stdout are terminals, so prompts behave as they would for a person."""
-    monkeypatch.setattr(secret_mod, "_stdin_is_tty", lambda: True)
-    monkeypatch.setattr(secret_mod, "_stdout_is_tty", lambda: True)
 
 
 @pytest.fixture
@@ -32,55 +24,6 @@ def fake_clipboard(monkeypatch):
     monkeypatch.setattr(secret_mod, "_clipboard_tool", fake_tool)
     monkeypatch.setattr(secret_mod, "_copy_to_clipboard", fake_copy)
     return calls
-
-
-@pytest.fixture
-def test_role(inventory, tmp_path, monkeypatch):
-    """A test-only role with two secret options (one generatable, one not), used by a host's role file."""
-    roles_dir = tmp_path / "roles"
-    (roles_dir / "testsecret").mkdir(parents=True)
-    (roles_dir / "testsecret" / "role.yml").write_text(
-        "description: a role for secrets tests\n"
-        "options:\n"
-        "  admin_password:\n"
-        "    type: string\n"
-        "    secret: true\n"
-        "    generate:\n"
-        "      kind: password\n"
-        "      length: 20\n"
-        "  db_password:\n"
-        "    type: string\n"
-        "    secret: true\n"
-        "    generate:\n"
-        "      kind: password\n"
-        "      length: 16\n"
-    )
-    # A second role, deliberately never applied to any host: used only to exercise the
-    # "no generate: Enter asks again" prompt directly (`secret set box othersecret plain_token`),
-    # without it also showing up as a needed secret via resolve().
-    (roles_dir / "othersecret").mkdir(parents=True)
-    (roles_dir / "othersecret" / "role.yml").write_text(
-        "description: a role for secrets tests\noptions:\n  plain_token:\n    type: string\n    secret: true\n"
-    )
-    # A third role, applied to a host but with its secret option left unset in the role file: needed
-    # implicitly, by the contract alone (no `secret:` reference written anywhere).
-    (roles_dir / "impliedsecret").mkdir(parents=True)
-    (roles_dir / "impliedsecret" / "role.yml").write_text(
-        "description: a role for secrets tests\noptions:\n  api_key:\n    type: string\n    secret: true\n"
-    )
-    merged = {**load_roles(), **load_roles(roles_dir)}
-    monkeypatch.setattr(secret_mod, "load_roles", lambda: merged)
-
-    (inventory / "hosts" / "box.md").write_text("---\nbastet: host\ntype: laptop\n---\n# box\n")
-    roles = inventory / "_roles" / "hosts" / "box"
-    roles.mkdir(parents=True)
-    (roles / "testsecret.md").write_text(
-        '---\nbastet: role\nrole: testsecret\napplies_to: "[[box]]"\n'
-        'admin_password: "secret:admin_password"\ndb_password: "secret:db_password"\n---\n'
-    )
-    git(inventory, "add", ".")
-    git(inventory, "commit", "-q", "-m", "test role")
-    return {"host": "box", "role": "testsecret"}
 
 
 def _seed_note(inventory, sp: SecretPath, value: str, pub: str) -> None:

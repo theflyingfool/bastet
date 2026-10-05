@@ -5,6 +5,12 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
+import bastet.cli.add as add_mod
+import bastet.cli.run as run_mod
+import bastet.cli.secret as secret_mod
+import bastet.roles.builtin as builtin_mod
+from bastet.roles.contract import load_roles
+
 
 def git(root: Path, *args: str) -> str:
     return subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True, text=True).stdout
@@ -49,3 +55,72 @@ def secret_keys(inventory: Path) -> dict:
     git(inventory, "add", ".")
     git(inventory, "commit", "-q", "-m", "secrets recipients")
     return {"pub": pub, "key_path": key_path}
+
+
+@pytest.fixture
+def interactive(monkeypatch):
+    """Pretend stdin/stdout are terminals, so prompts behave as they would for a person."""
+    monkeypatch.setattr(secret_mod, "_stdin_is_tty", lambda: True)
+    monkeypatch.setattr(secret_mod, "_stdout_is_tty", lambda: True)
+
+
+@pytest.fixture
+def test_role(inventory, tmp_path, monkeypatch):
+    """A test-only role with two secret options (one generatable, one not), used by a host's role file.
+
+    Shared across test_secret.py, test_check_apply.py and test_add_role.py, so `load_roles` is patched in
+    every module that imports its own copy of it (secret.py, run.py, add.py each bind their own name).
+    """
+    roles_dir = tmp_path / "roles"
+    (roles_dir / "testsecret").mkdir(parents=True)
+    (roles_dir / "testsecret" / "role.yml").write_text(
+        "description: a role for secrets tests\n"
+        "options:\n"
+        "  admin_password:\n"
+        "    type: string\n"
+        "    secret: true\n"
+        "    generate:\n"
+        "      kind: password\n"
+        "      length: 20\n"
+        "  db_password:\n"
+        "    type: string\n"
+        "    secret: true\n"
+        "    generate:\n"
+        "      kind: password\n"
+        "      length: 16\n"
+    )
+    # A second role, deliberately never applied to any host: used only to exercise the
+    # "no generate: Enter asks again" prompt directly (`secret set box othersecret plain_token`),
+    # without it also showing up as a needed secret via resolve().
+    (roles_dir / "othersecret").mkdir(parents=True)
+    (roles_dir / "othersecret" / "role.yml").write_text(
+        "description: a role for secrets tests\noptions:\n  plain_token:\n    type: string\n    secret: true\n"
+    )
+    # A third role, applied to a host but with its secret option left unset in the role file: needed
+    # implicitly, by the contract alone (no `secret:` reference written anywhere), and not generatable
+    # (used to exercise the "ask" / "add role offers to set" flows for a non-generatable secret).
+    (roles_dir / "impliedsecret").mkdir(parents=True)
+    (roles_dir / "impliedsecret" / "role.yml").write_text(
+        "description: a role for secrets tests\noptions:\n  api_key:\n    type: string\n    secret: true\n"
+    )
+    merged = {**load_roles(), **load_roles(roles_dir)}
+    monkeypatch.setattr(secret_mod, "load_roles", lambda: merged)
+    monkeypatch.setattr(run_mod, "load_roles", lambda: merged)
+    monkeypatch.setattr(add_mod, "load_roles", lambda: merged)
+    # these roles carry no engine resources; a no-op builder lets check/apply resolve and resolve_refs
+    # them (which is all the secrets tests care about) without `batches_for` refusing an unimplemented role.
+    no_op_builders = {name: (lambda values, host: []) for name in ("testsecret", "othersecret", "impliedsecret")}
+    monkeypatch.setattr(builtin_mod, "BUILDERS", {**builtin_mod.BUILDERS, **no_op_builders})
+
+    box_path = inventory / "hosts" / "box.md"
+    if not box_path.exists():
+        box_path.write_text("---\nbastet: host\ntype: laptop\n---\n# box\n")
+    roles = inventory / "_roles" / "hosts" / "box"
+    roles.mkdir(parents=True, exist_ok=True)
+    (roles / "testsecret.md").write_text(
+        '---\nbastet: role\nrole: testsecret\napplies_to: "[[box]]"\n'
+        'admin_password: "secret:admin_password"\ndb_password: "secret:db_password"\n---\n'
+    )
+    git(inventory, "add", ".")
+    git(inventory, "commit", "-q", "-m", "test role")
+    return {"host": "box", "role": "testsecret"}

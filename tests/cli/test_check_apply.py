@@ -325,3 +325,75 @@ def test_missing_secret_fails_that_host_and_continues(runner, box, inventory):
     result = runner.invoke(app, ["check", "box"])
     assert result.exit_code == 1
     assert "missing secret box/files/motd (bastet secret set box files motd)" in result.output
+
+
+# --- generation at apply, and asking for non-generatable ones (spec 15.3, 15.5; plan task 5) ---
+
+
+def test_check_reports_would_generate_missing_secret(runner, secret_keys, inventory, box, test_role):
+    result = runner.invoke(app, ["check", "box"])
+    assert result.exit_code == 0, result.output
+    assert "would generate box/testsecret/" in result.output
+    assert not (inventory / "_secrets" / "box" / "testsecret" / "admin_password.md").exists()
+    assert not (inventory / "_secrets" / "box" / "testsecret" / "db_password.md").exists()
+
+
+def test_apply_generates_all_missing_before_any_run_host(runner, secret_keys, inventory, box, test_role, monkeypatch):
+    real_run_host = run_mod.run_host
+    log_at_first_call = []
+
+    def recording(runner_, host, batches, **kw):
+        if not log_at_first_call:
+            log_at_first_call.append(git(inventory, "log", "-1", "--format=%s"))
+        return real_run_host(runner_, host, batches, **kw)
+
+    monkeypatch.setattr(run_mod, "run_host", recording)
+    before = git(inventory, "log", "--format=%H").strip().splitlines()
+
+    result = runner.invoke(app, ["apply", "box", "-y"])
+    assert result.exit_code == 0, result.output
+
+    after = git(inventory, "log", "--format=%H").strip().splitlines()
+    assert len(after) > len(before)  # at least the one generation commit (plus `refresh_generated`'s own)
+    commit_messages = git(inventory, "log", "--format=%s", f"{before[0]}..HEAD")
+    assert "secret: generate 2 secrets" in commit_messages
+    assert "box/testsecret/admin_password" in commit_messages
+    assert "box/testsecret/db_password" in commit_messages
+
+    admin = SecretNote.load(inventory, SecretPath.parse("box/testsecret/admin_password"))
+    db = SecretNote.load(inventory, SecretPath.parse("box/testsecret/db_password"))
+    assert admin.is_sealed and db.is_sealed
+
+    # generation and its single commit happened before run_host ever touched a host
+    assert log_at_first_call and "secret: generate" in log_at_first_call[0]
+
+
+def test_apply_asks_for_nongenerated_missing_secret_when_interactive(runner, secret_keys, inventory, box, test_role, interactive):
+    roles = inventory / "_roles" / "hosts" / "box"
+    (roles / "impliedsecret.md").write_text('---\nbastet: role\nrole: impliedsecret\napplies_to: "[[box]]"\n---\n')
+    git(inventory, "add", ".")
+    git(inventory, "commit", "-q", "-m", "implied")
+
+    result = runner.invoke(app, ["apply", "box"], input="SENTINEL-API\nSENTINEL-API\ny\n")
+    assert result.exit_code == 0, result.output
+    assert "SENTINEL-API" not in result.output
+    assert "Enter value, or e to fill it in yourself" in result.output
+
+    note = SecretNote.load(inventory, SecretPath.parse("box/impliedsecret/api_key"))
+    assert note.is_sealed
+    assert (box / "motd").read_text() == "hi\n"
+
+
+def test_apply_yes_fails_host_for_nongenerated_missing_secret(runner, secret_keys, inventory, box, test_role):
+    roles = inventory / "_roles" / "hosts" / "box"
+    (roles / "impliedsecret.md").write_text('---\nbastet: role\nrole: impliedsecret\napplies_to: "[[box]]"\n---\n')
+    git(inventory, "add", ".")
+    git(inventory, "commit", "-q", "-m", "implied")
+
+    result = runner.invoke(app, ["apply", "box", "-y"])
+    assert result.exit_code == 1
+    assert "missing secret box/impliedsecret/api_key (bastet secret set box impliedsecret api_key)" in result.output
+
+    # the generatable secrets were still generated, even though this host ultimately failed
+    admin = SecretNote.load(inventory, SecretPath.parse("box/testsecret/admin_password"))
+    assert admin.is_sealed
