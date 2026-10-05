@@ -4,6 +4,7 @@ import datetime as dt
 import select
 import sys
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 
 import typer
@@ -13,6 +14,7 @@ from bastet.cli.common import (
     confirm_upstream_secrets,
     Context,
     find_named_host,
+    guard_prompts,
     handles_errors,
     load_context,
     print_problems,
@@ -26,10 +28,13 @@ from bastet.cli.gather import _resolve_address, _scan_pinned, scan_keys, ssh_run
 from bastet.core import hostkeys
 from bastet.core.errors import BastetError
 from bastet.core.frontmatter import Document
+from bastet.core.links import link_target
+from bastet.core.parallel import HostLog, Outcome, run_parallel
 from bastet.core.remote import SshTarget, close_master, control_path
-from bastet.cli.reboot import handle_reboot
+from bastet.cli.reboot import RebootPlan, perform_reboot, reboot_decision
 from bastet.engine.packages import Reboot
 from bastet.core.changes import Change, write_changes
+from bastet.core.secrets.redact import ACTIVE
 from bastet.core.security_note import security_items, security_note, security_path
 from bastet.engine.report import render_host
 from bastet.engine.script import exec_script, new_mark
@@ -106,8 +111,10 @@ def _without_checked(text: str) -> str:
 
 
 def run_audit(runner, doc: Document) -> str | None:
-    """Run a lynis audit during apply (check only reads the last report); a failure is a warning, never fatal."""
-    typer.echo(f"{doc.name}: running a lynis audit (1–3 minutes)…")
+    """Run a lynis audit during apply (check only reads the last report); a failure is a warning, never fatal.
+
+    Doesn't print: this can run in a worker thread, so the caller logs through the host's buffered log.
+    """
     try:
         res = runner.run(exec_script([LYNIS_AUDIT], root=True, mark=new_mark()), timeout=AUDIT_TIMEOUT)
     except BastetError as exc:
@@ -195,10 +202,76 @@ def _hosts(ctx: Context, names: list[str] | None) -> list[Document]:
     return [d for d in ctx.inventory.of_kind("host") if d.data.get("state", "present") != "destroyed"]
 
 
+@dataclass
+class _Ready:
+    """A host that passed the serial prepare phase: what the (parallel) check and apply phases need."""
+
+    doc: Document
+    batches: list[Batch]
+    reboots: list[Reboot]
+
+
+def _with_where(exc: BastetError) -> BastetError:
+    """Fold a BastetError's file/key into its message, the way the old serial loop reported it --
+    `run_parallel` only keeps `.message` from a worker's exception."""
+    where = f" ({exc.file.name}{':' + exc.key if exc.key else ''})" if exc.file else ""
+    return BastetError(f"{exc.message}{where}")
+
+
+def _node_of_map(by_name: dict[str, _Ready], subset: set[str], inv) -> dict[str, str]:
+    """guest host -> node host, for guests whose node is also in `subset` (the run in question)."""
+    out: dict[str, str] = {}
+    for name in subset:
+        link = link_target(by_name[name].doc.data.get("runs_on"))
+        if not link:
+            continue
+        node_doc = inv.get(link)
+        if node_doc is not None and node_doc.name in subset:
+            out[name] = node_doc.name
+    return out
+
+
+def _parse_choice(answer: str, n: int) -> list[int] | None:
+    try:
+        idxs = sorted({int(x) for x in answer.split(",") if x.strip()})
+    except ValueError:
+        return None
+    if not idxs or any(i < 1 or i > n for i in idxs):
+        return None
+    return idxs
+
+
+def _choose_hosts(pending: list[str], checks: dict, *, yes: bool) -> list[str]:
+    """The one question for apply: which pending hosts to apply to. `-y` means all, no question."""
+    if not pending or yes:
+        return list(pending)
+    typer.echo("Changes to apply:")
+    width = max(len(h) for h in pending)
+    for i, h in enumerate(pending, 1):
+        n = checks[h].count("would-change")
+        typer.echo(f"  {i}) {h:<{width}}  {n} change{'s' if n != 1 else ''}")
+    question = f"Apply to all {len(pending)}? [y]es / [n]o / numbers (e.g. 1,3): "
+    for _ in range(3):
+        answer = typer.prompt(question, default="", show_default=False).strip().lower()
+        if answer in ("y", "yes"):
+            return list(pending)
+        if answer in ("", "n", "no"):
+            return []
+        idxs = _parse_choice(answer, len(pending))
+        if idxs is not None:
+            return [pending[i - 1] for i in idxs]
+    return []
+
+
+def _print_outcome_log(outcome: Outcome) -> None:
+    for text, fg in outcome.log.lines:
+        typer.secho(ACTIVE.mask(text), fg=fg)
+
+
 def _run(names: list[str] | None, *, apply_changes: bool, yes: bool, verbose: bool, updates: bool = False,
          jobs: int | None = None) -> None:
     ctx = load_context()
-    _ = resolve_jobs(jobs, ctx.config)  # accepted and validated; hosts still run one at a time
+    run_jobs = resolve_jobs(jobs, ctx.config)
     print_problems(ctx)
     if apply_changes and ctx.upstream_secrets:
         if not _confirm_upstream_secrets(ctx):
@@ -209,77 +282,219 @@ def _run(names: list[str] | None, *, apply_changes: bool, yes: bool, verbose: bo
     if apply_changes:
         _prepare_secrets(ctx, docs, yes=yes)
     full = verbose or len(docs) == 1
-    failed = False
-    notes_written = False
-    with tempfile.TemporaryDirectory(prefix="bastet-") as tmp:
-        for doc in docs:
-            target = None
-            host_type = ctx.types.get(str(doc.data.get("type")))
-            if host_type is not None and not host_type.managed:
-                typer.echo(f"{doc.name}: configured through {host_type.managed_by or 'something else'}; Bastet doesn't apply roles to it")
+    failed_hosts: set[str] = set()
+    interrupted = False
+
+    # Phase 1: prepare, serially, in inventory order -- the per-host skips, and `plan_for`, may ask
+    # (secrets), and nothing here is thread-safe.
+    ready: list[_Ready] = []
+    for doc in docs:
+        host_type = ctx.types.get(str(doc.data.get("type")))
+        if host_type is not None and not host_type.managed:
+            typer.echo(f"{doc.name}: configured through {host_type.managed_by or 'something else'}; Bastet doesn't apply roles to it")
+            continue
+        try:
+            applied, batches = plan_for(ctx, doc, roles, updates)
+            reboots = [r for b in batches for r in b.resources if isinstance(r, Reboot)]
+            role_names = ", ".join(f"{a.role.name} ({', '.join(sorted({s.label for s in a.sources}))})" for a in applied)
+            if not applied:
+                typer.echo(f"{doc.name}: no roles")
                 continue
-            try:
-                applied, batches = plan_for(ctx, doc, roles, updates)
-                reboots = [r for b in batches for r in b.resources if isinstance(r, Reboot)]
-                names = ", ".join(f"{a.role.name} ({', '.join(sorted({s.label for s in a.sources}))})" for a in applied)
-                if not applied:
-                    typer.echo(f"{doc.name}: no roles")
+            for a in applied:
+                for s in a.sources:
+                    found = options_in_body(a.role, s.doc.body) if s.doc is not None else []
+                    if found:
+                        typer.secho(f"{doc.name}: {s.doc.path.relative_to(ctx.root)} has "
+                                    f"{', '.join(k + ':' for k in found)} in the page text; Bastet only reads "
+                                    "the properties at the top", fg="yellow")
+            if not any(b.resources for b in batches):
+                typer.echo(f"{doc.name}: {role_names}: nothing to manage yet")
+                continue
+            typer.echo(f"roles: {role_names}")
+            ready.append(_Ready(doc, batches, reboots))
+        except BastetError as exc:
+            if not apply_changes and isinstance(exc, MissingSecret):
+                opt = secret_mod._opt_for(exc.sp)
+                if opt and opt.generate:
+                    typer.echo(f"{doc.name}: would generate {exc.sp.text}")
                     continue
-                for a in applied:
-                    for s in a.sources:
-                        found = options_in_body(a.role, s.doc.body) if s.doc is not None else []
-                        if found:
-                            typer.secho(f"{doc.name}: {s.doc.path.relative_to(ctx.root)} has "
-                                        f"{', '.join(k + ':' for k in found)} in the page text; Bastet only reads "
-                                        "the properties at the top", fg="yellow")
-                if not any(b.resources for b in batches):
-                    typer.echo(f"{doc.name}: {names}: nothing to manage yet")
-                    continue
-                typer.echo(f"roles: {names}")
-                runner, target = connect(ctx, doc, Path(tmp), yes=yes)
-                check = run_host(runner, doc.name, batches, apply=False)
-                typer.echo(ctx.secrets.redactor.mask(render_host(check, full=full)))
-                notes_written |= _write_security_note(ctx, doc, check.items)
-                pending = check.count("would-change")
-                if not apply_changes:
-                    failed |= check.count("failed") > 0
-                    continue
-                apply_failed = False
-                if not pending:
-                    failed |= check.count("failed") > 0
-                    apply_failed = check.count("failed") > 0
-                elif not yes and not typer.confirm(f"Apply {pending} change(s) to {doc.name}?", default=False):
-                    typer.echo(f"{doc.name}: nothing applied")
-                    continue
-                else:
-                    done = run_host(runner, doc.name, batches, apply=True)
-                    typer.echo(ctx.secrets.redactor.mask(render_host(done, full=full)))
-                    failed |= not done.ok
-                    apply_failed = not done.ok
-                if any(isinstance(res, LynisReport) for b in batches for res in b.resources):
-                    warning = run_audit(runner, doc)
-                    if warning:
-                        typer.secho(ctx.secrets.redactor.mask(warning), fg="yellow")
-                    else:  # the fresh audit replaces the report the check read
-                        fresh = run_host(runner, doc.name, [Batch("lynis", [LynisReport()])], apply=False).items
-                        notes_written |= _write_security_note(
-                            ctx, doc, [i for i in check.items if not isinstance(i.resource, LynisReport)] + fresh)
-                note = handle_reboot(runner, target, doc, reboots, yes=yes, apply_failed=apply_failed,
-                                     connect_again=lambda doc=doc: connect(ctx, doc, Path(tmp), yes=yes)[0])
-                if note:
-                    typer.echo(ctx.secrets.redactor.mask(note))
-            except BastetError as exc:
-                if not apply_changes and isinstance(exc, MissingSecret):
-                    opt = secret_mod._opt_for(exc.sp)
-                    if opt and opt.generate:
-                        typer.echo(f"{doc.name}: would generate {exc.sp.text}")
-                        continue
-                where = f" ({exc.file.name}{':' + exc.key if exc.key else ''})" if exc.file else ""
-                typer.secho(ctx.secrets.redactor.mask(f"{doc.name}: {exc.message}{where}"), fg="red")
-                failed = True
-            finally:
+            where = f" ({exc.file.name}{':' + exc.key if exc.key else ''})" if exc.file else ""
+            typer.secho(ctx.secrets.redactor.mask(f"{doc.name}: {exc.message}{where}"), fg="red")
+            failed_hosts.add(doc.name)
+
+    by_name: dict[str, _Ready] = {r.doc.name: r for r in ready}
+    targets: dict[str, object] = {}
+    runners: dict[str, object] = {}
+    checks: dict[str, object] = {}
+    fresh_items: dict[str, list] = {}
+
+    with tempfile.TemporaryDirectory(prefix="bastet-") as tmp:
+        try:
+            # Phase 2: check, in parallel. `connect` never asks here (the key was pinned at `gather`).
+            if ready:
+                def check_work(host: str, log: HostLog):
+                    r = by_name[host]
+                    try:
+                        runner, target = connect(ctx, r.doc, Path(tmp), yes=yes)
+                    except BastetError as exc:
+                        raise _with_where(exc) from exc
+                    targets[host] = target  # registered right away, so `close_master` always runs for it
+                    runners[host] = runner
+                    return run_host(runner, host, r.batches, apply=False)
+
+                def on_check_done(outcome: Outcome) -> None:
+                    _print_outcome_log(outcome)
+                    if outcome.status == "not-started":
+                        typer.echo(f"{outcome.host}: not started")
+                        failed_hosts.add(outcome.host)
+                        return
+                    if outcome.status == "error":
+                        typer.secho(ctx.secrets.redactor.mask(f"{outcome.host}: {outcome.error}"), fg="red")
+                        failed_hosts.add(outcome.host)
+                        return
+                    check = outcome.value
+                    checks[outcome.host] = check
+                    typer.echo(ctx.secrets.redactor.mask(render_host(check, full=full)))
+                    if check.count("failed") > 0:
+                        failed_hosts.add(outcome.host)
+
+                try:
+                    run_parallel([r.doc.name for r in ready], check_work, jobs=run_jobs, on_done=on_check_done)
+                except KeyboardInterrupt:
+                    interrupted = True
+
+            errored_hosts: set[str] = set(failed_hosts)  # hosts that never produced a check at all
+            chosen: list[str] = []
+            run_set_ordered: list[str] = []
+            apply_failed_map: dict[str, bool] = {}
+
+            if apply_changes and not interrupted:
+                checked_names = [r.doc.name for r in ready if r.doc.name in checks]
+                pending_hosts = [h for h in checked_names if checks[h].count("would-change") > 0]
+                clean_hosts = [h for h in checked_names if checks[h].count("would-change") == 0]
+
+                chosen = _choose_hosts(pending_hosts, checks, yes=yes)
+                for h in pending_hosts:
+                    if h not in chosen:
+                        typer.echo(f"{h}: nothing applied")
+
+                run_set_ordered = [h for h in checked_names if h in chosen or h in clean_hosts]
+
+                # Phase 5: apply + the lynis audit, in parallel; a guest waits for its node.
+                if run_set_ordered:
+                    node_of = _node_of_map(by_name, set(run_set_ordered), ctx.inventory)
+                    apply_errored: set[str] = set()
+
+                    def apply_work(host: str, log: HostLog):
+                        r = by_name[host]
+                        runner = runners[host]
+                        done = run_host(runner, host, r.batches, apply=True) if host in chosen else None
+                        fresh = None
+                        if any(isinstance(res, LynisReport) for b in r.batches for res in b.resources):
+                            log.echo(f"{host}: running a lynis audit (1–3 minutes)…")
+                            warning = run_audit(runner, r.doc)
+                            if warning:
+                                log.secho(warning, fg="yellow")
+                            else:
+                                fresh = run_host(runner, host, [Batch("lynis", [LynisReport()])], apply=False).items
+                        return done, fresh
+
+                    def on_apply_done(outcome: Outcome) -> None:
+                        _print_outcome_log(outcome)
+                        if outcome.status == "not-started":
+                            typer.echo(f"{outcome.host}: not started")
+                            failed_hosts.add(outcome.host)
+                            apply_errored.add(outcome.host)
+                            return
+                        if outcome.status == "error":
+                            typer.secho(ctx.secrets.redactor.mask(f"{outcome.host}: {outcome.error}"), fg="red")
+                            failed_hosts.add(outcome.host)
+                            apply_errored.add(outcome.host)
+                            return
+                        done, fresh = outcome.value
+                        if done is not None:
+                            typer.echo(ctx.secrets.redactor.mask(render_host(done, full=full)))
+                            apply_failed_map[outcome.host] = not done.ok
+                            if not done.ok:
+                                failed_hosts.add(outcome.host)
+                        else:
+                            apply_failed_map[outcome.host] = checks[outcome.host].count("failed") > 0
+                            if apply_failed_map[outcome.host]:
+                                failed_hosts.add(outcome.host)
+                        if fresh is not None:
+                            fresh_items[outcome.host] = fresh
+
+                    try:
+                        run_parallel(run_set_ordered, apply_work, jobs=run_jobs, on_done=on_apply_done, after=node_of)
+                    except KeyboardInterrupt:
+                        interrupted = True
+                    errored_hosts |= apply_errored
+
+                # Phase 6: reboots. The decision (and its one question) is serial, in inventory order;
+                # the reboot itself runs in parallel, a node only after its guests in this run.
+                if run_set_ordered and not interrupted:
+                    plans: dict[str, RebootPlan] = {}
+                    for h in run_set_ordered:
+                        if h in errored_hosts:
+                            continue
+                        r = by_name[h]
+                        result = reboot_decision(
+                            runners[h], targets.get(h), r.doc, r.reboots,
+                            yes=yes, apply_failed=apply_failed_map.get(h, False),
+                        )
+                        if result is None:
+                            continue
+                        if isinstance(result, str):
+                            typer.echo(ctx.secrets.redactor.mask(result))
+                        else:
+                            plans[h] = result
+
+                    if plans:
+                        reboot_node_of = _node_of_map(by_name, set(plans), ctx.inventory)
+                        nodes_with_guest = {n for n in reboot_node_of.values() if n in plans}
+                        wave1 = [h for h in plans if h not in nodes_with_guest]
+                        wave2 = [h for h in plans if h in nodes_with_guest]
+
+                        def reboot_work(host: str, log: HostLog):
+                            return perform_reboot(
+                                plans[host],
+                                lambda h=host: connect(ctx, by_name[h].doc, Path(tmp), yes=yes)[0],
+                            )
+
+                        def on_reboot_done(outcome: Outcome) -> None:
+                            _print_outcome_log(outcome)
+                            if outcome.status == "error":
+                                typer.secho(ctx.secrets.redactor.mask(f"{outcome.host}: {outcome.error}"), fg="red")
+                                failed_hosts.add(outcome.host)
+                            elif outcome.status == "not-started":
+                                typer.echo(f"{outcome.host}: not started")
+                                failed_hosts.add(outcome.host)
+                            else:
+                                typer.echo(ctx.secrets.redactor.mask(outcome.value))
+
+                        try:
+                            if wave1:
+                                run_parallel(wave1, reboot_work, jobs=run_jobs, on_done=on_reboot_done)
+                            if wave2:
+                                run_parallel(wave2, reboot_work, jobs=run_jobs, on_done=on_reboot_done)
+                        except KeyboardInterrupt:
+                            interrupted = True
+        finally:
+            for target in targets.values():
                 if target is not None:
                     close_master(target)
+
+    # Phase 7: write, serially -- security notes, push warning, secret summary, refresh.
+    notes_written = False
+    for r in ready:
+        host = r.doc.name
+        if host not in checks:
+            continue
+        items = checks[host].items
+        if host in fresh_items:
+            items = [i for i in items if not isinstance(i.resource, LynisReport)] + fresh_items[host]
+        notes_written |= _write_security_note(ctx, r.doc, items)
+
     if notes_written and not ctx.repo.push():
         typer.secho("warning: push failed; the security notes are committed locally", fg="yellow", err=True)
     scope = [d.name for d in docs]
@@ -287,7 +502,7 @@ def _run(names: list[str] | None, *, apply_changes: bool, yes: bool, verbose: bo
         for line in secret_health.summary_lines(secret_health.findings(ctx, scope_hosts=scope)):
             typer.echo(ctx.secrets.redactor.mask(line))
     refresh_generated(ctx)
-    if failed:
+    if failed_hosts or interrupted:
         raise typer.Exit(1)
 
 
@@ -299,7 +514,8 @@ def check(
     jobs: int | None = typer.Option(None, "--jobs", "-j", min=1, help="How many hosts to check at once (default: the config value)."),
 ) -> None:
     """Show what differs between each host and the desired state its roles describe. Changes nothing."""
-    _run(hosts, apply_changes=False, yes=yes, verbose=verbose, jobs=jobs)
+    with guard_prompts():
+        _run(hosts, apply_changes=False, yes=yes, verbose=verbose, jobs=jobs)
 
 
 @handles_errors
@@ -311,4 +527,5 @@ def apply(
     jobs: int | None = typer.Option(None, "--jobs", "-j", min=1, help="How many hosts to apply to at once (default: the config value)."),
 ) -> None:
     """Make each host match its roles: shows the check first, asks, applies, and verifies."""
-    _run(hosts, apply_changes=True, yes=yes, verbose=verbose, updates=updates, jobs=jobs)
+    with guard_prompts():
+        _run(hosts, apply_changes=True, yes=yes, verbose=verbose, updates=updates, jobs=jobs)

@@ -99,7 +99,7 @@ def test_run_audit_warning_is_masked(runner, box, inventory, monkeypatch, secret
 def test_handle_reboot_note_is_masked(runner, box, inventory, monkeypatch):
     SENTINEL = "SENTINEL-REBOOT-7777"
     ACTIVE.add(SENTINEL)
-    monkeypatch.setattr(run_mod, "handle_reboot", lambda *a, **k: f"box: rebooted with token {SENTINEL}")
+    monkeypatch.setattr(run_mod, "reboot_decision", lambda *a, **k: f"box: rebooted with token {SENTINEL}")
 
     result = runner.invoke(app, ["apply", "box", "-y"])
 
