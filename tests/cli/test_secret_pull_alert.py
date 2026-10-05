@@ -138,6 +138,26 @@ def test_confirmed_change_stops_alerting(
 # of Bastet's own commands just did ---
 
 
+def test_secret_set_walk_squash_does_not_swallow_a_pending_upstream_change(
+    runner, box, inventory, secret_keys, test_role, remote, tmp_path, interactive
+):
+    """`secret set`'s walk mode can make several commits and squash them into one. The squash must
+    not advance the confirmed baseline past an upstream change that was already pending before the
+    walk started (even though every commit the walk itself made is Bastet's own)."""
+    from bastet.core.gitrepo import GitRepo
+    from bastet.core.secrets import confirm
+
+    assert runner.invoke(app, ["check", "box"]).exit_code == 0  # establish the baseline
+    _push_secret_change(remote, tmp_path, secret_keys["pub"])
+
+    result = runner.invoke(app, ["secret", "set"], input="0\n\n\n")  # all, generate both -> 2 commits, squashed
+    assert result.exit_code == 0, result.output
+    assert "secret: set 2 secrets" in git(inventory, "log", "-1", "--format=%s")
+
+    gr = GitRepo(inventory)
+    assert "_secrets/lab/dns_token.md" in confirm.changed_since_confirmed(gr, inventory)
+
+
 def test_a_secret_change_pulled_by_a_plain_git_pull_still_gates_the_next_apply(
     runner, box, inventory, secret_keys, test_role, remote, tmp_path, monkeypatch
 ):

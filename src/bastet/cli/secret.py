@@ -296,7 +296,13 @@ def _set_one(
 
 
 def _set_walk(ctx: Context) -> None:
+    from bastet.core.secrets import confirm as secrets_confirm
+
     base = ctx.repo.head() if ctx.repo.is_repo() else None
+    # Captured once, before any of this walk's own commits: an upstream change `_pull_quietly`
+    # brought in just before this walk started must still gate the next apply, even though every
+    # commit below is Bastet's own (confirm_own_commit, same as in _set_one).
+    was_pending = secrets_confirm.pending(ctx.repo, ctx.root) if ctx.repo.is_repo() else False
     committed: list[SecretPath] = []
     while True:
         needed = needed_secrets(ctx)
@@ -325,11 +331,11 @@ def _set_walk(ctx: Context) -> None:
         if len(committed) > 1 and base is not None:
             words = ", ".join(sp.text for sp in committed)
             ctx.repo.squash_since(base, f"secret: set {len(committed)} secrets ({words})")
-            # the squash rewrote the commits each _set_one already confirmed into one new commit:
-            # re-point the confirmed baseline at it (these are still only Bastet's own secret commits).
-            from bastet.core.secrets import confirm as secrets_confirm
-
-            secrets_confirm.confirm(ctx.repo, ctx.root)
+            # The squash rewrote the commits each _set_one already (provisionally) confirmed into one
+            # new commit. Re-point the baseline at it -- but, same as _set_one, only when nothing was
+            # pending before this whole walk started: an upstream change pulled in by this command's
+            # own _pull_quietly, just before the walk, must still gate the next apply.
+            secrets_confirm.confirm_own_commit(ctx.repo, ctx.root, was_pending)
         if not ctx.repo.push():
             typer.secho("warning: push failed; the commit(s) are kept locally", fg="yellow", err=True)
 
@@ -485,7 +491,11 @@ def secret_unlock(words: list[str] | None = typer.Argument(None, help="host role
     # (a busy spin), so that case is treated the same as no terminal at all.
     interactive = _stdout_is_tty() and _stdin_is_tty()
     on_tty = _stdout_is_tty()
-    if interactive:
+    if on_tty:
+        # Shown whenever output is visibly going to a terminal, even if stdin isn't one (so the
+        # countdown falls back to the no-countdown path below): that's exactly the case where the
+        # note is left unlocked on disk indefinitely, until a person watching runs `secret lock`
+        # themselves -- they still need the warning about backups taken in the meantime.
         typer.secho(_BACKUP_WARNING, fg="yellow", err=True)
     with Progress(disable=not on_tty) as progress:
         task = progress.add_task("Decrypting", total=None)
