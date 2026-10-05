@@ -207,8 +207,9 @@ class FakeSystem:
     """Tracks just enough state (a user, a sudoers drop-in, authorized_keys) for `local_user_setup`
     to see a fresh machine on the first call and an already-set-up one on the next."""
 
-    def __init__(self):
+    def __init__(self, password: str = ""):
         self.user_exists = False
+        self.password = password  # shadow field 2; "" means never explicitly locked
         self.sudoers: str | None = None
         self.authorized_keys: str | None = None
         self.calls: list[list[str]] = []
@@ -220,7 +221,12 @@ class FakeSystem:
         if argv[:3] == ["sudo", "-n", "useradd"]:
             self.user_exists = True
             return ProcResult(0)
+        if argv[:4] == ["sudo", "-n", "getent", "shadow"]:
+            if not self.user_exists:
+                return ProcResult(2)
+            return ProcResult(0, f"bastet:{self.password}:19000:0:99999:7:::\n")
         if argv[:3] == ["sudo", "-n", "usermod"]:
+            self.password = "*"
             return ProcResult(0)
         if argv == ["getent", "passwd", "bastet"]:
             if not self.user_exists:
@@ -273,8 +279,24 @@ def test_local_user_setup_second_run_issues_no_changes(tmp_path):
     fake.calls.clear()
     actions = local_user_setup(fake, tmp_path, PUBKEY)
     assert all(a.startswith("kept") for a in actions), actions
-    mutating = [c for c in fake.calls if c[0] not in ("id", "getent") and c[:3] != ["sudo", "-n", "cat"]]
+    mutating = [
+        c for c in fake.calls
+        if c[0] not in ("id", "getent") and c[:3] != ["sudo", "-n", "cat"] and c[:4] != ["sudo", "-n", "getent", "shadow"]
+    ]
     assert mutating == []
+
+
+def test_local_user_setup_locks_an_existing_users_password(tmp_path):
+    fake = FakeSystem(password="$6$abcdef$somehash")
+    fake.user_exists = True
+    actions = local_user_setup(fake, tmp_path, PUBKEY)
+    assert any("locked" in a for a in actions)
+    assert ["sudo", "-n", "usermod", "-p", "*", "bastet"] in fake.calls
+    assert fake.password == "*"
+    fake.calls.clear()
+    second = local_user_setup(fake, tmp_path, PUBKEY)
+    assert all(a.startswith("kept") for a in second), second
+    assert ["sudo", "-n", "usermod", "-p", "*", "bastet"] not in fake.calls
 
 
 def test_local_user_setup_rejects_a_bad_public_key(tmp_path):

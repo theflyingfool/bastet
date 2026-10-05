@@ -28,6 +28,7 @@ class FakeLocalSystem:
 
     def __init__(self):
         self.user_exists = False
+        self.password = ""  # shadow field 2; "" means never explicitly locked
         self.sudoers: str | None = None
         self.authorized_keys: str | None = None
         self.calls: list[list[str]] = []
@@ -53,7 +54,12 @@ class FakeLocalSystem:
         if argv[:3] == ["sudo", "-n", "useradd"]:
             self.user_exists = True
             return ProcResult(0)
+        if argv[:4] == ["sudo", "-n", "getent", "shadow"]:
+            if not self.user_exists:
+                return ProcResult(2)
+            return ProcResult(0, f"bastet:{self.password}:19000:0:99999:7:::\n")
         if argv[:3] == ["sudo", "-n", "usermod"]:
+            self.password = "*"
             return ProcResult(0)
         if argv == ["getent", "passwd", "bastet"]:
             return ProcResult(0, "bastet:x:1001:1001::/home/bastet:/bin/sh\n") if self.user_exists else ProcResult(2)
@@ -302,6 +308,7 @@ def test_cli_init_second_run_sets_up_nothing_more(runner, tmp_path, monkeypatch,
     mutating = [
         c for c in _fake_local_machine.calls
         if c[0] not in ("id", "getent", "systemctl") and c[:3] != ["sudo", "-n", "cat"]
+        and c[:4] != ["sudo", "-n", "getent", "shadow"]
     ]
     assert mutating == []
 

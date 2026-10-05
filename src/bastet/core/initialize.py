@@ -243,6 +243,15 @@ def _require(run: Runner, argv: list[str], what: str) -> ProcResult:
     return res
 
 
+def _shadow_password(run: Runner) -> str | None:
+    """Field 2 of `sudo -n getent shadow bastet` (the password hash), or `None` if it can't be read."""
+    res = run(["sudo", "-n", "getent", "shadow", "bastet"])
+    if res.returncode != 0:
+        return None
+    fields = res.stdout.strip().split(":")
+    return fields[1] if len(fields) > 1 else None
+
+
 def local_user_setup(run: Runner, tmp_dir: Path, public_key: str) -> list[str]:
     """Create the local `bastet` user, its passwordless-sudo drop-in and its authorized_keys.
     Idempotent: a second call makes no further changes. The sudoers drop-in is validated with
@@ -256,13 +265,19 @@ def local_user_setup(run: Runner, tmp_dir: Path, public_key: str) -> list[str]:
         actions.append("kept the local bastet user")
     else:
         _require(run, ["sudo", "-n", "useradd", "--create-home", "--shell", "/bin/sh", "bastet"], "creating the local bastet user")
-        _require(run, ["sudo", "-n", "usermod", "-p", "*", "bastet"], "locking the local bastet user's password")
         actions.append("created the local bastet user")
 
     identity = _bastet_identity(run)
     if identity is None:
         raise BastetError("the bastet user was created, but getent can't find it")
     home, group = identity
+
+    password = _shadow_password(run)
+    if password is not None and (password == "*" or password.startswith("!")):
+        actions.append("kept the local bastet user's password locked")
+    else:
+        _require(run, ["sudo", "-n", "usermod", "-p", "*", "bastet"], "locking the local bastet user's password")
+        actions.append("locked the local bastet user's password")
 
     sudoers = run(["sudo", "-n", "cat", "/etc/sudoers.d/bastet"])
     if sudoers.returncode == 0 and sudoers.stdout == SUDOERS_LINE:
