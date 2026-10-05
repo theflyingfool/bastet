@@ -359,6 +359,8 @@ def test_apply_generates_all_missing_before_any_run_host(runner, secret_keys, in
     assert "secret: generate 2 secrets" in commit_messages
     assert "box/testsecret/admin_password" in commit_messages
     assert "box/testsecret/db_password" in commit_messages
+    # the point of the test: when the first host was touched, the generation commit already existed
+    assert log_at_first_call and log_at_first_call[0].startswith("secret: generate 2 secrets"), log_at_first_call
 
     admin = SecretNote.load(inventory, SecretPath.parse("box/testsecret/admin_password"))
     db = SecretNote.load(inventory, SecretPath.parse("box/testsecret/db_password"))
