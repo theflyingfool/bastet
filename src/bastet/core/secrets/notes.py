@@ -37,11 +37,30 @@ def _applies_to_link(applies_to: str) -> str:
     return make_link(applies_to)
 
 
+_COMPONENT = re.compile(r"^[A-Za-z0-9_.-]+$")
+
+
+def _check_component(value: str, label: str) -> None:
+    """A secret path component must be a single safe filesystem segment: no '/', '\\', spaces, and
+    never '.' or '..' (both of which otherwise match the character class below) -- so a value from
+    the CLI or a `secret:` reference can never escape `_secrets/` (spec 15.1)."""
+    if value in ("", ".", ".."):
+        raise SecretError(f"{value!r} isn't a valid secret path {label} (can't be empty, '.' or '..')")
+    if not _COMPONENT.fullmatch(value):
+        raise SecretError(f"{value!r} isn't a valid secret path {label} (use letters, digits, '_', '.', '-' only)")
+
+
 @dataclass(frozen=True)
 class SecretPath:
     host: str
     role: str | None
     name: str
+
+    def __post_init__(self) -> None:
+        _check_component(self.host, "host")
+        if self.role is not None:
+            _check_component(self.role, "role")
+        _check_component(self.name, "name")
 
     @property
     def rel(self) -> str:

@@ -1,3 +1,6 @@
+import pytest
+
+from bastet.core.secrets.crypto import SecretError
 from bastet.core.secrets.notes import SecretNote, SecretPath, all_notes, all_notes_safe
 
 
@@ -5,6 +8,29 @@ def test_paths():
     assert SecretPath.parse("git1/gitea/admin_password").rel == "_secrets/git1/gitea/admin_password.md"
     assert SecretPath.parse("nfs/bmc_password").rel == "_secrets/nfs/bmc_password.md"
     assert SecretPath.from_cli(["lab", "caddy", "dns_token"]).text == "lab/caddy/dns_token"
+
+
+@pytest.mark.parametrize("ref", ["../hosts/x", "a/../../etc/passwd", "a/./b", "a//b"])
+def test_parse_refuses_path_traversal(ref):
+    with pytest.raises(SecretError):
+        SecretPath.parse(ref)
+
+
+def test_from_cli_refuses_dotdot_component():
+    with pytest.raises(SecretError):
+        SecretPath.from_cli(["..", "hosts", "x"])
+
+
+def test_from_cli_refuses_empty_component():
+    with pytest.raises(SecretError):
+        SecretPath.from_cli(["host", "", "x"])
+
+
+def test_direct_construction_refuses_a_slash_or_space():
+    with pytest.raises(SecretError):
+        SecretPath("host", "role", "a/b")
+    with pytest.raises(SecretError):
+        SecretPath("host name", None, "x")
 
 
 def test_note_round_trip_keeps_body_byte_for_byte(tmp_path):

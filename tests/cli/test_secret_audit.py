@@ -20,6 +20,7 @@ def test_audit_prints_grouped_findings_and_never_a_value(runner, secret_keys, in
     assert "unused:" in result.output
     assert "lab/unused_token" in result.output
     assert "short" not in result.output
+    assert "‹secret›" not in result.output  # never printed at all, masked or not
 
 
 def test_audit_writes_dashboard_section_with_date(runner, secret_keys, inventory):

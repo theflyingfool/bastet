@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from bastet.core.secrets.crypto import SecretError
 from bastet.core.secrets.notes import SecretPath
+from bastet.core.secrets.redact import ACTIVE
 from bastet.roles.contract import SECRET_PREFIX, Option, check_value
 
 
@@ -13,6 +14,10 @@ class MissingSecret(SecretError):
     def __init__(self, sp: SecretPath) -> None:
         self.sp = sp
         words = " ".join(part for part in (sp.host, sp.role, sp.name) if part)
+        # Neither the path nor the hint is a secret value, but either could coincidentally match a
+        # registered one (short host/role/option words); protect them so this message is never masked.
+        ACTIVE.protect(sp.text)
+        ACTIVE.protect(words)
         super().__init__(f"missing secret {sp.text} (bastet secret set {words})")
 
 

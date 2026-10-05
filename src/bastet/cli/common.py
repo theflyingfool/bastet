@@ -50,6 +50,7 @@ class SecretsContext:
         return self._identities
 
     def get(self, sp: SecretPath) -> str:
+        self.redactor.protect(sp.text)
         if not (self.root / sp.rel).exists():
             raise MissingSecret(sp)
         note = SecretNote.load(self.root, sp)
