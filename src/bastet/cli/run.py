@@ -29,7 +29,7 @@ from bastet.core import hostkeys
 from bastet.core.errors import BastetError
 from bastet.core.frontmatter import Document
 from bastet.core.links import link_target
-from bastet.core.parallel import HostLog, Outcome, run_parallel
+from bastet.core.parallel import HostFailed, HostLog, Outcome, run_parallel, stopping
 from bastet.core.remote import SshTarget, close_master, control_path
 from bastet.cli.reboot import RebootPlan, perform_reboot, reboot_decision
 from bastet.engine.packages import Reboot
@@ -388,15 +388,19 @@ def _run(names: list[str] | None, *, apply_changes: bool, yes: bool, verbose: bo
                     def apply_work(host: str, log: HostLog):
                         r = by_name[host]
                         runner = runners[host]
-                        done = run_host(runner, host, r.batches, apply=True) if host in chosen else None
+                        done = run_host(runner, host, r.batches, apply=True, should_stop=stopping) if host in chosen else None
                         fresh = None
-                        if any(isinstance(res, LynisReport) for b in r.batches for res in b.resources):
+                        if not stopping() and any(isinstance(res, LynisReport) for b in r.batches for res in b.resources):
                             log.echo(f"{host}: running a lynis audit (1–3 minutes)…")
                             warning = run_audit(runner, r.doc)
                             if warning:
                                 log.secho(warning, fg="yellow")
                             else:
                                 fresh = run_host(runner, host, [Batch("lynis", [LynisReport()])], apply=False).items
+                        if done is not None and not done.ok:
+                            # a failed (not merely erroring) apply still has a result worth showing --
+                            # HostFailed keeps it while still failing this host for `after` dependents.
+                            raise HostFailed(f"{host}: apply failed", (done, fresh))
                         return done, fresh
 
                     def on_apply_done(outcome: Outcome) -> None:
@@ -407,16 +411,24 @@ def _run(names: list[str] | None, *, apply_changes: bool, yes: bool, verbose: bo
                             apply_errored.add(outcome.host)
                             return
                         if outcome.status == "error":
-                            typer.secho(ctx.secrets.redactor.mask(f"{outcome.host}: {outcome.error}"), fg="red")
                             failed_hosts.add(outcome.host)
-                            apply_errored.add(outcome.host)
+                            if outcome.value is None:
+                                typer.secho(ctx.secrets.redactor.mask(f"{outcome.host}: {outcome.error}"), fg="red")
+                                apply_errored.add(outcome.host)
+                                return
+                            done, fresh = outcome.value
+                            if done is not None:
+                                typer.echo(ctx.secrets.redactor.mask(render_host(done, full=full)))
+                            apply_failed_map[outcome.host] = True
+                            if fresh is not None:
+                                fresh_items[outcome.host] = fresh
                             return
                         done, fresh = outcome.value
                         if done is not None:
+                            # `apply_work` raises `HostFailed` whenever `not done.ok`, so a "done"
+                            # outcome here always had a clean apply (or no apply at all).
                             typer.echo(ctx.secrets.redactor.mask(render_host(done, full=full)))
-                            apply_failed_map[outcome.host] = not done.ok
-                            if not done.ok:
-                                failed_hosts.add(outcome.host)
+                            apply_failed_map[outcome.host] = False
                         else:
                             apply_failed_map[outcome.host] = checks[outcome.host].count("failed") > 0
                             if apply_failed_map[outcome.host]:

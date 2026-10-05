@@ -53,6 +53,16 @@ class Outcome(Generic[T]):
     log: HostLog
 
 
+class HostFailed(Exception):
+    """Raise from `work` to fail a host for dependency purposes (a dependent is skipped with
+    "its node <host> failed", same as any other error) while still keeping a result `on_done`
+    can show -- e.g. a host whose own run produced a rendered report, just not a clean one."""
+
+    def __init__(self, message: str, value: object = None) -> None:
+        super().__init__(message)
+        self.value = value
+
+
 def run_parallel(
     hosts: Sequence[str],
     work: Callable[[str, HostLog], T],
@@ -107,6 +117,8 @@ def run_parallel(
         try:
             value = work(host, log)
             outcome = Outcome(host, "done", value, None, log)
+        except HostFailed as exc:
+            outcome = Outcome(host, "error", exc.value, str(exc), log)
         except BastetError as exc:
             outcome = Outcome(host, "error", None, exc.message, log)
         except Exception as exc:

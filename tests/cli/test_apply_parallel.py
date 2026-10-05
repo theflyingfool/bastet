@@ -217,6 +217,27 @@ def test_guest_skipped_when_node_fails(runner, node_and_guest, monkeypatch):
     assert "its node pve1 failed" in result.output
 
 
+def test_guest_skipped_when_node_apply_has_failed_items(runner, node_and_guest, monkeypatch):
+    """A node's apply can finish (no exception) with failed items -- `done.ok` is False, not a
+    worker error -- and its guests must still be skipped, with the node's own result still shown."""
+    pending = {"pve1": 1, "guest1": 1}
+    monkeypatch.setattr(run_mod, "plan_for", plan_stub(pending))
+    monkeypatch.setattr(run_mod, "connect", connect_stub())
+
+    def run_host(runner_, host, batches, *, apply=False, **kw):
+        if not apply:
+            return _check_run(host, pending[host])
+        if host == "pve1":
+            return _apply_run(host, 0, failed=1)
+        raise AssertionError("guest1 must not run after its node failed")
+
+    monkeypatch.setattr(run_mod, "run_host", run_host)
+    result = runner.invoke(app, ["apply", "-y"])
+    assert result.exit_code == 1
+    assert "its node pve1 failed" in result.output
+    assert "HOST: pve1" in result.output and "1 failed" in result.output
+
+
 # --- a worker raising an unexpected error ---
 
 
@@ -318,3 +339,42 @@ def test_ctrl_c_reports_not_started_closes_masters_and_still_refreshes(runner, t
     assert len(not_started) == 2
     assert len(closed) == 1  # only the host that actually connected ever needs its master closed
     assert refreshed == [True]
+
+
+# --- Ctrl-C mid-apply: the running host must stop at the next item, not run to completion ---
+
+
+def test_ctrl_c_during_apply_stops_later_items_on_that_host(runner, inventory, tmp_path, monkeypatch):
+    from bastet.core.remote import LocalRunner
+    from engine_fakes import Flag
+
+    a, b = tmp_path / "a", tmp_path / "b"
+
+    class StoppingRunner(LocalRunner):
+        """Its first fix (writing `a`) sets the global stop flag, as a real Ctrl-C would have by
+        the time the engine checks `should_stop()` before the next item."""
+
+        def run(self, script, timeout=120):
+            res = super().run(script, timeout=timeout)
+            # Only the *fix* script actually redirects into `a` (the read/check script just `cat`s
+            # it inside a printf-wrapped probe) -- match that, not every script that mentions the path.
+            if f"> {a}" in script:
+                from bastet.core.parallel import _stop_event
+                _stop_event.set()
+            return res
+
+    def plan_for(ctx, doc, roles, updates=False):
+        return _applied(), _batches([Flag(path=str(a), value="1"), Flag(path=str(b), value="2")])
+
+    monkeypatch.setattr(run_mod, "plan_for", plan_for)
+    monkeypatch.setattr(
+        run_mod, "connect",
+        lambda ctx, doc, tmp, *, yes: (StoppingRunner(), SimpleNamespace(control_path=None)),
+    )
+
+    result = runner.invoke(app, ["apply", "pve1", "-y"])
+
+    assert result.exit_code == 1, result.output
+    assert a.read_text() == "1"
+    assert not b.exists()
+    assert "stopped (Ctrl-C)" in result.output

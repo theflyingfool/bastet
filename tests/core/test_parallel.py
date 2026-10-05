@@ -5,7 +5,7 @@ import pytest
 import typer
 
 from bastet.core.errors import BastetError
-from bastet.core.parallel import HostLog, Outcome, in_worker, run_parallel, stopping
+from bastet.core.parallel import HostFailed, HostLog, Outcome, in_worker, run_parallel, stopping
 
 
 def test_results_in_input_order_despite_completion_order():
@@ -73,6 +73,36 @@ def test_bastet_error_and_unexpected_error_leave_others_done():
     assert by_host["b"].status == "error" and by_host["b"].error == "bad host"
     assert by_host["c"].status == "error"
     assert by_host["c"].error == "unexpected error: ValueError: boom"
+
+
+def test_host_failed_errors_the_host_but_keeps_its_value():
+    def work(host, log):
+        if host == "b":
+            raise HostFailed("b: apply failed", value="b-partial-result")
+        return host
+
+    results = run_parallel(["a", "b"], work, jobs=2)
+    by_host = {r.host: r for r in results}
+
+    assert by_host["a"].status == "done" and by_host["a"].value == "a"
+    assert by_host["b"].status == "error"
+    assert by_host["b"].error == "b: apply failed"
+    assert by_host["b"].value == "b-partial-result"
+
+
+def test_after_guest_errors_when_node_raises_host_failed():
+    def work(host, log):
+        if host == "n1":
+            raise HostFailed("n1: apply failed", value="n1-result")
+        return host
+
+    results = run_parallel(["guest", "n1"], work, jobs=2, after={"guest": "n1"})
+    by_host = {r.host: r for r in results}
+
+    assert by_host["n1"].status == "error" and by_host["n1"].value == "n1-result"
+    assert by_host["guest"].status == "error"
+    assert by_host["guest"].error == "its node n1 failed"
+    assert by_host["guest"].value is None
 
 
 def test_after_guest_waits_for_its_node():
