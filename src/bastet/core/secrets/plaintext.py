@@ -58,7 +58,11 @@ def unlock(root: Path, sctx, which: list[SecretPath] | None = None) -> list[Secr
         armor = note.body if note.body.endswith("\n") else note.body + "\n"
         copy_path.write_text(armor, encoding="utf-8")
         note.data["locked"] = False
-        note.body = value
+        # Always exactly `value + one newline`, regardless of whether value itself ends in one:
+        # that makes the body deterministic, so `lock` can recover `value` byte for byte by
+        # stripping exactly that one added newline (I5), instead of `.strip()`-ing away a value's
+        # own trailing newline or its leading/trailing spaces.
+        note.body = value + "\n"
         note.write(root)
         unlocked.append(note)
     return unlocked
@@ -71,19 +75,47 @@ class LockResult:
     changed_paths: list[str] = field(default_factory=list)
 
 
+def _body_value(body: str) -> str:
+    """The exact value `unlock` wrote: `body` with exactly one trailing newline removed, never a
+    general `.strip()` (which would also eat a value's own trailing newline, or leading/trailing
+    spaces in a chosen password) -- I5."""
+    return body[:-1] if body.endswith("\n") else body
+
+
+def _is_secrets_note(root: Path, path: Path) -> bool:
+    try:
+        path.resolve().relative_to((root / "_secrets").resolve())
+    except ValueError:
+        return False
+    return path.suffix == ".md"
+
+
 def lock(root: Path, sctx) -> LockResult:
-    """Re-encrypt every plain-text note: restore unchanged ciphertext exactly, re-seal changed values, commit."""
+    """Re-encrypt every plain-text note: restore unchanged ciphertext exactly, re-seal changed values, commit.
+
+    Two passes (I4): every note is validated and sealed *before* anything is written, so a bad note
+    later in the list can never leave an earlier one half-written. The commit at the end covers every
+    `_secrets/**/*.md` path that differs from HEAD, not just the ones this call changed, so a previous
+    lock that failed partway (or crashed between writing and committing) still gets its writes in.
+    """
     notes = [n for n in all_notes(root) if n.data.get("locked") is False or not n.is_sealed]
     if not notes:
         return LockResult(locked=0, changed=0)
     now = _now()
     changed_paths: list[str] = []
-    rel_paths: list[Path] = []
+    planned: list[SecretNote] = []
     for note in notes:
-        value = note.body.strip()
+        copy_path = _unlock_copy_path(root, note.path)
+        if note.is_sealed and not copy_path.is_file():
+            # `locked: false` on a note whose body never actually left its sealed form (I6): the
+            # body is real armor, not a plaintext value: encrypting it as-if-a-value would seal the
+            # armor text itself. Just correct the metadata; the secret's value never changes.
+            note.data["locked"] = True
+            planned.append(note)
+            continue
+        value = _body_value(note.body)
         if not value:
             raise SecretError(f"{note.path.text}: empty; fill it in, or run `bastet secret set`, before locking")
-        copy_path = _unlock_copy_path(root, note.path)
         original_armor = None
         original_value = None
         if copy_path.is_file():
@@ -95,7 +127,7 @@ def lock(root: Path, sctx) -> LockResult:
         if original_armor is not None and original_value == value:
             note.body = original_armor
         else:
-            note.body = crypto.seal(note.path.text, value, sctx.recipients)
+            note.body = crypto.seal(note.path.text, value, sctx.recipients)  # may raise: before any write
             note.data["source"] = "chosen"
             if original_armor is not None:
                 note.data["rotated"] = now
@@ -103,17 +135,25 @@ def lock(root: Path, sctx) -> LockResult:
                 note.data["created"] = now
             changed_paths.append(note.path.text)
         note.data["locked"] = True
-        note.write(root)
-        rel_paths.append(root / note.path.rel)
         sctx.redactor.add(value)
+        planned.append(note)
+    # Nothing above failed: every note is now safe to write.
+    for note in planned:
+        note.write(root)
     shutil.rmtree(root / UNLOCK_DIR, ignore_errors=True)
-    if changed_paths:
-        from bastet.core.gitrepo import GitRepo
+    from bastet.core.gitrepo import GitRepo
 
-        repo = GitRepo(root)
-        if repo.is_repo():
-            words = ", ".join(changed_paths)
-            repo.commit(rel_paths, f"secret: lock ({len(changed_paths)} changed: {words})")
+    repo = GitRepo(root)
+    if repo.is_repo():
+        from bastet.core.secrets import confirm as secrets_confirm
+
+        was_pending = secrets_confirm.pending(repo, root)
+        dirty = [p for p in repo.dirty() if _is_secrets_note(root, p)]
+        if dirty:
+            message = (f"secret: lock ({len(changed_paths)} changed: {', '.join(changed_paths)})"
+                       if changed_paths else "secret: lock (metadata only)")
+            repo.commit(dirty, message)
+            secrets_confirm.confirm_own_commit(repo, root, was_pending)
     return LockResult(locked=len(notes), changed=len(changed_paths), changed_paths=changed_paths)
 
 

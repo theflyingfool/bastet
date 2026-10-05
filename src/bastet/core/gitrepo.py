@@ -117,6 +117,19 @@ class GitRepo:
     def head(self) -> str:
         return self._git("rev-parse", "HEAD").stdout.strip()
 
+    def head_or_none(self) -> str | None:
+        """Like `head()`, but None instead of raising when there isn't a commit yet."""
+        r = self._git("rev-parse", "--verify", "-q", "HEAD", check=False)
+        return r.stdout.strip() if r.returncode == 0 else None
+
+    def changed_paths(self, a: str, b: str, pathspec: str | None = None) -> list[str]:
+        """Paths that differ between two commits (`git diff --name-only`), optionally under `pathspec`.
+        Raises if either commit doesn't resolve (e.g. one was pruned after a rewrite)."""
+        args = ["diff", "--name-only", a, b]
+        if pathspec:
+            args += ["--", pathspec]
+        return [p for p in self._git(*args).stdout.splitlines() if p]
+
     def _unpushed(self) -> set[str] | None:
         """Commit hashes not yet pushed, or None when there's no upstream (everything counts as unpushed)."""
         if not self._has_upstream():

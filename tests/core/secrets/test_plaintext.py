@@ -186,6 +186,91 @@ def test_unlock_one_by_name_leaves_others_sealed(repo, sctx):
     assert SecretNote.load(repo, sp2).is_sealed
 
 
+# --- I4: a lock that fails partway must never leave edits uncommitted forever ---
+
+
+def test_partial_lock_failure_is_committed_in_full_on_the_next_successful_lock(repo, sctx):
+    a, b = SecretPath.parse("lab/a"), SecretPath.parse("lab/b")
+    _seed(repo, a, "value-a-old", sctx)
+    _seed(repo, b, "value-b-old", sctx)
+    _commit_all(repo)
+    plaintext.unlock(repo, sctx)
+    na = SecretNote.load(repo, a)
+    na.body = "value-a-NEW\n"
+    na.write(repo)
+    nb = SecretNote.load(repo, b)
+    nb.body = "\n"  # empty once the trailing newline is stripped: invalid
+    nb.write(repo)
+
+    with pytest.raises(SecretError):
+        plaintext.lock(repo, sctx)
+    # nothing was written by THIS call: a's new value must not have been re-sealed yet
+    assert SecretNote.load(repo, a).body.strip() == "value-a-NEW"
+    assert not SecretNote.load(repo, a).is_sealed
+
+    nb = SecretNote.load(repo, b)
+    nb.body = "value-b-old\n"
+    nb.write(repo)
+    result = plaintext.lock(repo, sctx)
+
+    assert result.changed == 1
+    status = git(repo, "status", "--porcelain", "--", "_secrets").strip()
+    assert status == ""  # everything under _secrets/ got committed, including the stray prior write
+    locked_a = SecretNote.load(repo, a)
+    assert locked_a.is_sealed
+    assert open_sealed(locked_a.body.strip(), a.text, sctx.identities()).value == "value-a-NEW"
+
+
+# --- I5: lock must recover the exact value, not `body.strip()` ---
+
+
+def test_lock_round_trips_a_value_with_a_trailing_newline(repo, sctx):
+    sp = SecretPath.parse("lab/key")
+    original = "-----BEGIN KEY-----\nabc\n-----END KEY-----\n"
+    _seed(repo, sp, original, sctx)
+    _commit_all(repo)
+
+    plaintext.unlock(repo, sctx)
+    result = plaintext.lock(repo, sctx)
+
+    assert result.changed == 0  # no edit: must restore the exact original ciphertext
+    note = SecretNote.load(repo, sp)
+    assert open_sealed(note.body.strip(), sp.text, sctx.identities()).value == original
+
+
+def test_lock_round_trips_leading_and_trailing_spaces(repo, sctx):
+    sp = SecretPath.parse("lab/pw")
+    original = "  s3cret with spaces  "
+    _seed(repo, sp, original, sctx)
+    _commit_all(repo)
+
+    plaintext.unlock(repo, sctx)
+    result = plaintext.lock(repo, sctx)
+
+    assert result.changed == 0
+    note = SecretNote.load(repo, sp)
+    assert open_sealed(note.body.strip(), sp.text, sctx.identities()).value == original
+
+
+# --- I6: `locked: false` on a note whose body is still sealed armor, not a value ---
+
+
+def test_lock_of_locked_false_with_sealed_body_just_fixes_the_flag(repo, sctx):
+    sp = SecretPath.parse("lab/c")
+    _seed(repo, sp, "value-c", sctx)
+    _commit_all(repo)
+    note = SecretNote.load(repo, sp)
+    note.data["locked"] = False  # nobody ran `unlock`; the body is still the real sealed armor
+    note.write(repo)
+
+    plaintext.lock(repo, sctx)
+
+    note = SecretNote.load(repo, sp)
+    assert note.data["locked"] is True
+    assert note.is_sealed
+    assert open_sealed(note.body.strip(), sp.text, sctx.identities()).value == "value-c"
+
+
 # --- the pre-commit hook ---
 
 
