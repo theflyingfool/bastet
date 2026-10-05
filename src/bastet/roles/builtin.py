@@ -255,9 +255,17 @@ def batches_for(applied: list[Applied], host: HostInfo) -> list[Batch]:
         if builder is None:
             raise BastetError(f"role {a.role.name} has no implementation yet")
         try:
-            batches += builder(a.values, host)
+            built = builder(a.values, host)
         except (TypeError, ValueError, KeyError) as exc:
             raise BastetError(f"{a.role.name}: {exc}") from None
+        if a.secret:
+            # At least one of this role's options was a `secret:` reference (spec 15.8): every
+            # resource it built might hold that value, however deep (a systemd drop-in's content,
+            # a file's content, a line in a config), so every resource from this role's batches is
+            # marked secret -- not just resources with a dedicated `secret` option -- so check/apply
+            # never shows its current-vs-wanted content or a diff for it.
+            built = [replace(b, resources=[replace(r, secret=True) for r in b.resources]) for b in built]
+        batches += built
     # Everything Bastet installs is accounted for, whichever role installs it.
     present = sorted({r.name for b in batches for r in b.resources if isinstance(r, Package) and r.state == "present"})
     repos = tuple(r.name for b in batches for r in b.resources if isinstance(r, Repository))

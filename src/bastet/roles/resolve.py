@@ -29,6 +29,7 @@ class Applied:
     values: dict
     sources: list[Source] = field(default_factory=list)
     origins: dict[str, str] = field(default_factory=dict)
+    secret: bool = False  # at least one option resolve_refs() replaced with a decrypted secret value
 
 
 def _links(value) -> list[str]:
