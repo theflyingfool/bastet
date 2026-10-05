@@ -147,6 +147,19 @@ def test_empty_value_refuses_to_lock(repo, sctx):
         plaintext.lock(repo, sctx)
 
 
+def test_any_plain_treats_an_unreadable_note_as_plain_fail_closed(repo, sctx):
+    sp = SecretPath.parse("git1/gitea/x")
+    _seed(repo, sp, "value", sctx)
+    bad = repo / "_secrets" / "git1" / "broken.md"
+    bad.write_text("---\nbastet: secret\n[ this is not valid yaml\n---\nbody\n")
+    _commit_all(repo)
+
+    plain = plaintext.any_plain(repo)
+
+    assert sp not in plain  # the genuinely sealed note is unaffected
+    assert len(plain) == 1  # the malformed note counts as plain: fail closed, never skipped silently
+
+
 def test_any_plain_lists_unlocked_and_unsealed_notes(repo, sctx):
     sp1 = SecretPath.parse("git1/gitea/x")
     sp2 = SecretPath.parse("git1/gitea/y")

@@ -8,7 +8,7 @@ from pathlib import Path
 
 from bastet.core.secrets import crypto
 from bastet.core.secrets.crypto import SecretError
-from bastet.core.secrets.notes import SecretNote, SecretPath, all_notes
+from bastet.core.secrets.notes import SecretNote, SecretPath, all_notes, all_notes_safe
 
 UNLOCK_DIR = ".bastet/unlock"
 GITIGNORE_LINE = ".bastet/"
@@ -34,9 +34,23 @@ def _ensure_gitignored(root: Path) -> None:
         gi.write_text(GITIGNORE_LINE + "\n", encoding="utf-8")
 
 
+class _Unreadable:
+    """Stands in for a `BadNote` in `any_plain`'s result: it has no frontmatter to say `locked: false`,
+    but fail-closed means it's treated as plain text anyway -- a note Bastet can't even parse is not
+    a note it can vouch for being safely encrypted."""
+
+    def __init__(self, rel: str) -> None:
+        self.text = rel
+
+
 def any_plain(root: Path) -> list[SecretPath]:
-    """Every secret note that's plain text: unlocked, or a body that isn't a sealed armor block."""
-    return [n.path for n in all_notes(root) if n.data.get("locked") is False or not n.is_sealed]
+    """Every secret note that's plain text: unlocked, a body that isn't a sealed armor block, or a
+    note that couldn't even be read (bad YAML, bad nesting) -- fail closed, rather than silently
+    skip a note nobody can confirm is actually sealed."""
+    notes, bad = all_notes_safe(root)
+    plain = [n.path for n in notes if n.data.get("locked") is False or not n.is_sealed]
+    plain += [_Unreadable(b.rel) for b in bad]
+    return plain
 
 
 def unlock(root: Path, sctx, which: list[SecretPath] | None = None) -> list[SecretNote]:

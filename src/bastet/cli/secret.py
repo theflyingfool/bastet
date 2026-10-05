@@ -18,7 +18,7 @@ from bastet.core.changes import Change, write_changes
 from bastet.core.errors import BastetError
 from bastet.core.secrets import crypto, plaintext
 from bastet.core.secrets import health as secret_health
-from bastet.core.secrets.notes import SecretNote, SecretPath, all_notes
+from bastet.core.secrets.notes import SecretNote, SecretPath, all_notes_safe
 from bastet.roles.contract import Option, load_roles
 from bastet.roles.resolve import resolve
 
@@ -161,8 +161,10 @@ def secret_words(sp: SecretPath) -> str:
 
 def _print_inventory(ctx: Context) -> None:
     uses = _collect_uses(ctx)
-    notes = {n.path.text: n for n in all_notes(ctx.root)}
-    texts = sorted(set(notes) | set(uses))
+    good, bad = all_notes_safe(ctx.root)
+    notes = {n.path.text: n for n in good}
+    bad_texts = {b.rel: b for b in bad}
+    texts = sorted(set(notes) | set(uses) | set(bad_texts))
     if not texts:
         typer.echo("No secrets yet.")
         return
@@ -170,7 +172,9 @@ def _print_inventory(ctx: Context) -> None:
     for text in texts:
         note = notes.get(text)
         used_by = ", ".join(uses[text].used_by) if text in uses else ""
-        if note is None:
+        if text in bad_texts:
+            source, created, status = "", "", "unreadable"
+        elif note is None:
             source, created, status = "", "", "missing"
         else:
             source, created = str(note.data.get("source") or ""), str(note.data.get("created") or "")

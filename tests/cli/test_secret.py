@@ -276,6 +276,21 @@ def test_unlock_refuses_when_obsidian_git_autosaves(runner, secret_keys, invento
     assert SecretNote.load(inventory, sp).is_sealed
 
 
+def test_inventory_shows_an_unreadable_note_instead_of_crashing(runner, secret_keys, inventory):
+    sp = SecretPath.parse("lab/dns_token")
+    _seed_note(inventory, sp, SENTINEL, secret_keys["pub"])
+    bad = inventory / "_secrets" / "lab" / "broken.md"
+    bad.write_text("---\nbastet: secret\n[ not valid yaml\n---\nbody\n")
+    git(inventory, "add", ".")
+    git(inventory, "commit", "-q", "-m", "a broken note")
+
+    result = runner.invoke(app, ["secret"])
+
+    assert result.exit_code == 0, result.output
+    assert "lab/dns_token" in result.output
+    assert "unreadable" in result.output
+
+
 def test_inventory_lists_while_a_secret_is_unlocked(runner, secret_keys, inventory, interactive):
     runner.invoke(app, ["secret", "set", "lab", "dns_token"], input="e\n")
     result = runner.invoke(app, ["secret"])
