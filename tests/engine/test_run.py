@@ -72,6 +72,19 @@ def test_failure_stops_later_batches_but_not_an_earlier_trigger(tmp_path):
     assert log.read_text() == "ran\n"
 
 
+def test_failed_trigger_stops_later_batches(tmp_path):
+    trigger = Trigger("restart-thing", "exit 1", root=False)
+    other = str(tmp_path / "other")
+    run = run_host(LocalRunner(), "h", [
+        Batch("one", [Flag(path=str(tmp_path / "a"), value="1", on_change=(trigger,))]),
+        Batch("two", [Flag(path=other, value="z")]),
+    ], apply=True)
+    s = statuses(run)
+    assert [(t.trigger.label, t.ok) for t in run.triggers] == [("restart-thing", False)]
+    assert s[other] == ("skipped", "earlier failure on this host: restart-thing")
+    assert not (tmp_path / "other").exists() and not run.ok
+
+
 def test_triggers_run_once_after_batch_in_order(tmp_path):
     log = tmp_path / "log"
     late = Trigger("late", f"echo late >> {log}", root=False)

@@ -225,6 +225,8 @@ def run_host(runner, host: str, batches: list[Batch], *, apply: bool, fix_timeou
         for t in sorted(pending, key=lambda t: t.order):  # phase 5
             ok, error = _exec(runner, [t.command], t.root, fix_timeout)
             run.triggers.append(TriggerRun(t, ok, error))
+            if not ok and host_broken is None:
+                host_broken = t.label
 
     if changed:  # phase 6
         for item, results in zip(changed, _read(runner, changed)):
