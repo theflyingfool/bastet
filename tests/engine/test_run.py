@@ -4,7 +4,7 @@ from bastet.core.errors import Unreachable
 from bastet.core.remote import LocalRunner
 from bastet.engine.model import Trigger
 from bastet.engine.run import Batch, ConflictError, run_host
-from engine_fakes import Append, Broken, DeniedRunner, ExplodingRunner, Flag, NoSystemd, Stubborn
+from engine_fakes import Append, Broken, DeniedRunner, ExplodingRunner, Flag, NoSystemd, Stubborn, UnreadableReportOnly
 
 
 def statuses(run):
@@ -137,6 +137,20 @@ def test_read_failure_stops_the_rest_of_its_batch(tmp_path):
                                                      Flag(path=str(tmp_path / "after"), value="2")])], apply=True)
     s = statuses(run)
     assert s[str(tmp_path / "after")][0] == "skipped" and not (tmp_path / "after").exists()
+
+
+def test_report_only_read_failure_does_not_stop_later_batches(tmp_path):
+    bad = str(tmp_path / "bad")
+    other = str(tmp_path / "other")
+    run = run_host(LocalRunner(), "h", [
+        Batch("one", [UnreadableReportOnly(path=bad, value="x")]),
+        Batch("two", [Flag(path=other, value="z")]),
+    ], apply=True)
+    s = statuses(run)
+    assert s[bad][0] == "failed"
+    assert s[other][0] == "changed"
+    assert (tmp_path / "other").read_text() == "z"
+    assert not run.ok
 
 
 def test_partial_desires_merge_and_real_clashes_still_conflict():

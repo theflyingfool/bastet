@@ -125,6 +125,14 @@ class Unreadable(Flag):
         raise ReadError("exists and isn't a regular file (dir)")
 
 
+@dataclass(frozen=True, kw_only=True)
+class UnreadableReportOnly(Unreadable):
+    """A report-only resource (like `updates: manual`) whose read fails."""
+
+    def report_only(self) -> bool:
+        return True
+
+
 class SilentRunner:
     """Returns no sections at all, as when a read script dies early."""
 

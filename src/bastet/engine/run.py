@@ -179,7 +179,7 @@ def run_host(runner, host: str, batches: list[Batch], *, apply: bool, fix_timeou
         while i < len(mine):
             item = mine[i]
             i += 1
-            if item.status == "failed" and broken is None and host_broken is None:
+            if item.status == "failed" and not item.resource.report_only() and broken is None and host_broken is None:
                 broken = item.resource.label
             if item.status != "would-change":
                 continue
