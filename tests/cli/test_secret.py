@@ -269,3 +269,65 @@ def test_piped_set_with_no_words_refuses(runner, secret_keys, inventory):
     result = runner.invoke(app, ["secret", "set"], input="0\n")
     assert result.exit_code != 0
     assert "pipe" in result.output or "terminal" in result.output
+
+
+# --- unlock / lock (spec 15.4) ---
+
+
+def test_unlock_on_a_non_terminal_leaves_notes_unlocked_and_lock_locks_them(runner, secret_keys, inventory):
+    sp = SecretPath.parse("lab/dns_token")
+    _seed_note(inventory, sp, SENTINEL, secret_keys["pub"])
+
+    result = runner.invoke(app, ["secret", "unlock"])
+    assert result.exit_code == 0, result.output
+    assert "Unlocked" in result.output and "bastet secret lock" in result.output
+    note = SecretNote.load(inventory, sp)
+    assert note.data["locked"] is False
+    assert note.body.strip() == SENTINEL
+
+    locked = runner.invoke(app, ["secret", "lock"])
+    assert locked.exit_code == 0, locked.output
+    assert SENTINEL not in locked.output
+    relocked = SecretNote.load(inventory, sp)
+    assert relocked.data["locked"] is True
+    assert relocked.is_sealed
+
+
+def test_load_context_refuses_other_commands_while_plain_text_exists(runner, secret_keys, inventory):
+    sp = SecretPath.parse("lab/dns_token")
+    _seed_note(inventory, sp, SENTINEL, secret_keys["pub"])
+    unlock_result = runner.invoke(app, ["secret", "unlock"])
+    assert unlock_result.exit_code == 0, unlock_result.output
+
+    blocked = runner.invoke(app, ["show"])
+    assert blocked.exit_code != 0
+    assert "plain text" in blocked.output and "bastet secret lock" in blocked.output
+
+    # the excepted commands still work while a secret is unlocked
+    still_works = runner.invoke(app, ["secret", "set", "lab", "another_token"], input=f"{SENTINEL}\n{SENTINEL}\n")
+    assert still_works.exit_code == 0, still_works.output
+
+
+def test_unlock_refuses_when_obsidian_sync_is_on(runner, secret_keys, inventory):
+    sp = SecretPath.parse("lab/dns_token")
+    _seed_note(inventory, sp, SENTINEL, secret_keys["pub"])
+    (inventory / ".obsidian").mkdir()
+    (inventory / ".obsidian" / "core-plugins.json").write_text('["sync"]')
+
+    result = runner.invoke(app, ["secret", "unlock"])
+    assert result.exit_code != 0
+    assert "Sync" in result.output
+    assert SecretNote.load(inventory, sp).is_sealed
+
+
+def test_unlock_refuses_when_obsidian_git_autosaves(runner, secret_keys, inventory):
+    sp = SecretPath.parse("lab/dns_token")
+    _seed_note(inventory, sp, SENTINEL, secret_keys["pub"])
+    plugin_dir = inventory / ".obsidian" / "plugins" / "obsidian-git"
+    plugin_dir.mkdir(parents=True)
+    (plugin_dir / "data.json").write_text('{"autoSaveInterval": 1}')
+
+    result = runner.invoke(app, ["secret", "unlock"])
+    assert result.exit_code != 0
+    assert "obsidian-git" in result.output.lower() or "auto-commit" in result.output.lower()
+    assert SecretNote.load(inventory, sp).is_sealed

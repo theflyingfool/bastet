@@ -11,10 +11,11 @@ import sys
 from dataclasses import dataclass, field
 
 import typer
+from rich.progress import Progress
 
 from bastet.cli.common import Context, handles_errors, load_context
 from bastet.core.errors import BastetError
-from bastet.core.secrets import crypto
+from bastet.core.secrets import crypto, plaintext
 from bastet.core.secrets.notes import SecretNote, SecretPath, all_notes
 from bastet.roles.contract import Option, load_roles
 from bastet.roles.resolve import resolve
@@ -304,7 +305,7 @@ def secret_set(
     words: list[str] | None = typer.Argument(None, help="host role option, or host name (lab allowed as host)."),
 ) -> None:
     """Set one secret (named), or walk the list of secrets that need a value."""
-    ctx = load_context()
+    ctx = load_context(allow_plaintext=True)
     _pull_quietly(ctx)
     if words:
         sp = SecretPath.from_cli(words)
@@ -330,7 +331,7 @@ def secret_show(words: list[str] = typer.Argument(..., help="host role option, o
     """The one deliberate way to see a value: display it, or copy it to the clipboard."""
     if not _stdout_is_tty():
         raise BastetError("refuses to show a secret when output isn't a terminal")
-    ctx = load_context()
+    ctx = load_context(allow_plaintext=True)
     sp = SecretPath.from_cli(words)
     value = ctx.secrets.get(sp)
     tool = _clipboard_tool()
@@ -343,3 +344,119 @@ def secret_show(words: list[str] = typer.Argument(..., help="host role option, o
         typer.echo("Copied to the clipboard; it clears in 45s.")
     else:
         typer.echo("Cancelled.")
+
+
+# --- `bastet secret unlock` / `bastet secret lock` (spec 15.4) ---
+
+
+def _read_key(timeout: float) -> str | None:
+    """Read one key from the terminal within `timeout` seconds: ENTER, q, ESC, CTRL_C, or None."""
+    import select
+    import termios
+    import tty
+
+    if not sys.stdin.isatty():
+        return None
+    fd = sys.stdin.fileno()
+    old = termios.tcgetattr(fd)
+    try:
+        tty.setcbreak(fd)
+        ready, _, _ = select.select([fd], [], [], max(timeout, 0))
+        if not ready:
+            return None
+        ch = sys.stdin.read(1)
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+    if ch in ("\r", "\n"):
+        return "ENTER"
+    if ch == "\x03":
+        return "CTRL_C"
+    if ch == "\x1b":
+        # a lone Esc vs. the start of an arrow-key escape sequence: a short follow-up read tells them apart
+        old2 = termios.tcgetattr(fd)
+        try:
+            tty.setcbreak(fd)
+            ready2, _, _ = select.select([fd], [], [], 0.05)
+            if not ready2:
+                return "ESC"
+            sys.stdin.read(1)  # swallow the rest of the escape sequence; not a key we act on
+            return None
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old2)
+    if ch.lower() == "q":
+        return "q"
+    return None
+
+
+def _format_remaining(seconds: float) -> str:
+    total = max(0, int(seconds))
+    return f"{total // 60}:{total % 60:02d}"
+
+
+def _render_countdown(remaining: float) -> None:
+    text = f"Unlocked. Locks in {_format_remaining(remaining)} — Enter: +15m, q/Esc: lock now"
+    colour = "red" if remaining <= 60 else "yellow"
+    typer.secho(f"\r{text}   ", fg=colour, nl=False, err=True)
+
+
+def _interactive_countdown() -> None:
+    import time
+
+    typer.echo(err=True)  # keep the countdown line from overwriting the progress bar's own line
+    plaintext.run_countdown(_read_key, time.monotonic, _render_countdown)
+    typer.echo(err=True)
+
+
+_BACKUP_WARNING = (
+    "warning: backups taken while secrets are unlocked keep the plain text, "
+    "and Obsidian's own search index may too"
+)
+
+
+@secret_app.command("unlock")
+@handles_errors
+def secret_unlock(words: list[str] | None = typer.Argument(None, help="host role option, or host name.")) -> None:
+    """Plain text in place, for one secret or all; locks itself after a countdown (or run `secret lock`)."""
+    ctx = load_context(allow_plaintext=True)
+    reason = plaintext.preflight_block(ctx.root)
+    if reason:
+        raise BastetError(reason)
+    which = [SecretPath.from_cli(words)] if words else None
+    on_tty = _stdout_is_tty()
+    if on_tty:
+        typer.secho(_BACKUP_WARNING, fg="yellow", err=True)
+    with Progress(disable=not on_tty) as progress:
+        task = progress.add_task("Decrypting", total=None)
+        unlocked = plaintext.unlock(ctx.root, ctx.secrets, which)
+        progress.update(task, completed=1)
+    if not on_tty:
+        typer.echo("Unlocked. Run `bastet secret lock` when done.")
+        return
+    if not unlocked:
+        typer.echo("Nothing to unlock.")
+        return
+    _interactive_countdown()
+    result = plaintext.lock(ctx.root, ctx.secrets)
+    _print_lock_summary(result)
+
+
+def _print_lock_summary(result: plaintext.LockResult) -> None:
+    if result.locked == 0:
+        typer.echo("Nothing to lock.")
+        return
+    summary = f"{result.locked} locked · {result.changed} changed"
+    if result.changed:
+        summary += " · committed"
+    typer.echo(summary)
+
+
+@secret_app.command("lock")
+@handles_errors
+def secret_lock() -> None:
+    """Encrypt every plain-text secret note and commit what changed."""
+    ctx = load_context(allow_plaintext=True)
+    with Progress(disable=not _stdout_is_tty()) as progress:
+        task = progress.add_task("Locking", total=None)
+        result = plaintext.lock(ctx.root, ctx.secrets)
+        progress.update(task, completed=1)
+    _print_lock_summary(result)

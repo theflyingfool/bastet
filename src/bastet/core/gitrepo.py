@@ -8,6 +8,34 @@ from bastet.core.errors import BastetError
 
 BASTET_NAME = "Bastet"
 
+HOOK_MARKER = "# bastet-secrets-pre-commit"
+PRE_COMMIT_HOOK = f"""#!/bin/sh
+{HOOK_MARKER}
+# Installed by `bastet` (GitRepo.ensure_hook): refuses to commit a plain-text secret note.
+here=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+if [ -x "$here/pre-commit.local" ]; then
+    "$here/pre-commit.local" "$@" || exit $?
+fi
+bad=""
+for f in $(git diff --cached --name-only --diff-filter=ACM); do
+    case "$f" in
+        _secrets/*.md)
+            content=$(git show ":$f" 2>/dev/null)
+            if printf '%s' "$content" | grep -q 'locked: false'; then
+                bad="$bad $f"
+            elif ! printf '%s' "$content" | grep -q 'BEGIN AGE ENCRYPTED FILE'; then
+                bad="$bad $f"
+            fi
+            ;;
+    esac
+done
+if [ -n "$bad" ]; then
+    echo "bastet: refusing to commit plain-text secret note(s):$bad" >&2
+    echo "bastet: run \\`bastet secret lock\\` first" >&2
+    exit 1
+fi
+exit 0
+"""
 
 TIMEOUT = 120
 
@@ -157,6 +185,22 @@ class GitRepo:
         if r.returncode != 0:
             return []
         return [tuple(line.split("\x1f")) for line in r.stdout.splitlines() if line.count("\x1f") == 2]
+
+    def ensure_hook(self) -> None:
+        """Install the plain-text-secret-refusing pre-commit hook; idempotent, chains a pre-existing foreign hook."""
+        hooks_dir = Path(self._git("rev-parse", "--git-path", "hooks").stdout.strip())
+        if not hooks_dir.is_absolute():
+            hooks_dir = self.root / hooks_dir
+        hooks_dir.mkdir(parents=True, exist_ok=True)
+        hook_path = hooks_dir / "pre-commit"
+        local_path = hooks_dir / "pre-commit.local"
+        if hook_path.is_file():
+            if HOOK_MARKER in hook_path.read_text(encoding="utf-8"):
+                return  # already ours
+            hook_path.rename(local_path)
+            local_path.chmod(0o755)
+        hook_path.write_text(PRE_COMMIT_HOOK, encoding="utf-8")
+        hook_path.chmod(0o755)
 
     def commit(self, paths: Iterable[Path], message: str, *, as_bastet: bool = True) -> bool:
         rel = [str(Path(p).resolve().relative_to(self.root.resolve())) for p in paths]

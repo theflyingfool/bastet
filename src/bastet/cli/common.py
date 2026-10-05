@@ -57,6 +57,10 @@ class SecretsContext:
         self.redactor.add(value)
         return value
 
+    def identities(self) -> list:
+        """The decrypting identities, built lazily: used by plaintext.unlock/lock to open arbitrary notes."""
+        return self._ensure_identities()
+
 
 def _own_recipients(ctx: "Context") -> list[str]:
     lab = ctx.inventory.lab
@@ -86,18 +90,33 @@ class Context:
         return self._secrets
 
 
-def load_context() -> Context:
+def _refuse_if_plaintext(root: Path) -> None:
+    from bastet.core.secrets.plaintext import any_plain
+
+    plain = any_plain(root)
+    if plain:
+        n = len(plain)
+        raise BastetError(f"{n} secret(s) are plain text: finish them and run `bastet secret lock`")
+
+
+def load_context(*, allow_plaintext: bool = False) -> Context:
     config = load_config(config_path())
     root = inventory_dir(config, data_dir())
     if not root.is_dir():
         raise BastetError("inventory directory does not exist; run `bastet init`", file=root)
+    repo = GitRepo(root)
+    if repo.is_repo():
+        repo.ensure_hook()
+    if not allow_plaintext:
+        _refuse_if_plaintext(root)
     types = load_host_types()
-    return Context(config=config, root=root, repo=GitRepo(root), types=types, inventory=load_inventory(root, types))
+    return Context(config=config, root=root, repo=repo, types=types, inventory=load_inventory(root, types))
 
 
 def write_with_confirmation(ctx: Context, changes: list[Change], message: str, yes: bool) -> bool:
     if not ctx.repo.is_repo():
         raise BastetError("the inventory is not a git repository; run `bastet init`", file=ctx.root)
+    _refuse_if_plaintext(ctx.root)
     try:
         ctx.repo.pull()
     except BastetError as exc:
@@ -139,6 +158,16 @@ def refresh_generated(
     try:
         if ctx.repo.busy():
             typer.secho("refresh skipped: a git merge or rebase is in progress in the inventory", fg="yellow", err=True)
+            return 0
+        from bastet.core.secrets.plaintext import any_plain
+
+        plain = any_plain(ctx.root)
+        if plain:
+            typer.secho(
+                f"refresh skipped: {len(plain)} secret(s) are plain text; run `bastet secret lock`",
+                fg="yellow",
+                err=True,
+            )
             return 0
         try:
             ctx.repo.pull()
