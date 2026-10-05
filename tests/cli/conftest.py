@@ -107,6 +107,10 @@ def test_role(inventory, tmp_path, monkeypatch):
     monkeypatch.setattr(secret_mod, "load_roles", lambda: merged)
     monkeypatch.setattr(run_mod, "load_roles", lambda: merged)
     monkeypatch.setattr(add_mod, "load_roles", lambda: merged)
+    # health.py (and anything else calling the contract module directly, e.g. for Secrets.md) imports
+    # `load_roles` fresh each call, so it needs the original patched too, not just the three bound copies above.
+    import bastet.roles.contract as contract_mod
+    monkeypatch.setattr(contract_mod, "load_roles", lambda directory=None: merged if directory is None else load_roles(directory))
     # these roles carry no engine resources; a no-op builder lets check/apply resolve and resolve_refs
     # them (which is all the secrets tests care about) without `batches_for` refusing an unimplemented role.
     no_op_builders = {name: (lambda values, host: []) for name in ("testsecret", "othersecret", "impliedsecret")}

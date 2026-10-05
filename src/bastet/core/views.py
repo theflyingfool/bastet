@@ -12,11 +12,15 @@ def _yaml_list(items: tuple[str, ...], indent: str = "      ") -> str:
     return "".join(f"{indent}- {item}\n" for item in items)
 
 
-def _base(filter_expr: str, views: list[tuple[str, str, tuple[str, ...]]]) -> str:
-    """A .base file: one filter, then views in order (the first is the one shown by default)."""
-    text = f"filters:\n  and:\n    - {filter_expr}\nviews:\n"
+def _base(filter_exprs: str | list[str], views: list[tuple[str, str, tuple[str, ...]]], *, group_by: str | None = None) -> str:
+    """A .base file: one or more `and`-ed filters, then views in order (the first is the one shown by default)."""
+    exprs = [filter_exprs] if isinstance(filter_exprs, str) else filter_exprs
+    text = "filters:\n  and:\n" + "".join(f"    - {expr}\n" for expr in exprs) + "views:\n"
     for view_type, name, columns in views:
-        text += f"  - type: {view_type}\n    name: {name}\n    order:\n" + _yaml_list(columns)
+        text += f"  - type: {view_type}\n    name: {name}\n"
+        if group_by:
+            text += f"    groupBy: {group_by}\n"
+        text += "    order:\n" + _yaml_list(columns)
     return text
 
 
@@ -27,15 +31,27 @@ HARDWARE_BASE = _base(
 )
 ROLES_BASE_PATH = "_bastet/roles-here.base"
 ROLES_BASE = _base(
-    "applies_to == this",
+    ["applies_to == this", 'bastet == "role"'],
     [("table", "Table", ("file.name", "role", "applies_to")), ("cards", "Cards", ("file.name", "role"))],
 )
-VIEWS = {HARDWARE_BASE_PATH: HARDWARE_BASE, ROLES_BASE_PATH: ROLES_BASE}
+SECRETS_LIST_COLUMNS = ("file.name", "source", "created", "rotated", "rotates", "expires")
+SECRETS_BASE_PATH = "_bastet/secrets-here.base"
+SECRETS_BASE = _base(
+    ["applies_to == this", 'bastet == "secret"'],
+    [("table", "Table", SECRETS_LIST_COLUMNS), ("cards", "Cards", SECRETS_LIST_COLUMNS)],
+    group_by="role",
+)
+VIEWS = {HARDWARE_BASE_PATH: HARDWARE_BASE, ROLES_BASE_PATH: ROLES_BASE, SECRETS_BASE_PATH: SECRETS_BASE}
 ROLES_SECTION = "\n## Roles\n\n![[roles-here.base]]\n"
+SECRETS_SECTION = "\n## Secrets\n\n![[secrets-here.base]]\n"
 
 
 def has_roles_section(body: str) -> bool:
     return "roles-here.base" in body or "\n## Roles" in "\n" + body
+
+
+def has_secrets_section(body: str) -> bool:
+    return "secrets-here.base" in body or "\n## Secrets" in "\n" + body
 
 HARDWARE_SECTION = "\n## Hardware\n\n![[hardware-here.base]]\n"
 _LEGACY_SUMMARY = re.compile(r"## Summary\n\n!\[\[(?:host|hardware)-summary\.base\]\]")

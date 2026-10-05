@@ -13,9 +13,11 @@ from dataclasses import dataclass, field
 import typer
 from rich.progress import Progress
 
-from bastet.cli.common import Context, handles_errors, load_context
+from bastet.cli.common import Context, handles_errors, load_context, refresh_generated
+from bastet.core.changes import Change, write_changes
 from bastet.core.errors import BastetError
 from bastet.core.secrets import crypto, plaintext
+from bastet.core.secrets import health as secret_health
 from bastet.core.secrets.notes import SecretNote, SecretPath, all_notes
 from bastet.roles.contract import Option, load_roles
 from bastet.roles.resolve import resolve
@@ -182,7 +184,10 @@ def secret_main(ctx_typer: typer.Context) -> None:
     """The secret inventory: every secret, its host/role/option, whether it's set, and who uses it."""
     if ctx_typer.invoked_subcommand is not None:
         return
-    _print_inventory(load_context(allow_plaintext=True))  # never shows values; shows which are unlocked
+    ctx = load_context(allow_plaintext=True)  # never shows values; shows which are unlocked
+    _print_inventory(ctx)
+    for line in secret_health.summary_lines(secret_health.findings(ctx)):
+        typer.echo(ctx.secrets.redactor.mask(line))
 
 
 # --- `bastet secret set` ---
@@ -479,3 +484,41 @@ def secret_lock() -> None:
         result = plaintext.lock(ctx.root, ctx.secrets)
         progress.update(task, completed=1)
     _print_lock_summary(result)
+
+
+# --- `bastet secret audit` (spec 15.7) ---
+
+
+def _without_checked(text: str) -> str:
+    return "\n".join(line for line in text.splitlines() if not line.startswith("checked:"))
+
+
+@secret_app.command("audit")
+@handles_errors
+def secret_audit() -> None:
+    """Secret hygiene: every finding, grouped by kind. Never shows a value; writes the dashboard's audit section."""
+    ctx = load_context(allow_plaintext=True)
+    found = secret_health.findings(ctx, scope_hosts=None, audit=True)
+    by_kind: dict[str, list] = {}
+    for f in found:
+        by_kind.setdefault(f.kind, []).append(f)
+    if not found:
+        typer.echo("No findings.")
+    for kind in secret_health.AUDIT_KIND_ORDER:
+        items = by_kind.get(kind)
+        if not items:
+            continue
+        typer.echo(f"{kind}:")
+        for f in sorted(items, key=lambda f: f.text):
+            typer.echo(ctx.secrets.redactor.mask(f"  {f.text}"))
+    path = ctx.root / secret_health.AUDIT_PATH
+    when = _now()
+    text = secret_health.audit_note(found, when)
+    before = path.read_text(encoding="utf-8") if path.exists() else None
+    if before is None or _without_checked(before) != _without_checked(text):
+        write_changes([Change(path, before, text)])
+        if ctx.repo.is_repo():
+            ctx.repo.commit([path], "refresh: secret audit")
+            if not ctx.repo.push():
+                typer.secho("warning: push failed; the commit is kept locally", fg="yellow", err=True)
+    refresh_generated(ctx)

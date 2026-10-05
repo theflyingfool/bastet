@@ -235,17 +235,20 @@ def _refs_in(opt, value, host: str, role: str):
                 yield from _refs_in(opt.fields[k], v, host, role)
 
 
-def _collect_uses(ctx) -> dict[str, list[str]]:
+def collect_uses(inv, types: dict) -> dict[str, list[str]]:
+    """Secret paths referenced by a role option reaching a host, and which hosts reach it (used by health and
+    `_bastet/Secrets.md`). Takes the inventory and host types directly, so it needs no decrypting context.
+    """
     from bastet.roles.contract import load_roles  # lazy: roles builds on core
     from bastet.roles.resolve import resolve
 
     uses: dict[str, list[str]] = {}
     roles = load_roles()
-    for doc in ctx.inventory.of_kind("host"):
+    for doc in inv.of_kind("host"):
         if doc.data.get("state", "present") == "destroyed":
             continue
         try:
-            applied = resolve(ctx.inventory, doc, ctx.types, roles)
+            applied = resolve(inv, doc, types, roles)
         except BastetError:
             continue
         for a in applied:
@@ -313,7 +316,7 @@ def relevant_secrets(ctx, scope_hosts: list[str] | None = None) -> bool:
     notes, bad = all_notes_safe(ctx.root)
     if bad:
         return True
-    uses = _collect_uses(ctx)
+    uses = collect_uses(ctx.inventory, ctx.types)
     if any(_in_scope(n.path, scope_hosts, uses) for n in notes):
         return True
     wanted = {h.lower() for h in scope_hosts} if scope_hosts is not None else None
@@ -326,7 +329,7 @@ def findings(ctx, scope_hosts: list[str] | None = None, *, audit: bool = False) 
     """
     out: list[Finding] = []
     notes, bad = all_notes_safe(ctx.root)
-    uses = _collect_uses(ctx)
+    uses = collect_uses(ctx.inventory, ctx.types)
 
     for b in bad:
         out.append(Finding("undecryptable", "block", None, f"{b.rel}: can't be read ({b.error})"))
@@ -402,6 +405,37 @@ def findings(ctx, scope_hosts: list[str] | None = None, *, audit: bool = False) 
         out.append(Finding("changed_upstream", "block", None, f"{rel}: changed upstream"))
 
     return out
+
+
+AUDIT_PATH = "_bastet/secret-audit.md"
+AUDIT_KIND_ORDER = (
+    "missing", "undecryptable", "path_mismatch", "plaintext", "changed_upstream", "not_by_bastet",
+    "rotation_due", "expiring", "expired", "unused", "standalone_but_used", "placeholder",
+    "few_recipients", "needs_reencryption", "weak",
+)
+
+
+def audit_note(found: list[Finding], when: str) -> str:
+    """`_bastet/secret-audit.md`: every finding grouped by kind, with a `checked` date (spec 15.7)."""
+    import bastet.core.yamlstyle as yamlstyle
+
+    by_kind: dict[str, list[Finding]] = {}
+    for f in found:
+        by_kind.setdefault(f.kind, []).append(f)
+    parts = ["Secret hygiene, from `bastet secret audit`. Never shows a value.\n"]
+    if not found:
+        parts.append("\nNo findings.\n")
+    for kind in AUDIT_KIND_ORDER:
+        items = by_kind.pop(kind, None)
+        if not items:
+            continue
+        parts.append(f"\n## {kind}\n\n")
+        parts += [f"- {f.text}\n" for f in sorted(items, key=lambda f: f.text)]
+    for kind, items in sorted(by_kind.items()):  # any kind not in AUDIT_KIND_ORDER, just in case
+        parts.append(f"\n## {kind}\n\n")
+        parts += [f"- {f.text}\n" for f in sorted(items, key=lambda f: f.text)]
+    front = yamlstyle.dump_frontmatter({"checked": when})
+    return f"---\n{front}---\n" + "".join(parts)
 
 
 def summary_lines(found: list[Finding]) -> list[str]:

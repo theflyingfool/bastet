@@ -10,7 +10,7 @@ from bastet.core.errors import BastetError
 from bastet.core.frontmatter import new_document
 from bastet.core.inventory import load_inventory
 from bastet.core.links import make_link
-from bastet.core.views import ROLES_SECTION, has_roles_section
+from bastet.core.views import ROLES_SECTION, SECRETS_SECTION, has_roles_section, has_secrets_section
 from bastet.roles.contract import load_roles
 from bastet.core.inventory import HARDWARE_STATUSES
 from bastet.core.scaffold import new_hardware, new_host, suggested_ip
@@ -218,6 +218,20 @@ def _offer_secrets(ctx, added: list[str], doc, *, yes: bool) -> None:
         _print_secret_commands(skipped)
     if ctx.repo.is_repo() and not ctx.repo.push():
         typer.secho("warning: push failed; the commit(s) are kept locally", fg="yellow", err=True)
+    _ensure_secrets_section(ctx, doc)
+
+
+def _ensure_secrets_section(ctx, doc) -> None:
+    """A host page with at least one secret note of its own gets the `secrets-here.base` embed (spec 15.10)."""
+    if doc.data.get("bastet") != "host":
+        return
+    if not any((ctx.root / "_secrets" / doc.name).rglob("*.md")):
+        return
+    if has_secrets_section(doc.body):
+        return
+    text = doc.path.read_text(encoding="utf-8")
+    write_with_confirmation(ctx, [Change(doc.path, text, text.rstrip("\n") + "\n" + SECRETS_SECTION)],
+                            f"add a secrets section to {doc.name}", True)
 
 
 def _role_targets(inv) -> list[tuple[str, str]]:

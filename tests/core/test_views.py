@@ -1,9 +1,13 @@
-from bastet.core.views import HARDWARE_BASE_PATH, ROLES_BASE_PATH, VIEWS, ensure_views, has_hardware_section, insert_after_title
+from bastet.core.views import (
+    HARDWARE_BASE_PATH, ROLES_BASE_PATH, SECRETS_BASE_PATH, VIEWS, ensure_views, has_hardware_section,
+    insert_after_title,
+)
 
 
 def test_ensure_views_creates_all_then_nothing(tmp_path):
     changes = ensure_views(tmp_path)
-    assert {c.path for c in changes} == {tmp_path / HARDWARE_BASE_PATH, tmp_path / ROLES_BASE_PATH}
+    assert {c.path for c in changes} == {tmp_path / HARDWARE_BASE_PATH, tmp_path / ROLES_BASE_PATH,
+                                          tmp_path / SECRETS_BASE_PATH}
     for c in changes:
         c.path.parent.mkdir(parents=True, exist_ok=True)
         c.path.write_text(c.after)
@@ -26,6 +30,25 @@ def test_hardware_view_table_first_then_cards():
 def test_has_hardware_section():
     assert has_hardware_section("# h\n\n## Hardware\n\n![[hardware-here.base]]\n")
     assert not has_hardware_section("# h\n")
+
+
+def test_has_secrets_section():
+    from bastet.core.views import has_secrets_section
+
+    assert has_secrets_section("# h\n\n## Secrets\n\n![[secrets-here.base]]\n")
+    assert not has_secrets_section("# h\n")
+
+
+def test_roles_base_excludes_secret_notes_sharing_applies_to():
+    text = VIEWS[ROLES_BASE_PATH]
+    assert "applies_to == this" in text and 'bastet == "role"' in text
+
+
+def test_secrets_base_groups_by_role_and_filters_to_secrets():
+    text = VIEWS[SECRETS_BASE_PATH]
+    assert "applies_to == this" in text and 'bastet == "secret"' in text
+    assert "groupBy: role" in text
+    assert text.index("type: table") < text.index("type: cards")
 
 
 def test_insert_after_title():

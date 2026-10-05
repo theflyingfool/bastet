@@ -29,6 +29,7 @@ RECENT = 6
 GUIDE_PATH = "_bastet/Bastet guide.md"
 MAPS_DIR = "_bastet/maps"
 GROUPS_DIR = "_bastet/groups"
+SECRETS_PATH = "_bastet/Secrets.md"
 
 
 def guide() -> str:
@@ -309,6 +310,7 @@ def dashboard(
     warnings: dict[str, list[str]],
     recent: list[str],
     drift: dict[str, list[str]] | None = None,
+    secrets_summary: list[str] | None = None,
 ) -> str:
     hosts = inv.of_kind("host")
     hardware = inv.of_kind("hardware")
@@ -351,6 +353,13 @@ def dashboard(
 
     if recent:
         out.append("\n## Recent changes\n\n" + "".join(f"- {r}\n" for r in recent))
+    if inv.secrets:
+        from bastet.core.secrets import health  # lazy: core.secrets builds on core
+
+        out.append("\n## Secrets\n\n" + "".join(f"{_cell(line)}\n" for line in (secrets_summary or []))
+                   + f"\nEvery secret: [[{SECRETS_PATH[len('_bastet/'):-3]}|Secrets]]\n")
+        if (inv.root / health.AUDIT_PATH).exists():
+            out.append(f"\n![[{health.AUDIT_PATH[len('_bastet/'):-3]}]]\n")
     return _note({}, "".join(out))
 
 
@@ -418,6 +427,29 @@ def _recent(repo: GitRepo) -> list[str]:
     return entries
 
 
+def secrets_master_list(inv: Inventory, types: dict[str, HostType]) -> str:
+    """`_bastet/Secrets.md` (spec 15.10): every secret, where it lives, who uses it, source and dates. Never values."""
+    from bastet.core.secrets import health  # lazy: core.secrets builds on core
+    from bastet.core.secrets.notes import SecretPath
+
+    uses = health.collect_uses(inv, types)
+    rows = ["| Secret | Lives under | Used by | Source | Created | Rotated | Rotates | Expires |\n",
+            "|---|---|---|---|---|---|---|---|\n"]
+    for doc in sorted(inv.secrets, key=lambda d: str(d.path)):
+        try:
+            rel = doc.path.relative_to(inv.root / "_secrets").with_suffix("")
+            sp = SecretPath.parse(rel.as_posix())
+        except (ValueError, BastetError):
+            continue
+        link = f"[[_secrets/{rel.as_posix()}|{sp.text}]]"
+        used_by = ", ".join(f"[[{h}]]" for h in sorted(uses.get(sp.text, [])))
+        rotates = "yes" if doc.data.get("rotates", True) else "no"
+        rows.append(f"| {link} | {_cell(doc.data.get('applies_to'))} | {_cell(used_by)} | "
+                    f"{_cell(doc.data.get('source'))} | {_cell(doc.data.get('created'))} | "
+                    f"{_cell(doc.data.get('rotated'))} | {rotates} | {_cell(doc.data.get('expires'))} |\n")
+    return "".join(rows)
+
+
 def _stored(root: Path, host: str, key: str) -> list[str]:
     path = summary_path(root, host)
     if not path.exists():
@@ -437,6 +469,7 @@ def generated_changes(
     *,
     warnings: dict[str, list[str]] | None = None,
     drift: dict[str, list[str]] | None = None,
+    secrets_summary: list[str] | None = None,
 ) -> list[Change]:
     """Every Bastet-owned generated file that differs from what the inventory says it should be."""
     root = inv.root
@@ -496,7 +529,11 @@ def generated_changes(
         target = link_target(doc.data.get("summary_of")) if doc is not None else None
         if target and target.lower() not in on_disk:  # only Bastet's own summaries of notes that are really gone
             changes.append(Change(path, text, None))
-    want(root / DASHBOARD_PATH, dashboard(inv, types, by_host, _recent(repo), drift_by_host))
+    if inv.secrets:
+        want(root / SECRETS_PATH, _note({}, secrets_master_list(inv, types)))
+    elif (root / SECRETS_PATH).exists():
+        changes.append(Change(root / SECRETS_PATH, (root / SECRETS_PATH).read_text(encoding="utf-8"), None))
+    want(root / DASHBOARD_PATH, dashboard(inv, types, by_host, _recent(repo), drift_by_host, secrets_summary))
     want(root / GUIDE_PATH, guide())
     from bastet.core.maps import cabling_map, networks_map, where_map  # lazy: maps builds on render
 

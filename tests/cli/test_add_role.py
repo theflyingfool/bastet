@@ -102,3 +102,12 @@ def test_add_role_set_now_writes_the_secret(runner, secret_keys, inventory, test
     assert "SENTINEL-API" not in result.output
     note = SecretNote.load(inventory, SecretPath.parse("box/impliedsecret/api_key"))
     assert note.is_sealed
+
+
+def test_add_role_set_now_embeds_secrets_section_on_host_page(runner, secret_keys, inventory, test_role, interactive):
+    result = runner.invoke(
+        app, ["add", "role", "impliedsecret", "box"], input="y\ny\nSENTINEL-API\nSENTINEL-API\n"
+    )
+    assert result.exit_code == 0, result.output
+    assert "![[secrets-here.base]]" in (inventory / "hosts" / "box.md").read_text()
+    assert (inventory / "_bastet" / "secrets-here.base").exists()

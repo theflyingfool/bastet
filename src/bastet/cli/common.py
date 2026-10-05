@@ -203,7 +203,13 @@ def refresh_generated(
             typer.secho(f"refresh skipped: couldn't sync with the remote ({exc.message})", fg="yellow", err=True)
             return 0
         ctx.inventory = load_inventory(ctx.root, ctx.types)
-        changes = generated_changes(ctx.inventory, ctx.types, ctx.repo, warnings=warnings, drift=drift)
+        from bastet.core.secrets import health as secret_health
+
+        secrets_summary = (
+            secret_health.summary_lines(secret_health.findings(ctx)) if secret_health.relevant_secrets(ctx) else None
+        )
+        changes = generated_changes(ctx.inventory, ctx.types, ctx.repo, warnings=warnings, drift=drift,
+                                    secrets_summary=secrets_summary)
         if not changes:
             return 0
         write_changes(changes)
