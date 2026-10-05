@@ -6,9 +6,11 @@ from dataclasses import dataclass, field
 from importlib import resources
 from pathlib import Path
 
+import pyrage.x25519
+
 from bastet.core.config import load_config
 from bastet.core.errors import BastetError
-from bastet.core.frontmatter import new_document
+from bastet.core.frontmatter import new_document, parse_document, set_keys
 from bastet.core.gitrepo import GitRepo
 from bastet.core.views import VIEWS
 from bastet.core.yamlstyle import dump_frontmatter
@@ -32,6 +34,7 @@ class InitOptions:
     lab_name: str
     domains: dict[str, str] = field(default_factory=dict)
     snippet: bool = True
+    recipients: list[str] | None = None  # secrets.recipients to add to Homelab.md; None = leave alone
 
 
 @dataclass
@@ -54,6 +57,23 @@ def _css() -> str:
 
 def _pub(key: Path) -> Path:
     return Path(str(key) + ".pub")
+
+
+def generate_recovery_key() -> tuple[str, str]:
+    """A fresh age identity for lab recovery: (private, public). The private half is never written to disk;
+    it's the caller's job to show it once and then forget it."""
+    identity = pyrage.x25519.Identity.generate()
+    return str(identity), str(identity.to_public())
+
+
+def existing_recipients(homelab_path: Path) -> list[str]:
+    """`secrets.recipients` already in Homelab.md, or `[]` when the file or the key doesn't exist yet."""
+    if not homelab_path.is_file():
+        return []
+    doc = parse_document(homelab_path.read_text(encoding="utf-8"), homelab_path)
+    if doc is None:
+        return []
+    return list((doc.data.get("secrets") or {}).get("recipients") or [])
 
 
 def _key(options: InitOptions, keys_dir: Path, actions: list[str]) -> Path:
@@ -116,9 +136,14 @@ def initialize(config_file: Path, options: InitOptions, *, keys_dir: Path) -> In
         repo.add_remote(options.remote)
         actions.append(f"created remote origin → {options.remote}")
 
+    homelab_path = root / "Homelab.md"
+    homelab_existed = homelab_path.exists()
+
     lab: dict[str, object] = {"bastet": "lab", "cssclasses": ["bastet-dashboard"], "name": options.lab_name}
     if options.domains:
         lab["domains"] = dict(options.domains)
+    if options.recipients and not homelab_existed:
+        lab["secrets"] = {"recipients": list(options.recipients)}
     files = [
         (".gitignore", GITIGNORE),
         ("Homelab.md", new_document(lab, LAB_BODY.format(name=options.lab_name))),
@@ -137,6 +162,13 @@ def initialize(config_file: Path, options: InitOptions, *, keys_dir: Path) -> In
             path.write_text(content, encoding="utf-8")
             written.append(path)
             actions.append(f"created {rel}")
+
+    if options.recipients and homelab_existed and not existing_recipients(homelab_path):
+        text = homelab_path.read_text(encoding="utf-8")
+        new_text = set_keys(text, {"secrets": {"recipients": list(options.recipients)}}, homelab_path)
+        homelab_path.write_text(new_text, encoding="utf-8")
+        written.append(homelab_path)
+        actions.append("added secrets.recipients to Homelab.md")
 
     if options.snippet:
         appearance = root / ".obsidian" / "appearance.json"

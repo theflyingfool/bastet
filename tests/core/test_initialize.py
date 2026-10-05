@@ -6,7 +6,7 @@ import pytest
 
 from bastet.core.config import load_config
 from bastet.core.errors import BastetError
-from bastet.core.initialize import InitOptions, initialize
+from bastet.core.initialize import InitOptions, existing_recipients, generate_recovery_key, initialize
 
 
 def log(root):
@@ -137,6 +137,53 @@ def test_init_clones_remote_with_history(tmp_path):
     assert any(a.startswith("cloned") for a in r.actions)
     remote_log = subprocess.run(["git", "--git-dir", str(bare), "log", "--format=%s"], capture_output=True, text=True).stdout
     assert "bastet init" in remote_log
+
+
+def test_generate_recovery_key_returns_private_and_public():
+    private, public = generate_recovery_key()
+    assert private.startswith("AGE-SECRET-KEY-1")
+    assert public.startswith("age1")
+    private2, public2 = generate_recovery_key()
+    assert private2 != private and public2 != public  # a fresh identity every call
+
+
+def test_initialize_writes_recipients_into_new_homelab(tmp_path):
+    cfg = tmp_path / "cfg" / "bastet.yml"
+    _, recovery_pub = generate_recovery_key()
+    recipients = [recovery_pub, "ssh-ed25519 AAAAyours nick@laptop"]
+    r = initialize(cfg, opts(tmp_path, recipients=recipients), keys_dir=tmp_path / "cfg" / "ssh")
+    assert r.committed
+    lab = (tmp_path / "Homelab" / "Homelab.md").read_text()
+    assert recovery_pub in lab and "ssh-ed25519 AAAAyours nick@laptop" in lab
+    assert existing_recipients(tmp_path / "Homelab" / "Homelab.md") == recipients
+
+
+def test_initialize_adds_recipients_to_existing_homelab(tmp_path):
+    cfg = tmp_path / "cfg" / "bastet.yml"
+    initialize(cfg, opts(tmp_path), keys_dir=tmp_path / "cfg" / "ssh")  # no recipients yet
+    inv = tmp_path / "Homelab"
+    assert existing_recipients(inv / "Homelab.md") == []
+    _, recovery_pub = generate_recovery_key()
+    r = initialize(cfg, opts(tmp_path, recipients=[recovery_pub]), keys_dir=tmp_path / "cfg" / "ssh")
+    assert any(a == "added secrets.recipients to Homelab.md" for a in r.actions)
+    assert existing_recipients(inv / "Homelab.md") == [recovery_pub]
+    assert r.committed
+
+
+def test_initialize_recipients_are_idempotent(tmp_path):
+    cfg = tmp_path / "cfg" / "bastet.yml"
+    _, recovery_pub = generate_recovery_key()
+    initialize(cfg, opts(tmp_path, recipients=[recovery_pub]), keys_dir=tmp_path / "cfg" / "ssh")
+    inv = tmp_path / "Homelab"
+    before = (inv / "Homelab.md").read_text()
+    before_log = log(inv)
+    # a second run, even asked to add the same (or a different) recipients list, never changes what's there
+    _, other_pub = generate_recovery_key()
+    r = initialize(cfg, opts(tmp_path, recipients=[other_pub]), keys_dir=tmp_path / "cfg" / "ssh")
+    assert not r.committed
+    assert (inv / "Homelab.md").read_text() == before
+    assert log(inv) == before_log
+    assert existing_recipients(inv / "Homelab.md") == [recovery_pub]
 
 
 def test_init_pushes_to_empty_remote(tmp_path):

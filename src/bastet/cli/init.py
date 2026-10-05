@@ -4,8 +4,54 @@ from pathlib import Path
 import typer
 
 from bastet.cli.common import handles_errors, load_context, refresh_generated
+from bastet.core.changes import Change, render_diff
 from bastet.core.config import config_path, data_dir, inventory_dir, load_config
-from bastet.core.initialize import InitOptions, initialize
+from bastet.core.errors import BastetError
+from bastet.core.frontmatter import set_keys
+from bastet.core.initialize import InitOptions, existing_recipients, generate_recovery_key, initialize
+
+_RECOVERY_WARNING = (
+    "Recovery key: keep this offline. It's the only way back if this laptop is lost. It won't be shown again."
+)
+
+
+def _your_pub_text(yes: bool) -> str | None:
+    """The person's own SSH public key, to add as a recipient: `~/.ssh/id_ed25519.pub` if it exists, else asked
+    for (skipped under `-y`)."""
+    default_pub = Path.home() / ".ssh" / "id_ed25519.pub"
+    if default_pub.is_file():
+        return default_pub.read_text(encoding="utf-8").strip()
+    if yes:
+        return None
+    answer = typer.prompt(
+        "Path to your SSH public key, to add as a recipient (blank to skip)", default="", show_default=False
+    )
+    if not answer:
+        return None
+    path = Path(answer).expanduser()
+    if not path.is_file():
+        raise BastetError("SSH public key not found", file=path)
+    return path.read_text(encoding="utf-8").strip()
+
+
+def _plan_recipients(inventory_path: Path, yes: bool) -> tuple[list[str] | None, str | None]:
+    """What `secrets.recipients` to add this run (`None` when they're already set), and the recovery
+    private key to print once, if a diff was offered (or there was nothing to confirm) and accepted."""
+    homelab_path = inventory_path / "Homelab.md"
+    if existing_recipients(homelab_path):
+        return None, None
+    recovery_private, recovery_public = generate_recovery_key()
+    your_pub = _your_pub_text(yes)
+    recipients = [recovery_public] + ([your_pub] if your_pub else [])
+    if not homelab_path.is_file():
+        return recipients, recovery_private
+    before = homelab_path.read_text(encoding="utf-8")
+    after = set_keys(before, {"secrets": {"recipients": recipients}}, homelab_path)
+    typer.echo("\nBastet will add to Homelab.md:")
+    typer.echo(render_diff(Change(homelab_path, before, after), inventory_path))
+    if yes or typer.confirm("Add a recovery key and your SSH key as secrets.recipients?", default=True):
+        return recipients, recovery_private
+    return None, None
 
 
 @handles_errors
@@ -56,9 +102,11 @@ def init(
     if snippet is None:
         snippet = True if yes else typer.confirm("Install and enable Bastet's Obsidian stylesheet?", default=True)
 
+    recipients, recovery_private = _plan_recipients(inventory_path, yes)
+
     options = InitOptions(
         inventory=inventory_path, remote=remote_url, key=key_path, bootstrap_user=user,
-        lab_name=name, domains=domains, snippet=snippet,
+        lab_name=name, domains=domains, snippet=snippet, recipients=recipients,
     )
     typer.echo("\nBastet will set up:")
     typer.echo(f"  config      {cfg_file}")
@@ -77,3 +125,7 @@ def init(
     refresh_generated(load_context())
     typer.echo(f"\nBastet's public key ({result.public_key}):")
     typer.echo(result.public_key.read_text(encoding="utf-8").strip())
+    if recovery_private:
+        typer.echo()
+        typer.secho(_RECOVERY_WARNING, fg="yellow")
+        typer.echo(recovery_private)

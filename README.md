@@ -18,6 +18,10 @@ Status: early. Milestone 1 ("See your lab"): inventory files, gather, views.
 | OpenSSH client (`ssh`, `ssh-keygen`, `ssh-keyscan`) | Bastet's key, host-key checks, gathering over SSH |
 | Obsidian (optional, tested with 1.13.7) | browsing the inventory; Bases need ≥ 1.9 |
 
+Secrets use [pyrage](https://pypi.org/project/pyrage/) (bundled; nothing to install). `age` itself is optional,
+only for by-hand recovery straight from a secret note (see [Secrets](#secrets)); `wl-copy` or `xclip` are optional,
+for `bastet secret show`'s clipboard option.
+
 ### On managed hosts
 
 Gather runs one POSIX `sh` script per host, over SSH (or locally on the computer you run Bastet from).
@@ -105,6 +109,28 @@ else `~/.config/bastet/bastet.yml`.
 | `bastet add role [ROLE…] [--to TARGET]` | Writes role files under `_roles/` after showing the diff; offers the roles and targets as lists when left out |
 | `bastet check [HOST…]` | Shows what differs between each host and its roles; changes nothing |
 | `bastet apply [HOST…] [-y] [--updates]` | Shows the check, asks, applies the changes and verifies them; `--updates` also installs pending updates on hosts whose policy is manual |
+| `bastet secret` | The secret inventory: every secret, its host/role/option, whether it's set, who uses it, secrets roles need but don't have, and a health summary. Never values. |
+| `bastet secret set [HOST ROLE OPTION]` | Numbered list of secrets that need a value (`0` = all, `q` = quit), or the same for one named secret. Type or paste a value, Enter to generate (when the contract allows), or `e` to fill it in yourself. Reads from stdin when piped. |
+| `bastet secret show HOST ROLE OPTION` | The one deliberate way to see a value: display it or copy it to the clipboard (cleared after 45s). Refuses when output isn't a terminal. |
+| `bastet secret unlock [HOST ROLE OPTION]` | Plain text in place, for one secret or all; locks itself after a countdown (or run `secret lock`). |
+| `bastet secret lock` | Encrypts every plain-text secret note and commits what changed. |
+| `bastet secret audit` | Secret hygiene: every finding, grouped by kind. Never shows a value; writes the dashboard's audit section. |
+
+## Secrets
+
+A secret is a Markdown note under `_secrets/`: readable frontmatter (host, role, source, dates), and a body
+that's exactly one armored `age` message. `secret:<path>` in a role option points at one. `bastet init` creates
+a recovery `age` key the first time it sets up `Homelab.md` (or offers to add one to an inventory that doesn't
+have one yet), prints its private half **once** — keep it offline, it's the only way back if this laptop is
+lost — and adds its public half, plus your own SSH key, to `secrets.recipients`. Bastet's own key is always a
+recipient too (it's not listed in the file).
+
+Recovering a value by hand, without Bastet, needs only `age` and your SSH private key: strip the frontmatter and
+decrypt the body.
+
+    sed '1,/^---$/{/^---$/!d};1,/^---$/d' note.md | age -d -i ~/.ssh/id_ed25519
+
+The inventory's own guide (`_bastet/Bastet guide.md`, from `src/bastet/data/guide/guide.md`) has a short walkthrough.
 
 ## Roles
 
