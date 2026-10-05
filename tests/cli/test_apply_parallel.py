@@ -453,3 +453,23 @@ def test_runs_on_loop_warns_and_does_not_hang(runner, inventory, monkeypatch):
     assert result.exit_code == 0, result.output
     assert "runs_on loop: ct-a → ct-b → ct-a; ignoring it for ordering" in result.output
     assert "HOST: ct-a" in result.output and "HOST: ct-b" in result.output
+
+
+def test_roles_line_is_per_host_inside_its_check_block_with_dash_j_2(runner, three_hosts, monkeypatch):
+    """The `roles: …` line must say which host it's for, and sit inside that host's own check
+    block (right before its rendered check), not be printed up front for every host."""
+    monkeypatch.setattr(run_mod, "plan_for", plan_stub({}))
+    monkeypatch.setattr(run_mod, "connect", connect_stub())
+    monkeypatch.setattr(run_mod, "run_host", lambda runner_, host, batches, **kw: _check_run(host, 0))
+
+    result = runner.invoke(app, ["check", "pve2", "git1", "-j", "2"])
+
+    assert result.exit_code == 0, result.output
+    for host in ("pve2", "git1"):
+        line = f"{host}: roles: files ()"
+        assert line in result.output
+        host_block_start = result.output.index(f"HOST: {host}")
+        role_line_index = result.output.index(line)
+        # the roles line comes right before this host's own HOST: block, not before every host's
+        assert role_line_index < host_block_start
+        assert host_block_start - role_line_index < 100

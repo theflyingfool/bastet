@@ -210,6 +210,7 @@ class _Ready:
     doc: Document
     batches: list[Batch]
     reboots: list[Reboot]
+    role_names: str
 
 
 def _with_where(exc: BastetError) -> BastetError:
@@ -319,8 +320,7 @@ def _run(names: list[str] | None, *, apply_changes: bool, yes: bool, verbose: bo
             if not any(b.resources for b in batches):
                 typer.echo(f"{doc.name}: {role_names}: nothing to manage yet")
                 continue
-            typer.echo(f"roles: {role_names}")
-            ready.append(_Ready(doc, batches, reboots))
+            ready.append(_Ready(doc, batches, reboots, role_names))
         except BastetError as exc:
             if not apply_changes and isinstance(exc, MissingSecret):
                 opt = secret_mod._opt_for(exc.sp)
@@ -363,6 +363,7 @@ def _run(names: list[str] | None, *, apply_changes: bool, yes: bool, verbose: bo
                         return
                     check = outcome.value
                     checks[outcome.host] = check
+                    typer.echo(f"{outcome.host}: roles: {by_name[outcome.host].role_names}")
                     typer.echo(ctx.secrets.redactor.mask(render_host(check, full=full)))
                     if check.count("failed") > 0:
                         failed_hosts.add(outcome.host)

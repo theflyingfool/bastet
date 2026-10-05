@@ -112,7 +112,7 @@ def test_connect_requires_gathered_key(inventory):
 
 def test_roles_named_and_empty_role_explained(runner, box, inventory):
     result = runner.invoke(app, ["check", "box"])
-    assert "roles: files (host box)" in result.output
+    assert "box: roles: files (host box)" in result.output
     (inventory / "_roles" / "hosts" / "box" / "files.md").write_text(
         '---\nbastet: role\nrole: files\napplies_to: "[[box]]"\n---\n')
     result = runner.invoke(app, ["check", "box"])
