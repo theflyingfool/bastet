@@ -170,7 +170,7 @@ def secret_main(ctx_typer: typer.Context) -> None:
     """The secret inventory: every secret, its host/role/option, whether it's set, and who uses it."""
     if ctx_typer.invoked_subcommand is not None:
         return
-    _print_inventory(load_context())
+    _print_inventory(load_context(allow_plaintext=True))  # never shows values; shows which are unlocked
 
 
 # --- `bastet secret set` ---

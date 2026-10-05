@@ -331,3 +331,10 @@ def test_unlock_refuses_when_obsidian_git_autosaves(runner, secret_keys, invento
     assert result.exit_code != 0
     assert "obsidian-git" in result.output.lower() or "auto-commit" in result.output.lower()
     assert SecretNote.load(inventory, sp).is_sealed
+
+
+def test_inventory_lists_while_a_secret_is_unlocked(runner, secret_keys, inventory, interactive):
+    runner.invoke(app, ["secret", "set", "lab", "dns_token"], input="e\n")
+    result = runner.invoke(app, ["secret"])
+    assert result.exit_code == 0, result.output
+    assert "lab/dns_token" in result.output and "unlocked" in result.output
