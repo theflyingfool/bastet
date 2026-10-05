@@ -40,7 +40,7 @@ def test_conflict_stops_before_anything_runs(tmp_path):
     assert "lab" in str(e.value) and "media01" in str(e.value) and "value" in str(e.value)
 
 
-def test_failure_skips_rest_of_batch_but_not_other_batches(tmp_path):
+def test_failure_skips_rest_of_batch_and_later_batches(tmp_path):
     bad, after, other = (str(tmp_path / n) for n in ("bad", "after", "other"))
     run = run_host(LocalRunner(), "h", [
         Batch("one", [Broken(path=bad, value="x"), Flag(path=after, value="y")]),
@@ -48,8 +48,27 @@ def test_failure_skips_rest_of_batch_but_not_other_batches(tmp_path):
     ], apply=True)
     s = statuses(run)
     assert s[bad] == ("failed", "boom")
-    assert s[after][0] == "skipped" and "earlier failure" in s[after][1]
-    assert s[other] == ("changed", None) and not run.ok
+    assert s[after][0] == "skipped" and s[after][1] == f"earlier failure: {bad}"
+    assert s[other] == ("skipped", f"earlier failure on this host: {bad}")
+    assert not (tmp_path / "other").exists() and not run.ok
+
+
+def test_failure_stops_later_batches_but_not_an_earlier_trigger(tmp_path):
+    log = tmp_path / "log"
+    trigger = Trigger("t", f"echo ran >> {log}", root=False)
+    zero = Flag(path=str(tmp_path / "z"), value="1", on_change=(trigger,))
+    bad, other = (str(tmp_path / n) for n in ("bad", "other"))
+    run = run_host(LocalRunner(), "h", [
+        Batch("zero", [zero]),
+        Batch("one", [Broken(path=bad, value="x")]),
+        Batch("two", [Flag(path=other, value="z")]),
+    ], apply=True)
+    s = statuses(run)
+    assert s[bad] == ("failed", "boom")
+    assert s[other] == ("skipped", f"earlier failure on this host: {bad}")
+    assert not (tmp_path / "other").exists()
+    assert [(t.trigger.label, t.ok) for t in run.triggers] == [("t", True)]
+    assert log.read_text() == "ran\n"
 
 
 def test_triggers_run_once_after_batch_in_order(tmp_path):

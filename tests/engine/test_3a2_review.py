@@ -51,7 +51,7 @@ def test_fix_timeout_fails_the_group_and_keeps_the_run(tmp_path):
                                  Batch("two", [Flag(path=str(tmp_path / "d"), value="y")])], apply=True)
     s = {i.resource.label: (i.status, i.error) for i in run.items}
     assert s[str(tmp_path / "a")][0] == "failed" and "timed out" in s[str(tmp_path / "a")][1]
-    assert s[str(tmp_path / "c")][0] == "skipped" and s[str(tmp_path / "d")][0] == "changed"
+    assert s[str(tmp_path / "c")][0] == "skipped" and s[str(tmp_path / "d")][0] == "skipped"
     assert max(runner.timeouts) >= 1800
 
 

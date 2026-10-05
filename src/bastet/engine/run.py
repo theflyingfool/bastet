@@ -171,6 +171,7 @@ def run_host(runner, host: str, batches: list[Batch], *, apply: bool, fix_timeou
 
     changed: list[Item] = []
     touched: set[str] = set()
+    host_broken: str | None = None  # a failure in an earlier batch stops every later batch too
     for batch, mine in planned:  # phase 4
         pending: list[Trigger] = []
         broken: str | None = None
@@ -178,9 +179,12 @@ def run_host(runner, host: str, batches: list[Batch], *, apply: bool, fix_timeou
         while i < len(mine):
             item = mine[i]
             i += 1
-            if item.status == "failed" and broken is None:
+            if item.status == "failed" and broken is None and host_broken is None:
                 broken = item.resource.label
             if item.status != "would-change":
+                continue
+            if host_broken is not None:
+                item.status, item.error = "skipped", f"earlier failure on this host: {host_broken}"
                 continue
             if broken is not None:
                 item.status, item.error = "skipped", f"earlier failure: {broken}"
@@ -216,6 +220,8 @@ def run_host(runner, host: str, batches: list[Batch], *, apply: bool, fix_timeou
                 for t in g.triggers:
                     if t not in pending:
                         pending.append(t)
+        if host_broken is None and broken is not None:
+            host_broken = broken
         for t in sorted(pending, key=lambda t: t.order):  # phase 5
             ok, error = _exec(runner, [t.command], t.root, fix_timeout)
             run.triggers.append(TriggerRun(t, ok, error))
