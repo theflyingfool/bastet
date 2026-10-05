@@ -1,4 +1,4 @@
-"""Secret health: findings behind `check`'s summary and `bastet secret audit` (spec 15.6, 15.7, 15.8)."""
+"""Secret health: findings behind `check`'s summary and `bastet secret audit`."""
 
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ def _now() -> dt.datetime:  # patchable in tests
     return dt.datetime.now()
 
 
-# --- duration and date parsing (rotation policy, spec 15.6) ---
+# --- duration and date parsing (rotation policy) ---
 
 _DURATION = re.compile(r"^(\d+)([dwy])$")
 _UNIT_DAYS = {"d": 1, "w": 7, "y": 365}
@@ -148,7 +148,7 @@ def _expiry_finding(note: SecretNote, now: dt.datetime) -> Finding | None:
     return None
 
 
-# --- needs_reencryption: compare the armor header's recipient stanzas with the current recipients (spec 15.8) ---
+# --- needs_reencryption: compare the armor header's recipient stanzas with the current recipients ---
 
 _STANZA = re.compile(r"^-> (\S+) (.+)$")
 
@@ -277,7 +277,7 @@ def collect_uses(inv, types: dict) -> dict[str, list[str]]:
 
 
 def _placeholder_findings(ctx) -> list[Finding]:
-    """Early testing (spec 15.8): a literal plain value in a `secret: true` option in a role file."""
+    """Early testing: a literal plain value in a `secret: true` option in a role file."""
     from bastet.roles.contract import load_roles  # lazy: roles builds on core
 
     roles = load_roles()
@@ -330,7 +330,7 @@ def relevant_secrets(ctx, scope_hosts: list[str] | None = None) -> bool:
 
 
 def findings(ctx, scope_hosts: list[str] | None = None, *, audit: bool = False) -> list[Finding]:
-    """Every secret-health finding (spec 15.7). `scope_hosts=None` means everything (`bastet secret audit`);
+    """Every secret-health finding. `scope_hosts=None` means everything (`bastet secret audit`);
     otherwise only those hosts plus the lab secrets they use (`check`'s summary).
     """
     out: list[Finding] = []
@@ -422,7 +422,7 @@ AUDIT_KIND_ORDER = (
 
 
 def audit_note(found: list[Finding], when: str) -> str:
-    """`_bastet/secret-audit.md`: every finding grouped by kind, with a `checked` date (spec 15.7)."""
+    """`_bastet/secret-audit.md`: every finding grouped by kind, with a `checked` date."""
     import bastet.core.yamlstyle as yamlstyle
 
     by_kind: dict[str, list[Finding]] = {}
@@ -445,7 +445,7 @@ def audit_note(found: list[Finding], when: str) -> str:
 
 
 def summary_lines(found: list[Finding]) -> list[str]:
-    """`check`'s summary (spec 15.7): one line when healthy, else every blocking finding plus an audit pointer."""
+    """`check`'s summary: one line when healthy, else every blocking finding plus an audit pointer."""
     if not found:
         return ["Secrets: healthy."]
     blocking = [f for f in found if f.severity == "block"]

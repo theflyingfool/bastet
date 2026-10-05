@@ -1,4 +1,4 @@
-"""systemd family: units, drop-ins, time, hostname and locale (spec 9.2).
+"""systemd family: units, drop-ins, time, hostname and locale.
 
 Restarts and reloads for every role go through the triggers here, so there's one implementation.
 """

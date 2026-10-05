@@ -1,4 +1,4 @@
-"""`secret:` references inside role option values: resolved between resolve() and batches_for() (spec 15.1, 15.2)."""
+"""`secret:` references inside role option values: resolved between resolve() and batches_for()."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""The engine's vocabulary: resources, reads, field changes and triggers (spec 9.2)."""
+"""The engine's vocabulary: resources, reads, field changes and triggers."""
 
 from __future__ import annotations
 

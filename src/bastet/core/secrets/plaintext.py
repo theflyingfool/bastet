@@ -1,4 +1,4 @@
-"""Unlock and lock: plain text in place, a saved original ciphertext, and the plain-text lock-down (spec 15.4)."""
+"""Unlock and lock: plain text in place, a saved original ciphertext, and the plain-text lock-down."""
 
 import datetime as dt
 import json

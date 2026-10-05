@@ -428,7 +428,7 @@ def _recent(repo: GitRepo) -> list[str]:
 
 
 def secrets_master_list(inv: Inventory, types: dict[str, HostType]) -> str:
-    """`_bastet/Secrets.md` (spec 15.10): every secret, where it lives, who uses it, source and dates. Never values."""
+    """`_bastet/Secrets.md`: every secret, where it lives, who uses it, source and dates. Never values."""
     from bastet.core.secrets import health  # lazy: core.secrets builds on core
     from bastet.core.secrets.notes import SecretPath
 

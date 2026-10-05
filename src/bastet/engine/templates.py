@@ -1,4 +1,4 @@
-"""File contents from Jinja2 templates, rendered on the controller (spec 9.2)."""
+"""File contents from Jinja2 templates, rendered on the controller."""
 
 from pathlib import Path
 

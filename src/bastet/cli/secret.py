@@ -1,4 +1,4 @@
-"""`bastet secret`: the secret inventory, `set` (list, generate, fill-in) and `show` (spec 15.3)."""
+"""`bastet secret`: the secret inventory, `set` (list, generate, fill-in) and `show`."""
 
 from __future__ import annotations
 
@@ -396,7 +396,7 @@ def secret_show(words: list[str] = typer.Argument(..., help="host role option, o
         typer.echo("Cancelled.")
 
 
-# --- `bastet secret unlock` / `bastet secret lock` (spec 15.4) ---
+# --- `bastet secret unlock` / `bastet secret lock` ---
 
 
 def _read_key(timeout: float) -> str | None:
@@ -533,7 +533,7 @@ def secret_lock() -> None:
     _print_lock_summary(result)
 
 
-# --- `bastet secret audit` (spec 15.7) ---
+# --- `bastet secret audit` ---
 
 
 def _without_checked(text: str) -> str:

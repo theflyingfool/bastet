@@ -176,7 +176,7 @@ NO_LOGIN = ("/usr/sbin/nologin", "/sbin/nologin", "/bin/false", "/usr/bin/false"
 
 
 def _guard_bastet(v: dict) -> None:
-    """Refuse role values that would lock Bastet out of the host it manages (spec 12)."""
+    """Refuse role values that would lock Bastet out of the host it manages."""
     def stop(what: str):
         raise BastetError(f"users: {what} would lock Bastet out of this host; the bastet account is managed by Bastet itself")
     me = (v.get("users") or {}).get(BASTET_USER) or {}
@@ -259,7 +259,7 @@ def batches_for(applied: list[Applied], host: HostInfo) -> list[Batch]:
         except (TypeError, ValueError, KeyError) as exc:
             raise BastetError(f"{a.role.name}: {exc}") from None
         if a.secret:
-            # At least one of this role's options was a `secret:` reference (spec 15.8): every
+            # At least one of this role's options was a `secret:` reference: every
             # resource it built might hold that value, however deep (a systemd drop-in's content,
             # a file's content, a line in a config), so every resource from this role's batches is
             # marked secret -- not just resources with a dedicated `secret` option -- so check/apply

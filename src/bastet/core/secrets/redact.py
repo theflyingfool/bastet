@@ -1,4 +1,4 @@
-"""Masks known secret values out of any text before it's shown, logged or committed (spec 15.8)."""
+"""Masks known secret values out of any text before it's shown, logged or committed."""
 
 import json
 import re

@@ -1,4 +1,4 @@
-"""One host through the six phases of spec 9.2: collect, read, compare, apply, on change, verify."""
+"""One host through the six phases: collect, read, compare, apply, on change, verify."""
 
 from __future__ import annotations
 

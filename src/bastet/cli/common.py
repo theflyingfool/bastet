@@ -83,7 +83,7 @@ class Context:
     repo: GitRepo
     types: dict[str, HostType]
     inventory: Inventory
-    upstream_secrets: list[str] = field(default_factory=list)  # `_secrets/` paths a pull just changed (spec 15.8)
+    upstream_secrets: list[str] = field(default_factory=list)  # `_secrets/` paths a pull just changed
     _secrets: SecretsContext | None = field(default=None, init=False, repr=False)
 
     @property
@@ -111,7 +111,7 @@ def confirm_upstream_secrets(ctx: "Context") -> None:
 
 def alert_upstream_secrets(repo: GitRepo, root: Path) -> list[str]:
     """Secret notes changed since the last confirmed commit, however that happened -- a red alert
-    naming who, from where, and when (spec 15.8). They stay unconfirmed across commands until an
+    naming who, from where, and when. They stay unconfirmed across commands until an
     `apply` confirms them (or Bastet made the change itself), because the confirmed-commit baseline
     only ever moves forward on those two events, not on being alerted about."""
     secret_paths = secrets_confirm.changed_since_confirmed(repo, root)

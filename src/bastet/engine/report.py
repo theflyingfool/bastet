@@ -1,4 +1,4 @@
-"""Check and apply reports, grouped by what's managed, never by role (spec 9.2)."""
+"""Check and apply reports, grouped by what's managed, never by role."""
 
 from bastet.engine.model import ABSENT, FieldChange, show_value
 from bastet.engine.run import HostRun, Item

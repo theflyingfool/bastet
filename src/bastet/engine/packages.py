@@ -1,4 +1,4 @@
-"""Packages family: packages for apt, pacman, dnf, zypper and apk, and their repositories (spec 9.2).
+"""Packages family: packages for apt, pacman, dnf, zypper and apk, and their repositories.
 
 Every knob either works on a manager or raises Unsupported there; nothing is silently ignored.
 """

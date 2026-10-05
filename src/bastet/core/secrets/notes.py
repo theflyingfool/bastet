@@ -43,7 +43,7 @@ _COMPONENT = re.compile(r"^[A-Za-z0-9_.-]+$")
 def _check_component(value: str, label: str) -> None:
     """A secret path component must be a single safe filesystem segment: no '/', '\\', spaces, and
     never '.' or '..' (both of which otherwise match the character class below) -- so a value from
-    the CLI or a `secret:` reference can never escape `_secrets/` (spec 15.1)."""
+    the CLI or a `secret:` reference can never escape `_secrets/`."""
     if value in ("", ".", ".."):
         raise SecretError(f"{value!r} isn't a valid secret path {label} (can't be empty, '.' or '..')")
     if not _COMPONENT.fullmatch(value):

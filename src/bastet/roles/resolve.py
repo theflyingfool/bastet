@@ -1,4 +1,4 @@
-"""Which roles reach a host, and with what values: precedence and merging (spec 5.4, 9.0)."""
+"""Which roles reach a host, and with what values: precedence and merging."""
 
 from __future__ import annotations
 

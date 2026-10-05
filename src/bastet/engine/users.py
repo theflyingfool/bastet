@@ -1,4 +1,4 @@
-"""Users family: users and groups (spec 9.2). Authorized keys and sudoers rules live here too (Task 5)."""
+"""Users family: users and groups. Authorized keys and sudoers rules live here too."""
 
 import base64
 import datetime as dt

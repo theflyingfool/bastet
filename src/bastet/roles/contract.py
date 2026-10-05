@@ -1,4 +1,4 @@
-"""The role contract: role.yml option menus, validation and defaults (spec 9.1)."""
+"""The role contract: role.yml option menus, validation and defaults."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import yaml
 from bastet.core.errors import BastetError
 
 TYPES = ("string", "int", "number", "bool", "list", "map", "object", "any")  # any: checked by the role's builder
-SECRET_PREFIX = "secret:"  # a reference, resolved and re-checked against the option's type later (spec 15.1)
+SECRET_PREFIX = "secret:"  # a reference, resolved and re-checked against the option's type later
 RESERVED = {"bastet", "role", "applies_to", "priority", "cssclasses", "tags", "aliases", "rotate_every"}
 OPTION_KEYS = {"type", "description", "default", "choices", "items", "fields", "shorthand", "secret", "required",
                "generate", "source", "rotate_every"}

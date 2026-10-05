@@ -222,7 +222,7 @@ def _offer_secrets(ctx, added: list[str], doc, *, yes: bool) -> None:
 
 
 def _ensure_secrets_section(ctx, doc) -> None:
-    """A host page with at least one secret note of its own gets the `secrets-here.base` embed (spec 15.10)."""
+    """A host page with at least one secret note of its own gets the `secrets-here.base` embed."""
     if doc.data.get("bastet") != "host":
         return
     if not any((ctx.root / "_secrets" / doc.name).rglob("*.md")):

@@ -1,4 +1,4 @@
-"""The last commit at which `_secrets/` changes were confirmed safe to use (spec 15.8).
+"""The last commit at which `_secrets/` changes were confirmed safe to use.
 
 The alert-and-gate only ever used to see a secret change that arrived through `load_context`'s own
 pull, because it was driven by *that pull's* reported diff. Anything else that moves HEAD forward --

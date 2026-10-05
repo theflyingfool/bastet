@@ -160,7 +160,7 @@ class GitRepo:
         return True
 
     def pull(self) -> list[str]:
-        """Pull (fast-forward only); returns the paths that changed, relative to the root (spec 15.8)."""
+        """Pull (fast-forward only); returns the paths that changed, relative to the root."""
         if not self.has_remote() or not self._has_upstream():
             return []
         before = self._git("rev-parse", "HEAD", check=False)

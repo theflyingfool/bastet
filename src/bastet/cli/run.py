@@ -1,4 +1,4 @@
-"""bastet check / bastet apply: make hosts match the desired state their roles describe (spec 9.2)."""
+"""bastet check / bastet apply: make hosts match the desired state their roles describe."""
 
 import datetime as dt
 import select
