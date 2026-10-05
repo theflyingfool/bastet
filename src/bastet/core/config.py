@@ -67,6 +67,19 @@ class GatherConfig(BaseModel):
     install_tools: Literal["ask", "always", "never"] = "ask"
 
 
+class ParallelConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    jobs: int = 8
+
+    @field_validator("jobs")
+    @classmethod
+    def _at_least_one(cls, value: int) -> int:
+        if value < 1:
+            raise ValueError("must be at least 1")
+        return value
+
+
 class Config(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -74,6 +87,7 @@ class Config(BaseModel):
     secrets: SecretsConfig = SecretsConfig()
     ssh: SshConfig = SshConfig()
     gather: GatherConfig = GatherConfig()
+    parallel: ParallelConfig = ParallelConfig()
 
 
 def config_path(env: Mapping[str, str] | None = None) -> Path:

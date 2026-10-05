@@ -80,6 +80,12 @@ The first gather can set up a `bastet` user on each host, from your own SSH logi
 key login only (no password) and passwordless sudo. Setting it up needs `useradd`, `usermod`, `install`, `getent`
 and `visudo` on the host (shadow-utils/passwd, coreutils, sudo).
 
+**How many hosts at once.** `gather`, `check` and `apply` take `--jobs`/`-j` (a positive integer) to say how many
+hosts to work on at once; without it, they use `bastet.yml`'s setting:
+
+    parallel:
+      jobs: 8      # default
+
 ## Install
 
 Bastet runs from its source folder. Install it as a uv tool in editable mode, so `bastet` on your PATH always runs
@@ -113,13 +119,13 @@ else `~/.config/bastet/bastet.yml`.
 | `bastet init` | Config, Bastet's SSH key, the inventory repository and `Homelab.md` |
 | `bastet add host [NAME] [--type …]` | Writes a minimal host file; asks for anything you leave out (`-y` to never ask) |
 | `bastet add hardware [NAME] [--category …]` | Writes a hardware file; asks for anything you leave out |
-| `bastet gather [HOST…]` | Collects facts and writes them into host files after a diff; `--take FIELD` accepts a value you'd set by hand |
+| `bastet gather [HOST…] [-j JOBS]` | Collects facts and writes them into host files after a diff; `--take FIELD` accepts a value you'd set by hand |
 | `bastet refresh` | Regenerates page summaries and the dashboard (`_bastet/`) from your files; `add` and `gather` do this too |
 | `bastet show [NAME]` | Read-only: lists the inventory and its problems, or shows one object and what links to it |
 | `bastet help [COMMAND…]` | The same as `--help`, for Bastet or one command (e.g. `bastet help secret set`); bare `bastet` prints it too |
 | `bastet add role [ROLE…] [--to TARGET]` | Writes role files under `_roles/` after showing the diff; offers the roles and targets as lists when left out |
-| `bastet check [HOST…]` | Shows what differs between each host and its roles, and every inventory problem; changes nothing |
-| `bastet apply [HOST…] [-y] [--updates]` | Shows the check, asks, applies the changes and verifies them, printing every inventory problem too; `--updates` also installs pending updates on hosts whose policy is manual |
+| `bastet check [HOST…] [-j JOBS]` | Shows what differs between each host and its roles, and every inventory problem; changes nothing |
+| `bastet apply [HOST…] [-y] [--updates] [-j JOBS]` | Shows the check, asks, applies the changes and verifies them, printing every inventory problem too; `--updates` also installs pending updates on hosts whose policy is manual |
 | `bastet map` | Regenerates the cabling and network maps under `_bastet/maps/` (`refresh` does this too, along with everything else) |
 | `bastet secret` | The secret inventory: every secret, its host/role/option, whether it's set, who uses it, secrets roles need but don't have, and a health summary. Never values. |
 | `bastet secret set [HOST ROLE OPTION]` | Numbered list of secrets that need a value (`0` = all, `q` = quit), or the same for one named secret. Type or paste a value, Enter to generate (when the contract allows), or `e` to fill it in yourself. Reads from stdin when piped. |

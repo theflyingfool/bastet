@@ -15,6 +15,7 @@ from bastet.cli.common import (
     load_context,
     print_problems,
     refresh_generated,
+    resolve_jobs,
     scan_first,
     ssh_ports,
     write_with_confirmation,
@@ -235,9 +236,11 @@ def gather(
     take: list[str] = typer.Option([], "--take", help="Accept the observed value of this field even if you set it. Repeatable."),
     accept_new_hostkey: bool = typer.Option(False, "--accept-new-hostkey", help="Trust a new or changed host key (e.g. after a reinstall)."),
     yes: bool = typer.Option(False, "--yes", "-y", help="Don't ask; write and commit."),
+    jobs: int | None = typer.Option(None, "--jobs", "-j", min=1, help="How many hosts to gather at once (default: the config value)."),
 ) -> None:
     """Collect facts from hosts and write them into their files, after showing the diff."""
     ctx = load_context()
+    _ = resolve_jobs(jobs, ctx.config)  # accepted and validated; hosts still run one at a time
     print_problems(ctx)
     inv = ctx.inventory
     if hosts:

@@ -54,6 +54,23 @@ def test_apply_asks_and_respects_no(runner, box):
     assert result.exit_code == 0 and "nothing applied" in result.output and not (box / "motd").exists()
 
 
+def test_check_jobs_zero_is_a_usage_error(runner, inventory):
+    result = runner.invoke(app, ["check", "nope", "-j", "0"])
+    assert result.exit_code == 2
+    assert "no host named 'nope'" not in result.output
+
+
+def test_apply_jobs_zero_is_a_usage_error(runner, inventory):
+    result = runner.invoke(app, ["apply", "nope", "-j", "0"])
+    assert result.exit_code == 2
+    assert "no host named 'nope'" not in result.output
+
+
+def test_check_jobs_option_is_accepted(runner, inventory):
+    result = runner.invoke(app, ["check", "nope", "-j", "2"])
+    assert result.exit_code == 1 and "no host named 'nope'" in result.output
+
+
 def test_role_error_exit_1(runner, box, inventory):
     (inventory / "_roles" / "hosts" / "box" / "files.md").write_text(
         '---\nbastet: role\nrole: files\napplies_to: "[[box]]"\nfile:\n  /x: {}\n---\n')

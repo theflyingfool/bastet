@@ -17,6 +17,7 @@ from bastet.cli.common import (
     load_context,
     print_problems,
     refresh_generated,
+    resolve_jobs,
     scan_first,
     ssh_ports,
 )
@@ -194,8 +195,10 @@ def _hosts(ctx: Context, names: list[str] | None) -> list[Document]:
     return [d for d in ctx.inventory.of_kind("host") if d.data.get("state", "present") != "destroyed"]
 
 
-def _run(names: list[str] | None, *, apply_changes: bool, yes: bool, verbose: bool, updates: bool = False) -> None:
+def _run(names: list[str] | None, *, apply_changes: bool, yes: bool, verbose: bool, updates: bool = False,
+         jobs: int | None = None) -> None:
     ctx = load_context()
+    _ = resolve_jobs(jobs, ctx.config)  # accepted and validated; hosts still run one at a time
     print_problems(ctx)
     if apply_changes and ctx.upstream_secrets:
         if not _confirm_upstream_secrets(ctx):
@@ -293,9 +296,10 @@ def check(
     hosts: list[str] | None = typer.Argument(None, help="Hosts to check (default: all hosts)."),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show compliant items for every host."),
     yes: bool = typer.Option(False, "--yes", "-y", help="Don't ask to confirm a new host key."),
+    jobs: int | None = typer.Option(None, "--jobs", "-j", min=1, help="How many hosts to check at once (default: the config value)."),
 ) -> None:
     """Show what differs between each host and the desired state its roles describe. Changes nothing."""
-    _run(hosts, apply_changes=False, yes=yes, verbose=verbose)
+    _run(hosts, apply_changes=False, yes=yes, verbose=verbose, jobs=jobs)
 
 
 @handles_errors
@@ -304,6 +308,7 @@ def apply(
     yes: bool = typer.Option(False, "--yes", "-y", help="Don't ask; apply every change."),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show compliant items for every host."),
     updates: bool = typer.Option(False, "--updates", help="Also install pending updates on hosts whose policy is manual."),
+    jobs: int | None = typer.Option(None, "--jobs", "-j", min=1, help="How many hosts to apply to at once (default: the config value)."),
 ) -> None:
     """Make each host match its roles: shows the check first, asks, applies, and verifies."""
-    _run(hosts, apply_changes=True, yes=yes, verbose=verbose, updates=updates)
+    _run(hosts, apply_changes=True, yes=yes, verbose=verbose, updates=updates, jobs=jobs)

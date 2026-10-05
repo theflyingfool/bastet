@@ -1,8 +1,10 @@
 import io
+from pathlib import Path
 
 import typer
 
-from bastet.cli.common import guard_prompts
+from bastet.cli.common import guard_prompts, resolve_jobs
+from bastet.core.config import Config, InventoryConfig, ParallelConfig
 from bastet.core.errors import BastetError
 from bastet.core.parallel import run_parallel
 
@@ -39,3 +41,19 @@ def test_guard_prompts_restores_originals_after_exit():
     with guard_prompts():
         pass
     assert typer.confirm is before
+
+
+def _config(jobs: int = 8) -> Config:
+    return Config(inventory=InventoryConfig(path=Path("/tmp/Homelab")), parallel=ParallelConfig(jobs=jobs))
+
+
+def test_resolve_jobs_uses_config_default_when_option_not_given():
+    assert resolve_jobs(None, _config(jobs=8)) == 8
+
+
+def test_resolve_jobs_config_override():
+    assert resolve_jobs(None, _config(jobs=3)) == 3
+
+
+def test_resolve_jobs_option_overrides_config():
+    assert resolve_jobs(5, _config(jobs=3)) == 5

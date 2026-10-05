@@ -146,3 +146,21 @@ def test_ssh_key_must_be_absolute(tmp_path):
     with pytest.raises(BastetError) as e:
         load_config(p)
     assert e.value.key == "ssh.key"
+
+
+def test_parallel_jobs_defaults_to_eight(tmp_path):
+    cfg = load_config(write(tmp_path, "inventory:\n  path: ~/Homelab\n"))
+    assert cfg.parallel.jobs == 8
+
+
+def test_parallel_jobs_can_be_overridden(tmp_path):
+    cfg = load_config(write(tmp_path, "inventory:\n  path: ~/Homelab\nparallel:\n  jobs: 3\n"))
+    assert cfg.parallel.jobs == 3
+
+
+def test_parallel_jobs_below_one_is_a_named_config_error(tmp_path):
+    p = write(tmp_path, "inventory:\n  path: ~/Homelab\nparallel:\n  jobs: 0\n")
+    with pytest.raises(BastetError) as e:
+        load_config(p)
+    assert e.value.key == "parallel.jobs"
+    assert not e.value.message.startswith("Value error")

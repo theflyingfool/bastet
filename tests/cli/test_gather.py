@@ -166,6 +166,17 @@ def test_unknown_host_name(runner, inventory):
     assert result.exit_code == 1 and "no host named 'nope'" in result.output
 
 
+def test_jobs_zero_is_a_usage_error(runner, inventory):
+    result = runner.invoke(app, ["gather", "nope", "-j", "0"])
+    assert result.exit_code == 2
+    assert "no host named 'nope'" not in result.output
+
+
+def test_jobs_option_is_accepted(runner, inventory):
+    result = runner.invoke(app, ["gather", "nope", "-j", "2"])
+    assert result.exit_code == 1 and "no host named 'nope'" in result.output
+
+
 def test_gather_malformed_host_file_reports_problem(runner, laptop):
     (laptop / "hosts" / "broken.md").write_text("---\nbastet: host\n")
     result = runner.invoke(app, ["gather", "hp-13", "-y"])

@@ -46,6 +46,11 @@ def guard_prompts():
         typer.prompt = original_prompt
 
 
+def resolve_jobs(option: int | None, config: Config) -> int:
+    """The `--jobs`/`-j` value to use: the option when given, else the configured default."""
+    return option if option is not None else config.parallel.jobs
+
+
 def handles_errors(fn):
     @functools.wraps(fn)
     def wrapper(*args, **kwargs):
