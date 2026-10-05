@@ -1,4 +1,4 @@
-from bastet.core.secrets.redact import ACTIVE, Redactor
+from bastet.core.secrets.redact import ACTIVE, MASK, Redactor
 
 
 def test_short_values_are_never_masked():
@@ -37,6 +37,28 @@ def test_json_dumps_form_is_masked():
     body = json.dumps({"k": 'weird"value'})
     masked = r.mask(body)
     assert "weird" not in masked
+
+
+def test_a_value_containing_a_protected_path_is_still_fully_masked():
+    """Protection must not fail open: a secret value that merely *contains* a protected path (a
+    coincidence, not the hint itself) must still be masked in full -- partially exposing a real
+    secret would be worse than masking a few extra characters around a path."""
+    r = Redactor()
+    r.add("pw-git1/gitea/x-tail")
+    r.protect("git1/gitea/x")
+    masked = r.mask("value: pw-git1/gitea/x-tail")
+    assert "pw-git1/gitea/x-tail" not in masked
+    assert "tail" not in masked
+
+
+def test_overlapping_values_are_both_fully_masked():
+    r = Redactor()
+    r.add("abcdefgh")
+    r.add("efghijkl")
+    masked = r.mask("abcdefghijkl")
+    assert "abcd" not in masked
+    assert "ijkl" not in masked
+    assert masked == MASK
 
 
 def test_protected_text_is_never_masked_even_if_it_matches_a_value():

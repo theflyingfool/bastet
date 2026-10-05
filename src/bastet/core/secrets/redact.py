@@ -59,45 +59,40 @@ class Redactor:
     def mask(self, text: str) -> str:
         if not text or not self._values:
             return text
-        # Find every occurrence of every registered value (and protected string) in the ORIGINAL
-        # text as a (start, end, is_protected) interval, longest-first so a longer match wins over
-        # one of its own substrings at the same position. Then drop any value-interval that sits
-        # wholly inside a protected one (so masking a value never eats into a protected string around
-        # it), merge what's left, and rebuild the text in one pass. Doing it this way -- rather than
-        # repeated str.replace, or splitting on protected spans first -- means a value that merely
-        # *contains* a protected substring still gets masked in full, and position shifts from one
-        # replacement never affect where the next one is found.
-        spans: list[tuple[int, int, bool]] = []
-        for protected in self._protected:
-            spans.extend((m.start(), m.end(), True) for m in re.finditer(re.escape(protected), text))
-        for value in self._values:
-            spans.extend((m.start(), m.end(), False) for m in re.finditer(re.escape(value), text))
-        if not spans:
+        # Find every occurrence of every registered value, and of every protected string, in the
+        # ORIGINAL text as a (start, end, is_protected) interval. A value interval is dropped only
+        # when it sits wholly inside a protected one -- e.g. a registered value that happens to equal
+        # one word of a protected `bastet secret set host role option` hint -- never merely for
+        # overlapping or touching one: a value that *contains* a protected substring (a secret's path
+        # embedded inside a longer secret value) still gets masked in full, since leaving a real
+        # secret completely unmasked would be the worse failure. What's left is merged into
+        # non-overlapping ranges (so two overlapping value matches both get fully covered, not one
+        # dropped and the other's tail left showing) and the text is rebuilt in one pass.
+        protected_ranges = [
+            (m.start(), m.end()) for protected in self._protected for m in re.finditer(re.escape(protected), text)
+        ]
+        value_spans = sorted(
+            (m.start(), m.end()) for value in self._values for m in re.finditer(re.escape(value), text)
+        )
+        if not value_spans:
             return text
-        spans.sort(key=lambda s: (s[0], -(s[1] - s[0])))
-        protected_ranges = [(s, e) for s, e, is_p in spans if is_p]
 
-        def _overlaps_protected(s: int, e: int) -> bool:
-            # Any overlap, not just full containment: a value that merely touches a protected span
-            # (e.g. its path) is left alone entirely, rather than risk masking part of it.
-            return any(s < pe and ps < e for ps, pe in protected_ranges)
+        def _wholly_inside_protected(s: int, e: int) -> bool:
+            return any(ps <= s and e <= pe for ps, pe in protected_ranges)
 
-        kept: list[tuple[int, int]] = []
-        last_end = -1
-        for start, end, is_protected in spans:
-            if is_protected:
+        merged: list[list[int]] = []
+        for start, end in value_spans:
+            if _wholly_inside_protected(start, end):
                 continue
-            if start < last_end:
-                continue  # overlaps a longer/earlier match already kept
-            if _overlaps_protected(start, end):
-                continue
-            kept.append((start, end))
-            last_end = end
-        if not kept:
+            if merged and start <= merged[-1][1]:
+                merged[-1][1] = max(merged[-1][1], end)
+            else:
+                merged.append([start, end])
+        if not merged:
             return text
         out = []
         pos = 0
-        for start, end in sorted(kept):
+        for start, end in merged:
             out.append(text[pos:start])
             out.append(MASK)
             pos = end
