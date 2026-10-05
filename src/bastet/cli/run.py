@@ -1,7 +1,6 @@
 """bastet check / bastet apply: make hosts match the desired state their roles describe (spec 9.2)."""
 
 import datetime as dt
-import os
 import select
 import sys
 import tempfile
@@ -12,7 +11,7 @@ import typer
 import bastet.cli.secret as secret_mod
 from bastet.cli.common import confirm_upstream_secrets, Context, handles_errors, load_context, refresh_generated, scan_first, ssh_ports
 from bastet.core.secrets import health as secret_health
-from bastet.cli.gather import _fixed_ip, local_runner, scan_keys, ssh_runner, sudo_validate
+from bastet.cli.gather import _resolve_address, _scan_pinned, scan_keys, ssh_runner
 from bastet.core import hostkeys
 from bastet.core.errors import BastetError
 from bastet.core.frontmatter import Document
@@ -49,17 +48,13 @@ def plan_for(ctx: Context, doc: Document, roles: dict[str, RoleDef], updates: bo
 
 
 def connect(ctx: Context, doc: Document, tmp: Path, *, yes: bool):
-    if doc.data.get("connection") == "local":
-        if not yes and os.geteuid() != 0:
-            sudo_validate()
-        return local_runner(), None
-    address = doc.data.get("address") or _fixed_ip(doc.data.get("ip"))
+    address = _resolve_address(doc)
     if not address:
         raise BastetError("no address to connect to; set `address:` or a fixed `ip:`", file=doc.path)
     recorded = doc.data.get("ssh_host_key")
     if not recorded:
         raise BastetError("no confirmed host key yet; run `bastet gather` on this host first", file=doc.path)
-    keys, port = scan_first(scan_keys, str(address), str(recorded), ssh_ports(ctx, doc))
+    keys, port = _scan_pinned(doc, str(address), str(recorded), ssh_ports(ctx, doc), scan_keys)
     if hostkeys.check(str(recorded), keys) != "match":
         raise BastetError("the host's key doesn't match ssh_host_key; run `bastet gather` "
                           "(with --accept-new-hostkey after a reinstall)", file=doc.path, key="ssh_host_key")
@@ -296,7 +291,7 @@ def _run(names: list[str] | None, *, apply_changes: bool, yes: bool, verbose: bo
 def check(
     hosts: list[str] | None = typer.Argument(None, help="Hosts to check (default: all hosts)."),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show compliant items for every host."),
-    yes: bool = typer.Option(False, "--yes", "-y", help="Don't ask for the local sudo password."),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Don't ask to confirm a new host key."),
 ) -> None:
     """Show what differs between each host and the desired state its roles describe. Changes nothing."""
     _run(hosts, apply_changes=False, yes=yes, verbose=verbose)

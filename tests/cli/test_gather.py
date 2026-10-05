@@ -36,15 +36,17 @@ def add_host(root: Path, name: str, text: str) -> None:
     git(root, "commit", "-q", "-m", f"add {name}")
 
 
+LAPTOP_HOST_KEY = f"ssh-ed25519 {KEYS[0].fingerprint}"
+
+
 @pytest.fixture
 def laptop(inventory, monkeypatch):
-    add_host(inventory, "hp-13", "---\nbastet: host\ntype: laptop\nip: dhcp\nconnection: local\n---\n# hp-13\n")
-    monkeypatch.setattr(gather_mod, "local_runner", lambda: FakeRunner(LAPTOP, "local"))
-
-    def no_network(address, recorded=None, port=22):
-        raise Unreachable(f"{address}: offline in tests")
-
-    monkeypatch.setattr(gather_mod, "scan_keys", no_network)
+    add_host(
+        inventory, "hp-13",
+        f"---\nbastet: host\ntype: laptop\nip: dhcp\nconnection: local\nssh_host_key: {LAPTOP_HOST_KEY}\n---\n# hp-13\n",
+    )
+    monkeypatch.setattr(gather_mod, "scan_keys", lambda address, recorded=None, port=22: KEYS)
+    monkeypatch.setattr(gather_mod, "ssh_runner", lambda target: FakeRunner(LAPTOP, f"{target.user}@{target.address}"))
     return inventory
 
 
@@ -142,6 +144,8 @@ def test_unreachable_host_does_not_stop_others(runner, laptop, monkeypatch):
     add_host(laptop, "vps1", "---\nbastet: host\ntype: vps\nprovider: linode\nip: 203.0.113.10\n---\n# vps1\n")
 
     def down(address, recorded=None, port=22):
+        if address == "127.0.0.1":
+            return KEYS
         raise Unreachable(f"{address}: no SSH host keys")
 
     monkeypatch.setattr(gather_mod, "scan_keys", down)
@@ -186,6 +190,8 @@ def test_unexpected_error_on_one_host_does_not_stop_others(runner, laptop, monke
     add_host(laptop, "vps1", "---\nbastet: host\ntype: vps\nprovider: linode\nip: 203.0.113.10\n---\n# vps1\n")
 
     def boom(address, recorded=None, port=22):
+        if address == "127.0.0.1":
+            return KEYS
         raise RuntimeError("something odd")
 
     monkeypatch.setattr(gather_mod, "scan_keys", boom)
@@ -236,20 +242,33 @@ def test_root_skipped_note(runner, server, monkeypatch):
     assert "root-only" in result.output
 
 
-def test_local_sudo_validated_once_and_hardware_written(runner, laptop, monkeypatch):
-    calls = []
-    monkeypatch.setattr(gather_mod, "sudo_validate", lambda: calls.append(1) or True)
-    result = runner.invoke(app, ["gather", "hp-13"], input="y\n")
+def test_local_host_writes_hardware_file(runner, laptop):
+    result = runner.invoke(app, ["gather", "hp-13", "-y"])
     assert result.exit_code == 0, result.output
-    assert calls == [1]
     assert (laptop / "hardware" / "HP Spectre x360 Convertible 13-ae0xx 5CD1234XYZ.md").exists()
 
 
-def test_yes_skips_sudo_prompt(runner, laptop, monkeypatch):
-    calls = []
-    monkeypatch.setattr(gather_mod, "sudo_validate", lambda: calls.append(1) or True)
-    runner.invoke(app, ["gather", "hp-13", "-y"])
-    assert calls == []
+def test_local_host_with_no_recorded_key_goes_through_first_contact(runner, inventory, monkeypatch):
+    add_host(inventory, "hp-13", "---\nbastet: host\ntype: laptop\nip: dhcp\nconnection: local\n---\n# hp-13\n")
+    monkeypatch.setattr(gather_mod, "scan_keys", lambda address, recorded=None, port=22: KEYS)
+    monkeypatch.setattr(gather_mod, "ssh_runner", lambda target: FakeRunner(LAPTOP, f"{target.user}@{target.address}"))
+    result = runner.invoke(app, ["gather", "hp-13"], input="y\ny\n")
+    assert result.exit_code == 0, result.output
+    assert "first contact" in result.output
+    assert f"ssh_host_key: ssh-ed25519 {KEYS[0].fingerprint}" in (inventory / "hosts" / "hp-13.md").read_text()
+
+
+def test_local_host_nothing_answering_reports_sshd_hint(runner, inventory, monkeypatch):
+    add_host(inventory, "hp-13", "---\nbastet: host\ntype: laptop\nip: dhcp\nconnection: local\n---\n# hp-13\n")
+
+    def no_sshd(address, recorded=None, port=22):
+        raise Unreachable(f"{address}: offline in tests")
+
+    monkeypatch.setattr(gather_mod, "scan_keys", no_sshd)
+    result = runner.invoke(app, ["gather", "hp-13", "-y"])
+    assert result.exit_code == 0, result.output
+    assert "nothing answered on 127.0.0.1:22" in result.output
+    assert "start sshd" in result.output
 
 
 def test_guests_on_other_nodes_ignored_and_names_quoted(runner, server, monkeypatch):

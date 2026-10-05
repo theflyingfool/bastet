@@ -2,12 +2,14 @@ import json
 import shutil
 import socket
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from importlib import resources
 from pathlib import Path
 
 import pyrage.x25519
 
+from bastet.core.bootstrap import _KEY
 from bastet.core.config import load_config
 from bastet.core.errors import BastetError
 from bastet.core.frontmatter import new_document, parse_document, set_keys
@@ -191,3 +193,119 @@ def initialize(config_file: Path, options: InitOptions, *, keys_dir: Path) -> In
     if options.remote and committed and not repo.push():
         actions.append("warning: push failed; the commit is kept locally and pushed on a later run")
     return InitResult(actions=actions, committed=committed, public_key=_pub(key))
+
+
+# --- setting up this machine as a Bastet host: a local `bastet` user, passwordless sudo through a
+# validated sudoers drop-in, and Bastet's public key in its authorized_keys. Every system-changing
+# command goes through `run`, so tests never touch the real system. ---
+
+SUDOERS_LINE = "bastet ALL=(ALL) NOPASSWD: ALL\n"
+
+
+@dataclass
+class ProcResult:
+    returncode: int
+    stdout: str = ""
+    stderr: str = ""
+
+
+Runner = Callable[[list[str]], ProcResult]
+
+
+def real_runner(argv: list[str]) -> ProcResult:
+    try:
+        r = subprocess.run(argv, capture_output=True, text=True)
+    except OSError as exc:
+        return ProcResult(1, "", str(exc))
+    return ProcResult(r.returncode, r.stdout, r.stderr)
+
+
+def _bastet_identity(run: Runner) -> tuple[str, str] | None:
+    """(home, group) for the local `bastet` user, from `getent passwd` (field 6) and its own group
+    name (field 4's gid, resolved the same way `id -gn` would via `getent group`)."""
+    res = run(["getent", "passwd", "bastet"])
+    if res.returncode != 0:
+        return None
+    fields = res.stdout.strip().split(":")
+    if len(fields) <= 5:
+        return None
+    home, gid = fields[5], fields[3]
+    group_res = run(["getent", "group", gid])
+    group = group_res.stdout.split(":", 1)[0] if group_res.returncode == 0 and group_res.stdout else gid
+    return home, group
+
+
+def _require(run: Runner, argv: list[str], what: str) -> ProcResult:
+    res = run(argv)
+    if res.returncode != 0:
+        detail = (res.stderr or res.stdout).strip()
+        raise BastetError(f"{what} failed: {detail}" if detail else f"{what} failed")
+    return res
+
+
+def local_user_setup(run: Runner, tmp_dir: Path, public_key: str) -> list[str]:
+    """Create the local `bastet` user, its passwordless-sudo drop-in and its authorized_keys.
+    Idempotent: a second call makes no further changes. The sudoers drop-in is validated with
+    `visudo -cf` on a temp file before it's installed; sshd config is never touched here."""
+    key = public_key.strip()
+    if not _KEY.match(key):
+        raise BastetError("Bastet's public key doesn't look like a single OpenSSH public key line")
+
+    actions: list[str] = []
+    if run(["id", "bastet"]).returncode == 0:
+        actions.append("kept the local bastet user")
+    else:
+        _require(run, ["sudo", "-n", "useradd", "--create-home", "--shell", "/bin/sh", "bastet"], "creating the local bastet user")
+        _require(run, ["sudo", "-n", "usermod", "-p", "*", "bastet"], "locking the local bastet user's password")
+        actions.append("created the local bastet user")
+
+    identity = _bastet_identity(run)
+    if identity is None:
+        raise BastetError("the bastet user was created, but getent can't find it")
+    home, group = identity
+
+    sudoers = run(["sudo", "-n", "cat", "/etc/sudoers.d/bastet"])
+    if sudoers.returncode == 0 and sudoers.stdout == SUDOERS_LINE:
+        actions.append("kept bastet's passwordless sudo")
+    else:
+        drop_in = tmp_dir / "bastet.sudoers"
+        drop_in.write_text(SUDOERS_LINE, encoding="utf-8")
+        check = run(["sudo", "-n", "visudo", "-cf", str(drop_in)])
+        if check.returncode != 0:
+            raise BastetError(f"the sudoers drop-in failed validation: {(check.stderr or check.stdout).strip()}")
+        _require(
+            run, ["sudo", "-n", "install", "-o", "root", "-g", "root", "-m", "440", str(drop_in), "/etc/sudoers.d/bastet"],
+            "installing bastet's sudoers drop-in",
+        )
+        actions.append("set up bastet's passwordless sudo")
+
+    authorized = run(["sudo", "-n", "cat", f"{home}/.ssh/authorized_keys"])
+    if authorized.returncode == 0 and authorized.stdout.strip() == key:
+        actions.append("kept Bastet's key in bastet's authorized_keys")
+    else:
+        _require(
+            run, ["sudo", "-n", "install", "-d", "-m", "700", "-o", "bastet", "-g", group, f"{home}/.ssh"],
+            "creating bastet's .ssh directory",
+        )
+        key_file = tmp_dir / "bastet.pub"
+        key_file.write_text(key + "\n", encoding="utf-8")
+        _require(
+            run, ["sudo", "-n", "install", "-o", "bastet", "-g", group, "-m", "600", str(key_file), f"{home}/.ssh/authorized_keys"],
+            "installing Bastet's key in bastet's authorized_keys",
+        )
+        actions.append("installed Bastet's key in bastet's authorized_keys")
+
+    return actions
+
+
+def sshd_ready(run: Runner, scan: Callable[..., object]) -> tuple[bool, str | None]:
+    """Is sshd active and answering on 127.0.0.1? Never edits sshd config: on a problem, a hint to
+    print is returned instead."""
+    active = run(["systemctl", "is-active", "sshd"])
+    if active.returncode != 0 or active.stdout.strip() != "active":
+        return False, "sshd isn't active; enable and start it, e.g. `sudo systemctl enable --now sshd`"
+    try:
+        scan("127.0.0.1", port=22)
+    except BastetError:
+        return False, "sshd isn't answering on 127.0.0.1; add `ListenAddress 127.0.0.1` to sshd_config and reload it"
+    return True, None

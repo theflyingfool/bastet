@@ -2,9 +2,7 @@ import datetime as dt
 import getpass
 import json
 import ipaddress
-import os
 import shlex
-import subprocess
 import tempfile
 from pathlib import Path
 
@@ -22,17 +20,15 @@ from bastet.core.networks import compare_networks, lab_networks
 from bastet.core.changes import Change
 from bastet.core.collect import ProbeResult, Snapshot, collect, save_snapshot
 from bastet.core.config import data_dir
-from bastet.core.errors import AuthFailed, BastetError
+from bastet.core.errors import AuthFailed, BastetError, Unreachable
 from bastet.core.facts import Extracted, extract
 from bastet.core.frontmatter import Document, parse_document, set_keys
 from bastet.core.unifi import device_facts, machine_item, parse_mca, redact
 from bastet.core.gatherplan import Note, plan_update
 from bastet.core.hardware import HardwareView, RunState, observe_hardware, plan_hardware
-from bastet.core.remote import LocalRunner, SshRunner, SshTarget, run_interactive
+from bastet.core.remote import SshRunner, SshTarget, run_interactive
 
-
-def local_runner() -> LocalRunner:
-    return LocalRunner()
+LOCAL_ADDRESS = "127.0.0.1"
 
 
 def ssh_runner(target: SshTarget) -> SshRunner:
@@ -43,12 +39,24 @@ def scan_keys(address: str, recorded: str | None = None, port: int = 22) -> list
     return hostkeys.scan(address, recorded=recorded, port=port)
 
 
-def sudo_validate() -> bool:
-    """Ask for the user's sudo password once, so local root-only probes can use `sudo -n`."""
+def _resolve_address(doc: Document) -> str | None:
+    """`connection: local` means this machine, reached over SSH at 127.0.0.1 unless `address:` says otherwise
+    -- its `ip:` (e.g. a LAN address) never overrides that, since sshd only needs to listen on 127.0.0.1."""
+    if doc.data.get("connection") == "local":
+        return doc.data.get("address") or LOCAL_ADDRESS
+    return doc.data.get("address") or _fixed_ip(doc.data.get("ip"))
+
+
+def _scan_pinned(doc: Document, address: str, recorded: str | None, ports: list[int], scan):
+    """Scan for the host's key; a local host that never answers gets a hint about sshd, not a generic one."""
     try:
-        return subprocess.run(["sudo", "-v"]).returncode == 0
-    except FileNotFoundError:
-        return False
+        return scan_first(scan, address, recorded, ports)
+    except Unreachable:
+        if doc.data.get("connection") == "local":
+            raise BastetError(
+                f"{doc.name}: nothing answered on 127.0.0.1:{ports[0]}; start sshd (ListenAddress 127.0.0.1 is enough)"
+            ) from None
+        raise
 
 
 def interactive(target: SshTarget, command: str) -> int:
@@ -68,11 +76,11 @@ def _pin(ctx: Context, doc: Document, tmp: Path, *, yes: bool, accept: bool,
          ports: list[int] | None = None) -> tuple[str, Path, str, int]:
     """Scan, check and pin the host key (first contact asks); returns address, known_hosts path, recorded key, port."""
     ports = ports or [22]
-    address = doc.data.get("address") or _fixed_ip(doc.data.get("ip"))
+    address = _resolve_address(doc)
     if not address:
         raise BastetError("no address to connect to; set `address:` (e.g. laptop.local) or a fixed `ip:`", file=doc.path)
     recorded = doc.data.get("ssh_host_key")
-    keys, port = scan_first(scan_keys, str(address), str(recorded) if recorded else None, ports)
+    keys, port = _scan_pinned(doc, str(address), str(recorded) if recorded else None, ports, scan_keys)
     best = hostkeys.preferred(keys)
     offered = hostkeys.record(best)
     status = hostkeys.check(recorded, keys)
@@ -114,11 +122,6 @@ def _group(proposals) -> dict[str, list[dict]]:
 
 
 def _collect(ctx: Context, doc: Document, tmp: Path, *, yes: bool, accept: bool) -> tuple[Snapshot, str | None, object]:
-    if doc.data.get("connection") == "local":
-        if not yes and os.geteuid() != 0:
-            sudo_validate()
-        runner = local_runner()
-        return collect(runner, doc.name), None, runner
     address, known, hostkey, port = _pin(ctx, doc, tmp, yes=yes, accept=accept, ports=ssh_ports(ctx, doc))
     key = ctx.config.ssh.key
     if key is not None:

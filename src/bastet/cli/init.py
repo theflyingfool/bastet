@@ -1,15 +1,21 @@
 import getpass
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import typer
 
-from bastet.cli.common import handles_errors, load_context, refresh_generated
+from bastet.cli.common import Context, handles_errors, load_context, refresh_generated
+from bastet.core import hostkeys
 from bastet.core.changes import Change, render_diff
 from bastet.core.config import config_path, data_dir, inventory_dir, load_config
 from bastet.core.errors import BastetError
 from bastet.core.frontmatter import set_keys
-from bastet.core.initialize import InitOptions, existing_recipients, generate_recovery_key, initialize
+from bastet.core.initialize import (
+    InitOptions, ProcResult, existing_recipients, generate_recovery_key, initialize, local_user_setup,
+    real_runner, sshd_ready,
+)
 
 _RECOVERY_WARNING = (
     "Recovery key: keep this offline. It's the only way back if this laptop is lost. It won't be shown again."
@@ -18,6 +24,83 @@ _RECOVERY_WARNING = (
 
 def _stdout_is_tty() -> bool:
     return sys.stdout.isatty()
+
+
+def _runner(argv: list[str]) -> ProcResult:
+    return real_runner(argv)
+
+
+def _scan_local(address: str = "127.0.0.1", port: int = 22) -> list[hostkeys.HostKey]:
+    return hostkeys.scan(address, port=port)
+
+
+def _sudo_validate() -> bool:
+    try:
+        return subprocess.run(["sudo", "-v"]).returncode == 0
+    except FileNotFoundError:
+        return False
+
+
+def _confirm_local_hostkey(ctx: Context, *, yes: bool) -> None:
+    hosts = [d for d in ctx.inventory.of_kind("host") if d.data.get("connection") == "local"]
+    if not hosts:
+        typer.echo("No local host in the inventory yet; `bastet gather` will pin its key once you add one.")
+        return
+    try:
+        keys = _scan_local()
+    except BastetError as exc:
+        typer.secho(f"Could not scan this machine's host key: {exc}", fg="yellow")
+        return
+    offered = hostkeys.record(hostkeys.preferred(keys))
+    for doc in hosts:
+        recorded = doc.data.get("ssh_host_key")
+        status = hostkeys.check(recorded, keys)
+        if status == "match":
+            typer.echo(f"{doc.name}: host key already set up")
+            continue
+        if recorded:
+            typer.secho(
+                f"{doc.name}: a different host key is already recorded; run `bastet gather "
+                "--accept-new-hostkey` if this machine was reinstalled", fg="yellow",
+            )
+            continue
+        typer.echo(f"{doc.name}: host key {offered}")
+        if yes:
+            typer.echo(f"{doc.name}: run without -y to confirm the host key")
+            continue
+        if not typer.confirm("Trust this key?", default=False):
+            typer.echo(f"{doc.name}: host key not recorded")
+            continue
+        text = doc.path.read_text(encoding="utf-8")
+        doc.path.write_text(set_keys(text, {"ssh_host_key": offered}, doc.path), encoding="utf-8")
+        if ctx.repo.is_repo():
+            ctx.repo.commit([doc.path], f"bastet init: pin {doc.name}'s host key")
+        typer.echo(f"{doc.name}: host key recorded")
+
+
+def _setup_this_machine(ctx: Context, public_key: Path, *, yes: bool) -> None:
+    """Set up this computer as a Bastet host: the `bastet` user, passwordless sudo, its
+    authorized_keys, an sshd check, and (once confirmed) its host key. Tty only, like the recovery
+    key -- every step is idempotent, and nothing here ever edits sshd config."""
+    if not _stdout_is_tty():
+        typer.echo("Not a terminal: run `bastet init` in a terminal to set up this machine as a Bastet host.")
+        return
+    if not _sudo_validate():
+        typer.secho("Could not get sudo; this machine was not set up as a Bastet host.", fg="yellow")
+        return
+    key = public_key.read_text(encoding="utf-8").strip()
+    with tempfile.TemporaryDirectory(prefix="bastet-init-") as tmp:
+        try:
+            for action in local_user_setup(_runner, Path(tmp), key):
+                typer.echo(action)
+        except BastetError as exc:
+            typer.secho(f"Setting up this machine failed: {exc}", fg="yellow")
+            return
+    ok, hint = sshd_ready(_runner, _scan_local)
+    if not ok:
+        typer.secho(hint, fg="yellow")
+        return
+    _confirm_local_hostkey(ctx, yes=yes)
 
 
 def _your_pub_text(yes: bool) -> str | None:
@@ -136,10 +219,13 @@ def init(
     result = initialize(cfg_file, options, keys_dir=cfg_file.parent / "ssh")
     for action in result.actions:
         typer.echo(action)
-    refresh_generated(load_context())
+    ctx = load_context()
+    refresh_generated(ctx)
     typer.echo(f"\nBastet's public key ({result.public_key}):")
     typer.echo(result.public_key.read_text(encoding="utf-8").strip())
     if recovery_private:
         typer.echo()
         typer.secho(_RECOVERY_WARNING, fg="yellow")
         typer.echo(recovery_private)
+    typer.echo()
+    _setup_this_machine(ctx, result.public_key, yes=yes)

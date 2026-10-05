@@ -1,3 +1,4 @@
+import base64
 import re
 from pathlib import Path
 
@@ -6,8 +7,11 @@ import pytest
 import bastet.cli.init as init_mod
 from bastet.cli.app import app
 from bastet.core.config import load_config
+from bastet.core.hostkeys import parse_keyscan
+from bastet.core.initialize import ProcResult, SUDOERS_LINE
 
 RECOVERY_RE = re.compile(r"AGE-SECRET-KEY-1[A-Z0-9]+")
+FAKE_HOST_KEYS = parse_keyscan(f"h ssh-ed25519 {base64.b64encode(b'local-host-key').decode()}\n")
 
 
 @pytest.fixture(autouse=True)
@@ -15,6 +19,62 @@ def _no_real_home(tmp_path, monkeypatch):
     """Every test here touches `~/.ssh` through `bastet init`; keep it pointed at a throwaway HOME,
     never the real one."""
     monkeypatch.setenv("HOME", str(tmp_path / "fakehome"))
+
+
+class FakeLocalSystem:
+    """A fake machine for `_setup_this_machine`'s commands: a user, a sudoers drop-in and
+    authorized_keys, none of it real. Persists across repeated calls in one test, so a second
+    `bastet init` sees an already-set-up machine."""
+
+    def __init__(self):
+        self.user_exists = False
+        self.sudoers: str | None = None
+        self.authorized_keys: str | None = None
+        self.calls: list[list[str]] = []
+        self.sshd_active = True
+
+    def __call__(self, argv: list[str]) -> ProcResult:
+        self.calls.append(argv)
+        if argv == ["systemctl", "is-active", "sshd"]:
+            return ProcResult(0, "active\n") if self.sshd_active else ProcResult(3, "inactive\n")
+        if argv == ["id", "bastet"]:
+            return ProcResult(0 if self.user_exists else 1)
+        if argv[:3] == ["sudo", "-n", "useradd"]:
+            self.user_exists = True
+            return ProcResult(0)
+        if argv[:3] == ["sudo", "-n", "usermod"]:
+            return ProcResult(0)
+        if argv == ["getent", "passwd", "bastet"]:
+            return ProcResult(0, "bastet:x:1001:1001::/home/bastet:/bin/sh\n") if self.user_exists else ProcResult(2)
+        if argv == ["getent", "group", "1001"]:
+            return ProcResult(0, "bastet:x:1001:\n")
+        if argv == ["sudo", "-n", "cat", "/etc/sudoers.d/bastet"]:
+            return ProcResult(0, self.sudoers) if self.sudoers is not None else ProcResult(1)
+        if argv[:3] == ["sudo", "-n", "visudo"]:
+            text = Path(argv[4]).read_text(encoding="utf-8")
+            return ProcResult(0) if text == SUDOERS_LINE else ProcResult(1, "", "syntax error")
+        if argv[:3] == ["sudo", "-n", "install"] and argv[-1] == "/etc/sudoers.d/bastet":
+            self.sudoers = Path(argv[-2]).read_text(encoding="utf-8")
+            return ProcResult(0)
+        if argv == ["sudo", "-n", "cat", "/home/bastet/.ssh/authorized_keys"]:
+            return ProcResult(0, self.authorized_keys) if self.authorized_keys is not None else ProcResult(1)
+        if argv[:3] == ["sudo", "-n", "install"] and argv[-1] == "/home/bastet/.ssh":
+            return ProcResult(0)
+        if argv[:3] == ["sudo", "-n", "install"] and argv[-1] == "/home/bastet/.ssh/authorized_keys":
+            self.authorized_keys = Path(argv[-2]).read_text(encoding="utf-8")
+            return ProcResult(0)
+        raise AssertionError(f"unexpected command: {argv}")
+
+
+@pytest.fixture(autouse=True)
+def _fake_local_machine(monkeypatch):
+    """`bastet init` can set up this machine as a Bastet host (sudo, useradd, visudo, ssh-keyscan);
+    every test here gets a fake system instead, so none of that ever touches the real one."""
+    fake = FakeLocalSystem()
+    monkeypatch.setattr(init_mod, "_runner", fake)
+    monkeypatch.setattr(init_mod, "_sudo_validate", lambda: True)
+    monkeypatch.setattr(init_mod, "_scan_local", lambda address="127.0.0.1", port=22: FAKE_HOST_KEYS)
+    return fake
 
 
 @pytest.fixture
@@ -193,3 +253,126 @@ def test_cli_init_without_a_terminal_for_an_existing_inventory_does_not_offer_re
     assert "Recovery key" not in second.output
     assert not RECOVERY_RE.search(second.output)
     assert "secrets:" not in lab.read_text()
+
+
+# --- `bastet init` sets up this machine as a Bastet host: the local `bastet` user, passwordless
+# sudo, its authorized_keys, an sshd check, and (once confirmed) its host key ---
+
+
+def test_cli_init_sets_up_this_machine_on_a_fresh_run(runner, tmp_path, monkeypatch, interactive, _fake_local_machine):
+    cfg = tmp_path / "c" / "bastet.yml"
+    monkeypatch.setenv("BASTET_CONFIG", str(cfg))
+    result = runner.invoke(app, ["init", "--inventory", str(tmp_path / "Homelab"), "-y"])
+    assert result.exit_code == 0, result.output
+    assert "created the local bastet user" in result.output
+    assert "set up bastet's passwordless sudo" in result.output
+    assert "installed Bastet's key in bastet's authorized_keys" in result.output
+
+    install_index = next(
+        i for i, c in enumerate(_fake_local_machine.calls)
+        if c[:3] == ["sudo", "-n", "install"] and c[-1] == "/etc/sudoers.d/bastet"
+    )
+    visudo_index = next(i for i, c in enumerate(_fake_local_machine.calls) if c[:3] == ["sudo", "-n", "visudo"])
+    assert visudo_index < install_index
+
+
+def test_cli_init_second_run_sets_up_nothing_more(runner, tmp_path, monkeypatch, interactive, _fake_local_machine):
+    cfg = tmp_path / "c" / "bastet.yml"
+    monkeypatch.setenv("BASTET_CONFIG", str(cfg))
+    first = runner.invoke(app, ["init", "--inventory", str(tmp_path / "Homelab"), "-y"])
+    assert first.exit_code == 0, first.output
+    _fake_local_machine.calls.clear()
+
+    second = runner.invoke(app, ["init", "-y"])
+    assert second.exit_code == 0, second.output
+    assert "kept the local bastet user" in second.output
+    assert "kept bastet's passwordless sudo" in second.output
+    assert "kept Bastet's key in bastet's authorized_keys" in second.output
+    mutating = [
+        c for c in _fake_local_machine.calls
+        if c[0] not in ("id", "getent", "systemctl") and c[:3] != ["sudo", "-n", "cat"]
+    ]
+    assert mutating == []
+
+
+def test_cli_init_sshd_not_answering_prints_hint_and_edits_no_sshd_config(
+    runner, tmp_path, monkeypatch, interactive, _fake_local_machine
+):
+    _fake_local_machine.sshd_active = False
+    cfg = tmp_path / "c" / "bastet.yml"
+    monkeypatch.setenv("BASTET_CONFIG", str(cfg))
+    result = runner.invoke(app, ["init", "--inventory", str(tmp_path / "Homelab"), "-y"])
+    assert result.exit_code == 0, result.output
+    assert "sshd isn't active" in result.output
+    assert "host key" not in result.output
+    assert not any("sshd_config" in " ".join(c) for c in _fake_local_machine.calls)
+
+
+def test_cli_init_sshd_not_answering_on_127_prints_hint(
+    runner, tmp_path, monkeypatch, interactive, _fake_local_machine
+):
+    from bastet.core.errors import Unreachable
+
+    def not_answering(address="127.0.0.1", port=22):
+        raise Unreachable(f"{address}: nothing answered on port {port}")
+
+    monkeypatch.setattr(init_mod, "_scan_local", not_answering)
+    cfg = tmp_path / "c" / "bastet.yml"
+    monkeypatch.setenv("BASTET_CONFIG", str(cfg))
+    result = runner.invoke(app, ["init", "--inventory", str(tmp_path / "Homelab"), "-y"])
+    assert result.exit_code == 0, result.output
+    assert "sshd isn't answering on 127.0.0.1" in result.output
+    assert "host key" not in result.output
+    assert not any("sshd_config" in " ".join(c) for c in _fake_local_machine.calls)
+
+
+def test_cli_init_declined_fingerprint_is_not_recorded(runner, tmp_path, monkeypatch, interactive):
+    cfg = tmp_path / "c" / "bastet.yml"
+    monkeypatch.setenv("BASTET_CONFIG", str(cfg))
+    inv = tmp_path / "Homelab"
+    first = runner.invoke(app, ["init", "--inventory", str(inv), "-y"])
+    assert first.exit_code == 0, first.output
+
+    (inv / "hosts").mkdir(exist_ok=True)
+    (inv / "hosts" / "laptop1.md").write_text("---\nbastet: host\ntype: laptop\nconnection: local\n---\n# laptop1\n")
+    import subprocess as sp
+    sp.run(["git", "-C", str(inv), "add", "."], check=True)
+    sp.run(["git", "-C", str(inv), "-c", "user.name=T", "-c", "user.email=t@example.com",
+           "commit", "-q", "-m", "add laptop1"], check=True)
+
+    result = runner.invoke(
+        app,
+        ["init", "--lab-name", "Homelab", "--public-domain", "", "--internal-domain", "", "--snippet"],
+        input="y\nn\n",  # go ahead: yes; trust the host key: no
+    )
+    assert result.exit_code == 0, result.output
+    assert "host key not recorded" in result.output
+    assert "ssh_host_key" not in (inv / "hosts" / "laptop1.md").read_text()
+
+
+def test_cli_init_confirmed_fingerprint_is_recorded(runner, tmp_path, monkeypatch, interactive):
+    cfg = tmp_path / "c" / "bastet.yml"
+    monkeypatch.setenv("BASTET_CONFIG", str(cfg))
+    inv = tmp_path / "Homelab"
+    first = runner.invoke(app, ["init", "--inventory", str(inv), "-y"])
+    assert first.exit_code == 0, first.output
+
+    (inv / "hosts").mkdir(exist_ok=True)
+    (inv / "hosts" / "laptop1.md").write_text("---\nbastet: host\ntype: laptop\nconnection: local\n---\n# laptop1\n")
+    import subprocess as sp
+    sp.run(["git", "-C", str(inv), "add", "."], check=True)
+    sp.run(["git", "-C", str(inv), "-c", "user.name=T", "-c", "user.email=t@example.com",
+           "commit", "-q", "-m", "add laptop1"], check=True)
+
+    result = runner.invoke(
+        app,
+        ["init", "--lab-name", "Homelab", "--public-domain", "", "--internal-domain", "", "--snippet"],
+        input="y\ny\n",  # go ahead: yes; trust the host key: yes
+    )
+    assert result.exit_code == 0, result.output
+    assert "host key recorded" in result.output
+    assert f"ssh_host_key: ssh-ed25519 {FAKE_HOST_KEYS[0].fingerprint}" in (inv / "hosts" / "laptop1.md").read_text()
+
+    second = runner.invoke(app, ["init", "-y"])
+    assert second.exit_code == 0, second.output
+    assert "laptop1: host key already set up" in second.output

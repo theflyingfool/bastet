@@ -399,3 +399,51 @@ def test_apply_yes_fails_host_for_nongenerated_missing_secret(runner, secret_key
     # the generatable secrets were still generated, even though this host ultimately failed
     admin = SecretNote.load(inventory, SecretPath.parse("box/testsecret/admin_password"))
     assert admin.is_sealed
+
+
+def test_connect_local_host_builds_ssh_target_to_loopback(secret_keys, inventory, monkeypatch):
+    import base64
+
+    from bastet.cli.common import load_context
+    from bastet.core.hostkeys import parse_keyscan
+
+    blob = base64.b64encode(b"fake-host-key").decode()
+    keys = parse_keyscan(f"h ssh-ed25519 {blob}\n")
+    (inventory / "hosts" / "laptop1.md").write_text(
+        f"---\nbastet: host\ntype: laptop\nconnection: local\nssh_host_key: ssh-ed25519 {keys[0].fingerprint}\n---\n# laptop1\n"
+    )
+    git(inventory, "add", ".")
+    git(inventory, "commit", "-q", "-m", "laptop1")
+
+    monkeypatch.setattr(run_mod, "scan_keys", lambda address, recorded=None, port=22: keys)
+
+    ctx = load_context()
+    doc = ctx.inventory.get("laptop1")
+    runner_obj, target = run_mod.connect(ctx, doc, inventory, yes=True)
+    assert target.address == "127.0.0.1"
+    assert target.user == "bastet"
+    assert target.key == ctx.config.ssh.key
+    assert target.known_hosts.read_text() == f"127.0.0.1 ssh-ed25519 {blob}\n"
+
+
+def test_connect_local_host_ignores_its_lan_ip(secret_keys, inventory, monkeypatch):
+    import base64
+
+    from bastet.cli.common import load_context
+    from bastet.core.hostkeys import parse_keyscan
+
+    blob = base64.b64encode(b"fake-host-key").decode()
+    keys = parse_keyscan(f"h ssh-ed25519 {blob}\n")
+    (inventory / "hosts" / "laptop1.md").write_text(
+        "---\nbastet: host\ntype: laptop\nconnection: local\nip: 192.168.1.50\n"
+        f"ssh_host_key: ssh-ed25519 {keys[0].fingerprint}\n---\n# laptop1\n"
+    )
+    git(inventory, "add", ".")
+    git(inventory, "commit", "-q", "-m", "laptop1")
+
+    monkeypatch.setattr(run_mod, "scan_keys", lambda address, recorded=None, port=22: keys)
+
+    ctx = load_context()
+    doc = ctx.inventory.get("laptop1")
+    _, target = run_mod.connect(ctx, doc, inventory, yes=True)
+    assert target.address == "127.0.0.1"

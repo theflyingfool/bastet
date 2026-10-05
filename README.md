@@ -24,7 +24,9 @@ for `bastet secret show`'s clipboard option.
 
 ### On managed hosts
 
-Gather runs one POSIX `sh` script per host, over SSH (or locally on the computer you run Bastet from).
+Gather runs one POSIX `sh` script per host, over SSH -- including the computer you run Bastet from,
+reached at `127.0.0.1`: its sshd needs to be active and answering there (`ListenAddress 127.0.0.1` is
+enough even if it listens nowhere else). `bastet init` sets up the local `bastet` user for this.
 No agent, no Python and no Ansible are needed on hosts.
 
 | Tool | Package | Required? | Gives |

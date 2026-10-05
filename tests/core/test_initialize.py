@@ -6,7 +6,10 @@ import pytest
 
 from bastet.core.config import load_config
 from bastet.core.errors import BastetError
-from bastet.core.initialize import InitOptions, existing_recipients, generate_recovery_key, initialize
+from bastet.core.initialize import (
+    InitOptions, ProcResult, SUDOERS_LINE, existing_recipients, generate_recovery_key, initialize,
+    local_user_setup, sshd_ready,
+)
 
 
 def log(root):
@@ -192,3 +195,127 @@ def test_init_pushes_to_empty_remote(tmp_path):
     initialize(tmp_path / "bastet.yml", opts(tmp_path, remote=str(bare)), keys_dir=tmp_path / "ssh")
     remote_log = subprocess.run(["git", "--git-dir", str(bare), "log", "--format=%s"], capture_output=True, text=True).stdout
     assert "bastet init" in remote_log
+
+
+# --- local machine setup (`bastet init` sets up this computer as a Bastet host): a fake system,
+# never the real one, so these tests run no sudo, useradd or visudo for real ---
+
+PUBKEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAfake nick@laptop"
+
+
+class FakeSystem:
+    """Tracks just enough state (a user, a sudoers drop-in, authorized_keys) for `local_user_setup`
+    to see a fresh machine on the first call and an already-set-up one on the next."""
+
+    def __init__(self):
+        self.user_exists = False
+        self.sudoers: str | None = None
+        self.authorized_keys: str | None = None
+        self.calls: list[list[str]] = []
+
+    def __call__(self, argv: list[str]) -> ProcResult:
+        self.calls.append(argv)
+        if argv == ["id", "bastet"]:
+            return ProcResult(0 if self.user_exists else 1)
+        if argv[:3] == ["sudo", "-n", "useradd"]:
+            self.user_exists = True
+            return ProcResult(0)
+        if argv[:3] == ["sudo", "-n", "usermod"]:
+            return ProcResult(0)
+        if argv == ["getent", "passwd", "bastet"]:
+            if not self.user_exists:
+                return ProcResult(2)
+            return ProcResult(0, "bastet:x:1001:1001::/home/bastet:/bin/sh\n")
+        if argv == ["getent", "group", "1001"]:
+            return ProcResult(0, "bastet:x:1001:\n")
+        if argv == ["sudo", "-n", "cat", "/etc/sudoers.d/bastet"]:
+            return ProcResult(0, self.sudoers) if self.sudoers is not None else ProcResult(1)
+        if argv[:3] == ["sudo", "-n", "visudo"]:
+            text = Path(argv[4]).read_text(encoding="utf-8")
+            return ProcResult(0) if text == SUDOERS_LINE else ProcResult(1, "", "syntax error")
+        if argv[:3] == ["sudo", "-n", "install"] and argv[-1] == "/etc/sudoers.d/bastet":
+            self.sudoers = Path(argv[-2]).read_text(encoding="utf-8")
+            return ProcResult(0)
+        if argv == ["sudo", "-n", "cat", "/home/bastet/.ssh/authorized_keys"]:
+            return ProcResult(0, self.authorized_keys) if self.authorized_keys is not None else ProcResult(1)
+        if argv[:3] == ["sudo", "-n", "install"] and argv[-1] == "/home/bastet/.ssh":
+            return ProcResult(0)
+        if argv[:3] == ["sudo", "-n", "install"] and argv[-1] == "/home/bastet/.ssh/authorized_keys":
+            self.authorized_keys = Path(argv[-2]).read_text(encoding="utf-8")
+            return ProcResult(0)
+        raise AssertionError(f"unexpected command: {argv}")
+
+
+def test_local_user_setup_on_a_fresh_machine(tmp_path):
+    fake = FakeSystem()
+    actions = local_user_setup(fake, tmp_path, PUBKEY)
+    assert any("created" in a and "bastet" in a for a in actions)
+    assert any("sudo" in a for a in actions)
+    assert any("authorized_keys" in a for a in actions)
+    assert fake.sudoers == SUDOERS_LINE
+    assert fake.authorized_keys == PUBKEY + "\n"
+    useradd_calls = [c for c in fake.calls if c[:3] == ["sudo", "-n", "useradd"]]
+    assert useradd_calls == [["sudo", "-n", "useradd", "--create-home", "--shell", "/bin/sh", "bastet"]]
+    assert ["sudo", "-n", "usermod", "-p", "*", "bastet"] in fake.calls
+
+
+def test_local_user_setup_validates_sudoers_before_installing(tmp_path):
+    fake = FakeSystem()
+    local_user_setup(fake, tmp_path, PUBKEY)
+    install_index = next(i for i, c in enumerate(fake.calls) if c[:3] == ["sudo", "-n", "install"] and c[-1] == "/etc/sudoers.d/bastet")
+    visudo_index = next(i for i, c in enumerate(fake.calls) if c[:3] == ["sudo", "-n", "visudo"])
+    assert visudo_index < install_index
+
+
+def test_local_user_setup_second_run_issues_no_changes(tmp_path):
+    fake = FakeSystem()
+    local_user_setup(fake, tmp_path, PUBKEY)
+    fake.calls.clear()
+    actions = local_user_setup(fake, tmp_path, PUBKEY)
+    assert all(a.startswith("kept") for a in actions), actions
+    mutating = [c for c in fake.calls if c[0] not in ("id", "getent") and c[:3] != ["sudo", "-n", "cat"]]
+    assert mutating == []
+
+
+def test_local_user_setup_rejects_a_bad_public_key(tmp_path):
+    with pytest.raises(BastetError):
+        local_user_setup(FakeSystem(), tmp_path, "not a key")
+
+
+class FlakySudoersInstall(FakeSystem):
+    """Like `FakeSystem`, but installing the sudoers drop-in always fails (e.g. a stale `sudo -n`)."""
+
+    def __call__(self, argv: list[str]) -> ProcResult:
+        if argv[:3] == ["sudo", "-n", "install"] and argv[-1] == "/etc/sudoers.d/bastet":
+            self.calls.append(argv)
+            return ProcResult(1, "", "sudo: a password is required")
+        return super().__call__(argv)
+
+
+def test_local_user_setup_raises_when_sudoers_install_fails(tmp_path):
+    fake = FlakySudoersInstall()
+    with pytest.raises(BastetError):
+        local_user_setup(fake, tmp_path, PUBKEY)
+    assert fake.sudoers is None
+
+
+def test_sshd_ready_when_active_and_answering():
+    def run(argv):
+        assert argv == ["systemctl", "is-active", "sshd"]
+        return ProcResult(0, "active\n")
+
+    ok, hint = sshd_ready(run, lambda address, port=22: None)
+    assert ok and hint is None
+
+
+def test_sshd_ready_reports_hint_when_inactive():
+    ok, hint = sshd_ready(lambda argv: ProcResult(3, "inactive\n"), lambda address, port=22: None)
+    assert not ok and "sshd" in hint
+
+
+def test_sshd_ready_reports_hint_when_not_answering():
+    def scan(address, port=22):
+        raise BastetError("nothing answered")
+
+    ok, hint = sshd_ready(lambda argv: ProcResult(0, "active\n"), scan)
+    assert not ok and "127.0.0.1" in hint
