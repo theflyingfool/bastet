@@ -243,6 +243,70 @@ def test_hook_is_idempotent_when_already_installed(repo):
     assert not (hooks_dir / "pre-commit.local").exists()
 
 
+def test_hook_rewrites_an_older_bastet_version_in_place(repo):
+    from bastet.core.gitrepo import HOOK_MARKER
+
+    hooks_dir = Path(git(repo, "rev-parse", "--git-path", "hooks").strip())
+    if not hooks_dir.is_absolute():
+        hooks_dir = repo / hooks_dir
+    hooks_dir.mkdir(parents=True, exist_ok=True)
+    hook_path = hooks_dir / "pre-commit"
+    hook_path.write_text(f"#!/bin/sh\n{HOOK_MARKER}\necho old-buggy-version\nexit 0\n")
+    hook_path.chmod(0o755)
+
+    GitRepo(repo).ensure_hook()
+
+    text = hook_path.read_text()
+    assert "old-buggy-version" not in text
+    assert "core.quotePath=false" in text
+    assert not (hooks_dir / "pre-commit.local").exists()
+
+
+def _hooks_dir(repo: Path) -> Path:
+    hooks_dir = Path(git(repo, "rev-parse", "--git-path", "hooks").strip())
+    return hooks_dir if hooks_dir.is_absolute() else repo / hooks_dir
+
+
+def _git_rc(repo: Path, *args: str) -> int:
+    return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True).returncode
+
+
+def test_hook_blocks_a_plain_note_with_a_space_in_its_name(repo):
+    GitRepo(repo).ensure_hook()
+    target = repo / "_secrets" / "nas" / "BMC password.md"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("---\nbastet: secret\nlocked: false\n---\nHunter2-PLAIN\n")
+    git(repo, "add", str(target))
+    assert _git_rc(repo, "commit", "-qm", "space") != 0
+
+
+def test_hook_blocks_a_plain_note_with_a_non_ascii_name(repo):
+    GitRepo(repo).ensure_hook()
+    target = repo / "_secrets" / "nas" / "mot_de_passé.md"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("---\nbastet: secret\nlocked: false\n---\nHunter2-PLAIN\n")
+    git(repo, "add", str(target))
+    assert _git_rc(repo, "commit", "-qm", "nonascii") != 0
+
+
+def test_hook_blocks_a_rename_that_turned_a_secret_plain(repo, sctx):
+    sp = SecretPath.parse("nas/bmc")
+    _seed(repo, sp, "value", sctx)
+    _commit_all(repo)
+    GitRepo(repo).ensure_hook()
+
+    git(repo, "mv", str(repo / sp.rel), str(repo / "_secrets" / "nas" / "bmc2.md"))
+    renamed = repo / "_secrets" / "nas" / "bmc2.md"
+    # A small, high-similarity edit (git still classifies this as a rename, not a delete+add):
+    # just flip `locked: false` without actually replacing the body with plain text. The old
+    # `--diff-filter=ACM` dropped renames entirely, so this slipped straight through.
+    text = renamed.read_text().replace("locked: true", "locked: false")
+    renamed.write_text(text)
+    git(repo, "add", "-A")
+    assert git(repo, "diff", "--cached", "--name-status").startswith("R")  # confirm it's seen as a rename
+    assert _git_rc(repo, "commit", "-qm", "rename") != 0
+
+
 # --- Obsidian Sync / Git pre-flight detection ---
 
 

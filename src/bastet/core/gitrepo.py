@@ -9,26 +9,43 @@ from bastet.core.errors import BastetError
 BASTET_NAME = "Bastet"
 
 HOOK_MARKER = "# bastet-secrets-pre-commit"
+HOOK_VERSION_MARKER = "# bastet-secrets-pre-commit-v2"
 PRE_COMMIT_HOOK = f"""#!/bin/sh
 {HOOK_MARKER}
+{HOOK_VERSION_MARKER}
 # Installed by `bastet` (GitRepo.ensure_hook): refuses to commit a plain-text secret note.
 here=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 if [ -x "$here/pre-commit.local" ]; then
     "$here/pre-commit.local" "$@" || exit $?
 fi
 bad=""
-for f in $(git diff --cached --name-only --diff-filter=ACM); do
+old_ifs=$IFS
+IFS='
+'
+set -f
+for f in $(git -c core.quotePath=false diff --cached --name-only --no-renames --diff-filter=ACMR); do
     case "$f" in
         _secrets/*.md)
             content=$(git show ":$f" 2>/dev/null)
-            if printf '%s' "$content" | grep -q 'locked: false'; then
+            status=$?
+            if [ "$status" -ne 0 ]; then
+                # can't read what's actually staged: fail closed rather than let it through
+                bad="$bad $f"
+            elif printf '%s' "$content" | grep -q 'locked: false'; then
                 bad="$bad $f"
             elif ! printf '%s' "$content" | grep -q 'BEGIN AGE ENCRYPTED FILE'; then
                 bad="$bad $f"
             fi
             ;;
+        \\"_secrets/*.md*)
+            # core.quotePath only hides the backslash-escaping for ASCII; a name with a quote,
+            # backslash, tab or newline is still C-quoted and lands here -- refuse it too, fail closed.
+            bad="$bad $f"
+            ;;
     esac
 done
+IFS=$old_ifs
+set +f
 if [ -n "$bad" ]; then
     echo "bastet: refusing to commit plain-text secret note(s):$bad" >&2
     echo "bastet: run \\`bastet secret lock\\` first" >&2
@@ -214,8 +231,14 @@ class GitRepo:
         hook_path = hooks_dir / "pre-commit"
         local_path = hooks_dir / "pre-commit.local"
         if hook_path.is_file():
-            if HOOK_MARKER in hook_path.read_text(encoding="utf-8"):
-                return  # already ours
+            existing = hook_path.read_text(encoding="utf-8")
+            if HOOK_MARKER in existing:
+                if HOOK_VERSION_MARKER in existing:
+                    return  # already ours, and already this version
+                # ours, but an older version: rewrite in place rather than chain it to itself
+                hook_path.write_text(PRE_COMMIT_HOOK, encoding="utf-8")
+                hook_path.chmod(0o755)
+                return
             hook_path.rename(local_path)
             local_path.chmod(0o755)
         hook_path.write_text(PRE_COMMIT_HOOK, encoding="utf-8")
