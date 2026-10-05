@@ -33,3 +33,26 @@ def test_core_does_not_import_cli_or_typer():
         text = open(source, encoding="utf-8").read()
         assert "import typer" not in text and "from typer" not in text, name
         assert "bastet.cli" not in text, name
+
+
+def test_no_arguments_prints_help_and_succeeds():
+    result = runner.invoke(app, [])
+    assert result.exit_code == 0
+    assert "Usage" in result.stdout and "gather" in result.stdout
+
+
+def test_help_command_prints_the_main_help():
+    result = runner.invoke(app, ["help"])
+    assert result.exit_code == 0
+    assert result.stdout == runner.invoke(app, ["--help"]).stdout
+
+
+def test_help_command_prints_a_commands_help():
+    assert runner.invoke(app, ["help", "gather"]).stdout == runner.invoke(app, ["gather", "--help"]).stdout
+    assert runner.invoke(app, ["help", "secret", "set"]).stdout == runner.invoke(app, ["secret", "set", "--help"]).stdout
+
+
+def test_help_for_an_unknown_command_fails():
+    result = runner.invoke(app, ["help", "nope"])
+    assert result.exit_code != 0
+    assert "nope" in result.output

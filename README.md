@@ -116,6 +116,7 @@ else `~/.config/bastet/bastet.yml`.
 | `bastet gather [HOST…]` | Collects facts and writes them into host files after a diff; `--take FIELD` accepts a value you'd set by hand |
 | `bastet refresh` | Regenerates page summaries and the dashboard (`_bastet/`) from your files; `add` and `gather` do this too |
 | `bastet show [NAME]` | Read-only: lists the inventory and its problems, or shows one object and what links to it |
+| `bastet help [COMMAND…]` | The same as `--help`, for Bastet or one command (e.g. `bastet help secret set`); bare `bastet` prints it too |
 | `bastet add role [ROLE…] [--to TARGET]` | Writes role files under `_roles/` after showing the diff; offers the roles and targets as lists when left out |
 | `bastet check [HOST…]` | Shows what differs between each host and its roles, and every inventory problem; changes nothing |
 | `bastet apply [HOST…] [-y] [--updates]` | Shows the check, asks, applies the changes and verifies them, printing every inventory problem too; `--updates` also installs pending updates on hosts whose policy is manual |
