@@ -7,6 +7,7 @@ import typer
 from bastet.core.changes import Change, render_diff, write_changes
 from bastet.core.config import Config, config_path, data_dir, inventory_dir, load_config
 from bastet.core.errors import BastetError
+from bastet.core.frontmatter import Document
 from bastet.core.gitrepo import GitRepo
 from bastet.core.hosttypes import HostType, load_host_types
 from bastet.core.inventory import Inventory, load_inventory
@@ -151,6 +152,36 @@ def load_context(*, allow_plaintext: bool = False) -> Context:
     types = load_host_types()
     return Context(config=config, root=root, repo=repo, types=types, inventory=load_inventory(root, types),
                    upstream_secrets=upstream_secrets)
+
+
+def print_problems(ctx: Context) -> None:
+    """Print every inventory problem once: errors in red, warnings in yellow, each with its file
+    (relative to the inventory root) and line."""
+    for problem in ctx.inventory.problems:
+        error = problem.error
+        where = ""
+        if error.file is not None:
+            try:
+                rel = error.file.relative_to(ctx.root)
+            except ValueError:
+                rel = error.file
+            where = f"{rel}:{error.line}: " if error.line is not None else f"{rel}: "
+        fg = "red" if problem.severity == "error" else "yellow"
+        typer.secho(f"{where}{error.message}", fg=fg)
+
+
+def find_named_host(ctx: Context, name: str) -> Document:
+    """A host named on the command line: resolved normally, or, if its file failed to parse (so
+    it never made it into the inventory at all), explained via that parse problem instead of a
+    bare "no such host"."""
+    doc = ctx.inventory.get(name)
+    if doc is not None and doc.data.get("bastet") == "host":
+        return doc
+    for problem in ctx.inventory.problems:
+        f = problem.error.file
+        if f is not None and f.stem.lower() == name.lower():
+            raise BastetError(f"no host named '{name}' (its file has an error: {problem.error.message})")
+    raise BastetError(f"no host named '{name}' in the inventory")
 
 
 def write_with_confirmation(ctx: Context, changes: list[Change], message: str, yes: bool) -> bool:

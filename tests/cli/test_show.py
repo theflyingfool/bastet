@@ -1,4 +1,18 @@
+import subprocess
+
 from bastet.cli.app import app
+
+
+def log(root) -> list[str]:
+    return subprocess.run(["git", "-C", str(root), "log", "--format=%H"], capture_output=True, text=True).stdout.splitlines()
+
+
+def test_show_writes_and_commits_nothing(runner, inventory):
+    before = log(inventory)
+    result = runner.invoke(app, ["show"])
+    assert result.exit_code == 0, result.output
+    assert log(inventory) == before
+    assert not (inventory / "_bastet").exists()
 
 
 def test_show_lists_hosts(runner, inventory):

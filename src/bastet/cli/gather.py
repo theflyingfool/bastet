@@ -8,7 +8,17 @@ from pathlib import Path
 
 import typer
 
-from bastet.cli.common import Context, handles_errors, load_context, refresh_generated, scan_first, ssh_ports, write_with_confirmation
+from bastet.cli.common import (
+    Context,
+    find_named_host,
+    handles_errors,
+    load_context,
+    print_problems,
+    refresh_generated,
+    scan_first,
+    ssh_ports,
+    write_with_confirmation,
+)
 from bastet.core.guests import guest_drift
 from bastet.core.render import lab_embed_changes
 from bastet.core.scaffold import new_host
@@ -227,14 +237,10 @@ def gather(
 ) -> None:
     """Collect facts from hosts and write them into their files, after showing the diff."""
     ctx = load_context()
+    print_problems(ctx)
     inv = ctx.inventory
     if hosts:
-        docs = []
-        for name in hosts:
-            doc = inv.get(name)
-            if doc is None or doc.data.get("bastet") != "host":
-                raise BastetError(f"no host named '{name}' in the inventory")
-            docs.append(doc)
+        docs = [find_named_host(ctx, name) for name in hosts]
     else:
         docs = []
         for doc in inv.of_kind("host"):

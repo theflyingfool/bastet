@@ -9,7 +9,17 @@ from pathlib import Path
 import typer
 
 import bastet.cli.secret as secret_mod
-from bastet.cli.common import confirm_upstream_secrets, Context, handles_errors, load_context, refresh_generated, scan_first, ssh_ports
+from bastet.cli.common import (
+    confirm_upstream_secrets,
+    Context,
+    find_named_host,
+    handles_errors,
+    load_context,
+    print_problems,
+    refresh_generated,
+    scan_first,
+    ssh_ports,
+)
 from bastet.core.secrets import health as secret_health
 from bastet.cli.gather import _resolve_address, _scan_pinned, scan_keys, ssh_runner
 from bastet.core import hostkeys
@@ -180,28 +190,19 @@ def _prepare_secrets(ctx: Context, docs: list[Document], *, yes: bool) -> None:
 
 def _hosts(ctx: Context, names: list[str] | None) -> list[Document]:
     if names:
-        docs = []
-        for name in names:
-            doc = ctx.inventory.get(name)
-            if doc is None or doc.data.get("bastet") != "host":
-                raise BastetError(f"no host named '{name}' in the inventory")
-            docs.append(doc)
-        return docs
+        return [find_named_host(ctx, name) for name in names]
     return [d for d in ctx.inventory.of_kind("host") if d.data.get("state", "present") != "destroyed"]
 
 
 def _run(names: list[str] | None, *, apply_changes: bool, yes: bool, verbose: bool, updates: bool = False) -> None:
     ctx = load_context()
+    print_problems(ctx)
     if apply_changes and ctx.upstream_secrets:
         if not _confirm_upstream_secrets(ctx):
             raise typer.Exit(1)
         confirm_upstream_secrets(ctx)
     roles = load_roles()
     docs = _hosts(ctx, names)
-    for problem in ctx.inventory.problems:  # a role file that applies nowhere would otherwise be silently ignored
-        f = problem.error.file
-        if f is not None and "_roles" in Path(f).parts:
-            typer.secho(f"{Path(f).relative_to(ctx.root)}: {problem}", fg="yellow")
     if apply_changes:
         _prepare_secrets(ctx, docs, yes=yes)
     full = verbose or len(docs) == 1

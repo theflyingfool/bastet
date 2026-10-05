@@ -2,7 +2,7 @@ from collections import Counter
 
 import typer
 
-from bastet.cli.common import handles_errors, load_context, refresh_generated
+from bastet.cli.common import handles_errors, load_context
 from bastet.core.errors import BastetError
 from bastet.core.inventory import Inventory
 from bastet.core.yamlstyle import dump_frontmatter
@@ -48,7 +48,6 @@ def _show_one(inv: Inventory, name: str) -> None:
 def show(name: str | None = typer.Argument(None, help="Show one host, hardware item, group or location.")) -> None:
     """List the inventory and any problems, or show one object."""
     ctx = load_context()
-    refresh_generated(ctx)
     inv = ctx.inventory
     if name:
         _show_one(inv, name)

@@ -19,10 +19,10 @@ def test_refresh_writes_summaries_and_dashboard_once(runner, inventory):
     assert log(inventory)[0].startswith("Bastet refresh:") and log(inventory)[1] == "Tester seed"
 
 
-def test_show_refreshes_generated_notes(runner, inventory):
+def test_show_does_not_refresh_generated_notes(runner, inventory):
     result = runner.invoke(app, ["show"])
     assert result.exit_code == 0, result.output
-    assert (inventory / "_bastet" / "summary" / "pve1 summary.md").exists()
+    assert not (inventory / "_bastet" / "summary" / "pve1 summary.md").exists()
 
 
 def test_add_host_embeds_dashboard_and_refreshes(runner, inventory):
@@ -39,14 +39,14 @@ def test_refresh_skipped_not_failed_when_pull_fails(runner, inventory, tmp_path)
     subprocess.run(["git", "-C", str(inventory), "config", "branch.main.remote", "origin"], check=True)
     subprocess.run(["git", "-C", str(inventory), "config", "branch.main.merge", "refs/heads/main"], check=True)
     before = log(inventory)
-    result = runner.invoke(app, ["show"])
+    result = runner.invoke(app, ["refresh"])
     assert result.exit_code == 0, result.output
     assert "refresh skipped" in result.output and log(inventory) == before
 
 
 def test_refresh_skipped_during_merge(runner, inventory):
     (inventory / ".git" / "MERGE_HEAD").write_text("0" * 40 + "\n")
-    result = runner.invoke(app, ["show"])
+    result = runner.invoke(app, ["refresh"])
     assert result.exit_code == 0 and "refresh skipped" in result.output
 
 

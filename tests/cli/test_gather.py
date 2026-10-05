@@ -166,6 +166,21 @@ def test_unknown_host_name(runner, inventory):
     assert result.exit_code == 1 and "no host named 'nope'" in result.output
 
 
+def test_gather_malformed_host_file_reports_problem(runner, laptop):
+    (laptop / "hosts" / "broken.md").write_text("---\nbastet: host\n")
+    result = runner.invoke(app, ["gather", "hp-13", "-y"])
+    assert result.exit_code == 0, result.output
+    assert "broken.md" in result.output and "ignored" in result.output
+
+
+def test_gather_named_broken_host_explains_error(runner, laptop):
+    (laptop / "hosts" / "broken.md").write_text("---\nbastet: host\n")
+    result = runner.invoke(app, ["gather", "broken", "-y"])
+    assert result.exit_code == 1
+    assert "no host named 'broken'" in result.output
+    assert "frontmatter is not closed" in result.output
+
+
 def test_accepted_key_replaces_recorded_and_pins_only_one(runner, vps, monkeypatch):
     evil = parse_keyscan(f"h ssh-rsa {base64.b64encode(b'evil').decode()}\n")
     monkeypatch.setattr(gather_mod, "scan_keys", lambda address, recorded=None, port=22: KEYS + evil)
