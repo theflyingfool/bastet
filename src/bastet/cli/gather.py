@@ -54,7 +54,7 @@ def _scan_pinned(doc: Document, address: str, recorded: str | None, ports: list[
     except Unreachable:
         if doc.data.get("connection") == "local":
             raise BastetError(
-                f"{doc.name}: nothing answered on 127.0.0.1:{ports[0]}; start sshd (ListenAddress 127.0.0.1 is enough)"
+                f"{doc.name}: nothing answered on {address}:{ports[0]}; start sshd (ListenAddress 127.0.0.1 is enough)"
             ) from None
         raise
 

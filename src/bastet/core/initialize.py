@@ -298,14 +298,23 @@ def local_user_setup(run: Runner, tmp_dir: Path, public_key: str) -> list[str]:
     return actions
 
 
+SSHD_UNIT_NAMES = ("sshd", "ssh")  # Arch and most distros use `sshd`; Debian/Ubuntu use `ssh`
+
+
+def _sshd_unit_active(run: Runner) -> bool:
+    return any(run(["systemctl", "is-active", unit]).stdout.strip() == "active" for unit in SSHD_UNIT_NAMES)
+
+
 def sshd_ready(run: Runner, scan: Callable[..., object]) -> tuple[bool, str | None]:
-    """Is sshd active and answering on 127.0.0.1? Never edits sshd config: on a problem, a hint to
-    print is returned instead."""
-    active = run(["systemctl", "is-active", "sshd"])
-    if active.returncode != 0 or active.stdout.strip() != "active":
-        return False, "sshd isn't active; enable and start it, e.g. `sudo systemctl enable --now sshd`"
+    """Is sshd answering on 127.0.0.1? The scan is tried first and is authoritative: if it answers,
+    sshd is ready whatever systemd reports (e.g. a socket-activated unit, or one `systemctl
+    is-active` doesn't recognise under either name). `systemctl` is only consulted, when the scan
+    fails, to pick which hint to print; sshd config is never edited here."""
     try:
         scan("127.0.0.1", port=22)
+        return True, None
     except BastetError:
+        pass
+    if _sshd_unit_active(run):
         return False, "sshd isn't answering on 127.0.0.1; add `ListenAddress 127.0.0.1` to sshd_config and reload it"
-    return True, None
+    return False, "sshd isn't active; enable and start it, e.g. `sudo systemctl enable --now sshd`"

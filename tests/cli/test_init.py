@@ -32,10 +32,17 @@ class FakeLocalSystem:
         self.authorized_keys: str | None = None
         self.calls: list[list[str]] = []
         self.sshd_active = True
+        self.reachable = True  # whether a scan of 127.0.0.1 answers (independent of sshd_active)
+
+    def scan(self, address: str = "127.0.0.1", port: int = 22):
+        if not self.reachable:
+            from bastet.core.errors import Unreachable
+            raise Unreachable(f"{address}: nothing answered in tests")
+        return FAKE_HOST_KEYS
 
     def __call__(self, argv: list[str]) -> ProcResult:
         self.calls.append(argv)
-        if argv == ["systemctl", "is-active", "sshd"]:
+        if argv in (["systemctl", "is-active", "sshd"], ["systemctl", "is-active", "ssh"]):
             return ProcResult(0, "active\n") if self.sshd_active else ProcResult(3, "inactive\n")
         if argv == ["id", "bastet"]:
             return ProcResult(0 if self.user_exists else 1)
@@ -73,7 +80,7 @@ def _fake_local_machine(monkeypatch):
     fake = FakeLocalSystem()
     monkeypatch.setattr(init_mod, "_runner", fake)
     monkeypatch.setattr(init_mod, "_sudo_validate", lambda: True)
-    monkeypatch.setattr(init_mod, "_scan_local", lambda address="127.0.0.1", port=22: FAKE_HOST_KEYS)
+    monkeypatch.setattr(init_mod, "_scan_local", fake.scan)
     return fake
 
 
@@ -295,10 +302,12 @@ def test_cli_init_second_run_sets_up_nothing_more(runner, tmp_path, monkeypatch,
     assert mutating == []
 
 
-def test_cli_init_sshd_not_answering_prints_hint_and_edits_no_sshd_config(
+def test_cli_init_sshd_inactive_prints_enable_hint_and_edits_no_sshd_config(
     runner, tmp_path, monkeypatch, interactive, _fake_local_machine
 ):
+    # Not active, and so (realistically) not answering either.
     _fake_local_machine.sshd_active = False
+    _fake_local_machine.reachable = False
     cfg = tmp_path / "c" / "bastet.yml"
     monkeypatch.setenv("BASTET_CONFIG", str(cfg))
     result = runner.invoke(app, ["init", "--inventory", str(tmp_path / "Homelab"), "-y"])
@@ -308,15 +317,12 @@ def test_cli_init_sshd_not_answering_prints_hint_and_edits_no_sshd_config(
     assert not any("sshd_config" in " ".join(c) for c in _fake_local_machine.calls)
 
 
-def test_cli_init_sshd_not_answering_on_127_prints_hint(
+def test_cli_init_sshd_not_answering_on_127_prints_listenaddress_hint(
     runner, tmp_path, monkeypatch, interactive, _fake_local_machine
 ):
-    from bastet.core.errors import Unreachable
-
-    def not_answering(address="127.0.0.1", port=22):
-        raise Unreachable(f"{address}: nothing answered on port {port}")
-
-    monkeypatch.setattr(init_mod, "_scan_local", not_answering)
+    # Active (per systemd), but nothing answers on 127.0.0.1 -- e.g. ListenAddress points elsewhere.
+    _fake_local_machine.sshd_active = True
+    _fake_local_machine.reachable = False
     cfg = tmp_path / "c" / "bastet.yml"
     monkeypatch.setenv("BASTET_CONFIG", str(cfg))
     result = runner.invoke(app, ["init", "--inventory", str(tmp_path / "Homelab"), "-y"])
@@ -324,6 +330,20 @@ def test_cli_init_sshd_not_answering_on_127_prints_hint(
     assert "sshd isn't answering on 127.0.0.1" in result.output
     assert "host key" not in result.output
     assert not any("sshd_config" in " ".join(c) for c in _fake_local_machine.calls)
+
+
+def test_cli_init_sshd_ready_even_if_systemctl_reports_inactive(
+    runner, tmp_path, monkeypatch, interactive, _fake_local_machine
+):
+    # A reachable 127.0.0.1 is authoritative -- e.g. a socket-activated unit systemd calls inactive.
+    _fake_local_machine.sshd_active = False
+    _fake_local_machine.reachable = True
+    cfg = tmp_path / "c" / "bastet.yml"
+    monkeypatch.setenv("BASTET_CONFIG", str(cfg))
+    result = runner.invoke(app, ["init", "--inventory", str(tmp_path / "Homelab"), "-y"])
+    assert result.exit_code == 0, result.output
+    assert "sshd isn't" not in result.output
+    assert "No local host in the inventory yet" in result.output
 
 
 def test_cli_init_declined_fingerprint_is_not_recorded(runner, tmp_path, monkeypatch, interactive):

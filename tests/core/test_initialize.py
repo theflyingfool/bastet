@@ -299,23 +299,42 @@ def test_local_user_setup_raises_when_sudoers_install_fails(tmp_path):
     assert fake.sudoers is None
 
 
-def test_sshd_ready_when_active_and_answering():
+def test_sshd_ready_when_scan_succeeds_even_if_systemctl_says_inactive():
+    """The scan is authoritative: a socket-activated unit, or one systemd doesn't recognise, still
+    counts as ready as long as something answers on 127.0.0.1."""
     def run(argv):
-        assert argv == ["systemctl", "is-active", "sshd"]
-        return ProcResult(0, "active\n")
+        raise AssertionError(f"systemctl should not be consulted when the scan succeeds: {argv}")
 
     ok, hint = sshd_ready(run, lambda address, port=22: None)
     assert ok and hint is None
 
 
-def test_sshd_ready_reports_hint_when_inactive():
-    ok, hint = sshd_ready(lambda argv: ProcResult(3, "inactive\n"), lambda address, port=22: None)
-    assert not ok and "sshd" in hint
+def test_sshd_ready_reports_enable_hint_when_scan_fails_and_unit_inactive():
+    def scan(address, port=22):
+        raise BastetError("nothing answered")
+
+    ok, hint = sshd_ready(lambda argv: ProcResult(3, "inactive\n"), scan)
+    assert not ok and "sshd isn't active" in hint
 
 
-def test_sshd_ready_reports_hint_when_not_answering():
+def test_sshd_ready_reports_listenaddress_hint_when_scan_fails_and_unit_active():
     def scan(address, port=22):
         raise BastetError("nothing answered")
 
     ok, hint = sshd_ready(lambda argv: ProcResult(0, "active\n"), scan)
-    assert not ok and "127.0.0.1" in hint
+    assert not ok and "127.0.0.1" in hint and "ListenAddress" in hint
+
+
+def test_sshd_ready_checks_the_debian_ssh_unit_name_too():
+    def scan(address, port=22):
+        raise BastetError("nothing answered")
+
+    def run(argv):
+        if argv == ["systemctl", "is-active", "sshd"]:
+            return ProcResult(4, "", "Unit sshd.service could not be found.")
+        if argv == ["systemctl", "is-active", "ssh"]:
+            return ProcResult(0, "active\n")
+        raise AssertionError(argv)
+
+    ok, hint = sshd_ready(run, scan)
+    assert not ok and "127.0.0.1" in hint and "ListenAddress" in hint

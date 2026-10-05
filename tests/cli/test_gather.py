@@ -271,6 +271,21 @@ def test_local_host_nothing_answering_reports_sshd_hint(runner, inventory, monke
     assert "start sshd" in result.output
 
 
+def test_local_host_with_custom_address_nothing_answering_reports_that_address(runner, inventory, monkeypatch):
+    add_host(
+        inventory, "hp-13",
+        "---\nbastet: host\ntype: laptop\nip: dhcp\nconnection: local\naddress: 10.0.0.5\n---\n# hp-13\n",
+    )
+
+    def no_sshd(address, recorded=None, port=22):
+        raise Unreachable(f"{address}: offline in tests")
+
+    monkeypatch.setattr(gather_mod, "scan_keys", no_sshd)
+    result = runner.invoke(app, ["gather", "hp-13", "-y"])
+    assert result.exit_code == 0, result.output
+    assert "nothing answered on 10.0.0.5:22" in result.output
+
+
 def test_guests_on_other_nodes_ignored_and_names_quoted(runner, server, monkeypatch):
     guests = json.dumps([
         {"vmid": 104, "name": "git1", "type": "lxc", "node": "pve1", "status": "running"},
