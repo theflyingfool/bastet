@@ -281,3 +281,41 @@ def test_inventory_lists_while_a_secret_is_unlocked(runner, secret_keys, invento
     result = runner.invoke(app, ["secret"])
     assert result.exit_code == 0, result.output
     assert "lab/dns_token" in result.output and "unlocked" in result.output
+
+
+# --- I7: Ctrl-C during the unlock countdown must still lock ---
+
+
+def test_ctrl_c_during_countdown_still_locks(runner, secret_keys, inventory, interactive, monkeypatch):
+    sp = SecretPath.parse("lab/dns_token")
+    _seed_note(inventory, sp, SENTINEL, secret_keys["pub"])
+
+    def boom(_timeout):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(secret_mod, "_read_key", boom)
+    result = runner.invoke(app, ["secret", "unlock"])
+    assert result.exit_code == 0, result.output
+    note = SecretNote.load(inventory, sp)
+    assert note.data["locked"] is True
+    assert note.is_sealed
+
+
+# --- I7b: stdout a tty but stdin isn't must not spin forever polling a key ---
+
+
+def test_stdout_tty_stdin_not_a_tty_does_not_spin(runner, secret_keys, inventory, monkeypatch):
+    sp = SecretPath.parse("lab/dns_token")
+    _seed_note(inventory, sp, SENTINEL, secret_keys["pub"])
+    monkeypatch.setattr(secret_mod, "_stdout_is_tty", lambda: True)
+    monkeypatch.setattr(secret_mod, "_stdin_is_tty", lambda: False)
+
+    def boom(_timeout):
+        raise AssertionError("must not try to read a key when stdin isn't a terminal")
+
+    monkeypatch.setattr(secret_mod, "_read_key", boom)
+    result = runner.invoke(app, ["secret", "unlock"])
+    assert result.exit_code == 0, result.output
+    assert "bastet secret lock" in result.output
+    note = SecretNote.load(inventory, sp)
+    assert note.data["locked"] is False

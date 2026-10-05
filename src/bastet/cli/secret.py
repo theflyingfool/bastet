@@ -431,6 +431,20 @@ def _interactive_countdown() -> None:
     typer.echo(err=True)
 
 
+def _wait_then_relock(ctx: Context) -> plaintext.LockResult:
+    """Run the interactive countdown, then lock -- whatever happens: `tty.setcbreak` in `_read_key`
+    still leaves ISIG enabled, so a real Ctrl-C raises KeyboardInterrupt out of the countdown (I7)
+    rather than arriving as a key `read_key` can hand back. Any exit from the countdown, not just a
+    clean one, must still run `lock`, so secrets never stay decrypted on disk because of it."""
+    try:
+        _interactive_countdown()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        result = plaintext.lock(ctx.root, ctx.secrets)
+    return result
+
+
 _BACKUP_WARNING = (
     "warning: backups taken while secrets are unlocked keep the plain text, "
     "and Obsidian's own search index may too"
@@ -446,21 +460,24 @@ def secret_unlock(words: list[str] | None = typer.Argument(None, help="host role
     if reason:
         raise BastetError(reason)
     which = [SecretPath.from_cli(words)] if words else None
+    # The interactive countdown needs to both show it (stdout) and read a key from the person
+    # (stdin, I7b): with only stdout a terminal, polling `_read_key` returns None at once forever
+    # (a busy spin), so that case is treated the same as no terminal at all.
+    interactive = _stdout_is_tty() and _stdin_is_tty()
     on_tty = _stdout_is_tty()
-    if on_tty:
+    if interactive:
         typer.secho(_BACKUP_WARNING, fg="yellow", err=True)
     with Progress(disable=not on_tty) as progress:
         task = progress.add_task("Decrypting", total=None)
         unlocked = plaintext.unlock(ctx.root, ctx.secrets, which)
         progress.update(task, completed=1)
-    if not on_tty:
+    if not interactive:
         typer.echo("Unlocked. Run `bastet secret lock` when done.")
         return
     if not unlocked:
         typer.echo("Nothing to unlock.")
         return
-    _interactive_countdown()
-    result = plaintext.lock(ctx.root, ctx.secrets)
+    result = _wait_then_relock(ctx)
     _print_lock_summary(result)
 
 
