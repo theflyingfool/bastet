@@ -1,4 +1,5 @@
 import getpass
+import sys
 from pathlib import Path
 
 import typer
@@ -13,6 +14,10 @@ from bastet.core.initialize import InitOptions, existing_recipients, generate_re
 _RECOVERY_WARNING = (
     "Recovery key: keep this offline. It's the only way back if this laptop is lost. It won't be shown again."
 )
+
+
+def _stdout_is_tty() -> bool:
+    return sys.stdout.isatty()
 
 
 def _your_pub_text(yes: bool) -> str | None:
@@ -36,9 +41,18 @@ def _your_pub_text(yes: bool) -> str | None:
 
 def _plan_recipients(inventory_path: Path, yes: bool) -> tuple[list[str] | None, str | None]:
     """What `secrets.recipients` to add this run (`None` when they're already set), and the recovery
-    private key to print once, if a diff was offered (or there was nothing to confirm) and accepted."""
+    private key to print once, if a diff was offered (or there was nothing to confirm) and accepted.
+
+    The recovery key is the *only* copy of that identity; it's shown once, here, and never written to
+    disk. Printing it anywhere other than an actual terminal (a log file, a CI pipe, a redirected
+    output) would leave the only copy of a lab-recovery credential sitting in a file or a log forever,
+    so when stdout isn't a terminal, no recipient (and so no recovery key) is created at all this run.
+    """
     homelab_path = inventory_path / "Homelab.md"
     if existing_recipients(homelab_path):
+        return None, None
+    if not _stdout_is_tty():
+        typer.echo("Not a terminal: run `bastet init` in a terminal to create the recovery key.")
         return None, None
     recovery_private, recovery_public = generate_recovery_key()
     your_pub = _your_pub_text(yes)
