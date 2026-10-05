@@ -1,3 +1,4 @@
+import contextlib
 import functools
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -11,12 +12,38 @@ from bastet.core.frontmatter import Document
 from bastet.core.gitrepo import GitRepo
 from bastet.core.hosttypes import HostType, load_host_types
 from bastet.core.inventory import Inventory, load_inventory
+from bastet.core.parallel import in_worker
 from bastet.core.render import generated_changes
 from bastet.core.secrets import confirm as secrets_confirm
 from bastet.core.secrets.notes import SecretNote, SecretPath
 from bastet.core.secrets.redact import ACTIVE
 from bastet.core.secrets.refs import MissingSecret
 from bastet.core.secrets.store import AgeStore, for_note
+
+
+def _refuse_while_in_worker(fn):
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        if in_worker():
+            raise BastetError("internal: tried to ask a question while running in parallel")
+        return fn(*args, **kwargs)
+
+    return wrapper
+
+
+@contextlib.contextmanager
+def guard_prompts():
+    """Entered once by a command that may run hosts in parallel: `typer.confirm`/`typer.prompt`
+    called from a worker thread raise instead of blocking on a terminal only one host can use.
+    """
+    original_confirm, original_prompt = typer.confirm, typer.prompt
+    typer.confirm = _refuse_while_in_worker(original_confirm)
+    typer.prompt = _refuse_while_in_worker(original_prompt)
+    try:
+        yield
+    finally:
+        typer.confirm = original_confirm
+        typer.prompt = original_prompt
 
 
 def handles_errors(fn):
