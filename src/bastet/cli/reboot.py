@@ -1,9 +1,15 @@
 """Apply's reboot step, not a command of its own: after apply, reboot a host that needs it, as its
-packages role's reboot policy says."""
+packages role's reboot policy says.
+
+Split in two so the asking (inventory order, main thread) and the actual reboot (parallel, through
+`run_parallel`) can happen in different phases: `reboot_decision` keeps every rule and message and
+does the one question it needs; `perform_reboot` does the reboot and waits for the host to come back.
+"""
 
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass
 
 import typer
 
@@ -32,8 +38,25 @@ def _boot_id(runner) -> str | None:
     return res.stdout.strip() or None if res.returncode == 0 else None
 
 
-def handle_reboot(runner, target, doc, reboots: list[Reboot], *, yes: bool, connect_again, apply_failed: bool = False,
-                  sleep=time.sleep, clock=time.monotonic) -> str | None:
+@dataclass
+class RebootPlan:
+    """A host that's actually going to be rebooted: everything `perform_reboot` needs to do it."""
+
+    host: str
+    runner: object
+    target: object
+    reboots: list[Reboot]
+    timeout: int
+
+
+def reboot_decision(
+    runner, target, doc, reboots: list[Reboot], *, yes: bool, apply_failed: bool = False
+) -> RebootPlan | str | None:
+    """Decide whether a host should be rebooted, asking if its policy needs it (main thread only).
+
+    None: no reboot needed. A string: a message to report, no reboot happens. A `RebootPlan`:
+    hand it to `perform_reboot` (which can run in a worker, since it asks nothing).
+    """
     if not reboots:
         return None
     policy, timeout = reboots[0].policy, reboots[0].timeout
@@ -53,6 +76,12 @@ def handle_reboot(runner, target, doc, reboots: list[Reboot], *, yes: bool, conn
                     "Run without -y, or set reboot: auto")
         if not typer.confirm(f"Reboot {host} now ({why})?", default=False):
             return f"{host}: reboot needed ({why}); not rebooted"
+    return RebootPlan(host, runner, target, reboots[:1], timeout)
+
+
+def perform_reboot(plan: RebootPlan, connect_again, sleep=time.sleep, clock=time.monotonic) -> str:
+    """Reboot a host already decided on, and wait for it to come back. Safe to run in a worker thread."""
+    host, runner, target, reboots, timeout = plan.host, plan.runner, plan.target, plan.reboots, plan.timeout
     before = _boot_id(runner)
     try:
         res = runner.run(exec_script(["systemctl reboot"], root=True, mark=new_mark()), timeout=30)
@@ -77,5 +106,5 @@ def handle_reboot(runner, target, doc, reboots: list[Reboot], *, yes: bool, conn
             raise BastetError(f"{host}: didn't come back within {timeout}s after the reboot")
         sleep(POLL)
     back = int(clock() - start)
-    still, why_now = reboot_needed(runner, host, reboots[:1])
+    still, why_now = reboot_needed(runner, host, reboots)
     return f"{host}: rebooted, but a reboot is still needed ({why_now})" if still else f"{host}: rebooted, back after {back}s"

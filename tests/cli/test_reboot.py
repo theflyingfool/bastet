@@ -1,7 +1,7 @@
 import pytest
 
 import bastet.cli.reboot as reboot_mod
-from bastet.cli.reboot import handle_reboot
+from bastet.cli.reboot import RebootPlan, perform_reboot, reboot_decision
 from bastet.core.errors import BastetError
 from bastet.core.remote import CommandResult
 from bastet.engine.packages import Reboot
@@ -51,6 +51,20 @@ def ticks():
     return dict(sleep=lambda s: None, clock=lambda: next(t))
 
 
+def handle_reboot(runner, target, doc, reboots, *, yes, connect_again, apply_failed=False, sleep=None, clock=None):
+    """Test-only helper: drives `reboot_decision` + `perform_reboot` the way `_run` will, so the
+    existing scenarios below keep exercising both halves of the split together."""
+    plan = reboot_decision(runner, target, doc, reboots, yes=yes, apply_failed=apply_failed)
+    if plan is None or isinstance(plan, str):
+        return plan
+    kwargs = {}
+    if sleep is not None:
+        kwargs["sleep"] = sleep
+    if clock is not None:
+        kwargs["clock"] = clock
+    return perform_reboot(plan, connect_again, **kwargs)
+
+
 def test_nothing_needed(box):
     box.needed = False
     assert handle_reboot(box, None, Doc(), batches("auto"), yes=True, connect_again=lambda: box) is None
@@ -97,3 +111,25 @@ def test_waits_for_a_new_boot_not_just_ssh(box):
     box.slow = 3  # sshd still answers from the old boot for a while
     msg = handle_reboot(box, None, Doc(), batches("auto"), yes=True, connect_again=lambda: box, **ticks())
     assert msg.startswith("box: rebooted, back after") and box.slow == 0
+
+
+# --- the split itself ---
+
+
+def test_decision_returns_a_plan_when_it_will_reboot(box):
+    plan = reboot_decision(box, "target", Doc(), batches("auto"), yes=True)
+    assert isinstance(plan, RebootPlan)
+    assert plan.host == "box" and plan.target == "target" and not box.rebooted
+
+
+def test_decision_asks_once_on_policy_ask(box, monkeypatch):
+    asked = []
+    monkeypatch.setattr("typer.confirm", lambda *a, **k: asked.append(a) or True)
+    plan = reboot_decision(box, None, Doc(), batches("ask"), yes=False)
+    assert isinstance(plan, RebootPlan) and len(asked) == 1
+
+
+def test_perform_reboot_runs_the_plan(box):
+    plan = reboot_decision(box, None, Doc(), batches("auto"), yes=True)
+    msg = perform_reboot(plan, lambda: box, **ticks())
+    assert box.rebooted and msg.startswith("box: rebooted, back after")
