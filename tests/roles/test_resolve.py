@@ -147,3 +147,20 @@ def test_match_must_be_a_rule(tmp_path, rule):
 def test_match_os_is_case_insensitive(tmp_path):
     inv, host = _match_lab(tmp_path, "{os: Debian}")
     assert "g" in group_distances(inv, host)
+
+
+def test_non_numeric_group_priority(tmp_path):
+    from bastet.core.errors import BastetError
+    files = {
+        "Homelab.md": "---\nbastet: lab\n---\n",
+        "groups/a.md": "---\nbastet: group\npriority: high\n---\n",
+        "hosts/x.md": '---\nbastet: host\ntype: vm\nip: 10.0.10.30\ngroups:\n  - "[[a]]"\n---\n',
+        "_roles/groups/a/systemd.md": '---\nbastet: role\nrole: systemd\napplies_to: "[[a]]"\ntimezone: UTC\n---\n',
+    }
+    for rel, text in files.items():
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_text(text)
+    inv = load_inventory(tmp_path, TYPES)
+    with pytest.raises(BastetError) as e:
+        resolve(inv, inv.get("x"), TYPES, ROLES)
+    assert "priority" in str(e.value)

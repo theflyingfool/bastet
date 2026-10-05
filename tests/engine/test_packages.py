@@ -109,3 +109,72 @@ def test_aur_needs_pacman():
 
 def test_aur_and_repo_packages_never_share_a_command():
     assert Package(name="a", aur=True).group_key() != Package(name="a").group_key()
+
+
+# every knob works where the manager can do it, and is Unsupported where it can't
+
+def pcur(pkg, manager, query=""):
+    return pkg.current({"manager": ok(manager), "query": ok(query)})
+
+
+def cmds(*pkgs, manager="apt-get", query=""):
+    return Package.fix_group([(p, p.compare(pcur(p, manager, query)), pcur(p, manager, query)) for p in pkgs])
+
+
+def test_install_recommends_per_manager():
+    assert "--setopt=install_weak_deps=False" in cmds(Package(name="tree", install_recommends=False), manager="dnf")[-1]
+    assert "--no-recommends" in cmds(Package(name="tree", install_recommends=False), manager="zypper")[-1]
+    assert "--recommends" in cmds(Package(name="tree", install_recommends=True), manager="zypper")[-1]
+    for manager in ("pacman", "apk"):
+        with pytest.raises(Unsupported):
+            pcur(Package(name="tree", install_recommends=False), manager)
+
+
+@pytest.mark.parametrize("manager,upgrade", [
+    ("apt-get", "apt-get -o DPkg::Lock::Timeout=120 -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold full-upgrade -y -q"),
+    ("dnf", "dnf upgrade -y -q"), ("zypper", "zypper --non-interactive update"), ("apk", "apk upgrade -q"),
+])
+def test_full_upgrade_everywhere(manager, upgrade):
+    out = cmds(Package(name="tree", full_upgrade=True), manager=manager)
+    assert any(c.endswith(upgrade) for c in out)
+
+
+def test_purge_per_manager():
+    assert cmds(Package(name="tree", state="absent", purge=True), manager="apk", query="tree-1-r0") == ["apk del -q --purge tree"]
+    for manager, query in (("dnf", "(none):1-1"), ("zypper", "(none):1-1")):
+        with pytest.raises(Unsupported):
+            pcur(Package(name="tree", state="absent", purge=True), manager, query)
+
+
+def test_apt_only_package_knobs():
+    out = cmds(Package(name="tree", default_release="trixie-backports", allow_change_held=True))
+    assert "-t trixie-backports" in out[-1] and "--allow-change-held-packages" in out[-1]
+    for knob in ({"default_release": "x"}, {"allow_change_held": True}, {"dpkg_options": ("--force-confnew",)}):
+        with pytest.raises(Unsupported):
+            pcur(Package(name="tree", **knob), "dnf")
+
+
+def test_extra_args_everywhere():
+    assert cmds(Package(name="tree", extra_args=("--enablerepo=crb",), refresh=False), manager="dnf") == [
+        "dnf install -y -q --enablerepo=crb -- tree"]
+
+
+def test_held_package_is_installed():
+    assert pcur(Package(name="tree"), "apt-get", "hi |1.0-1")["state"] == "present"
+
+
+def test_rpm_version_matching():
+    p = Package(name="foo", version="1.2.3")
+    assert p.compare(pcur(p, "dnf", "(none):1.2.3-4.fc40")) == []
+    assert p.compare(pcur(p, "dnf", "2:1.2.3-4.fc40")) == []
+    assert [c.field for c in Package(name="foo", version="1.2.4").compare(pcur(p, "dnf", "(none):1.2.3-4.fc40"))] == ["version"]
+    k = Package(name="kernel", version="6.2")
+    assert k.compare(pcur(k, "dnf", "(none):6.1-1\n(none):6.2-1")) == []
+    assert pcur(Package(name="foo"), "dnf", "(none):1.2.3-4.fc40")["version"] == "1.2.3-4.fc40"
+
+
+def test_pins_allow_downgrades_and_conffiles_kept():
+    apt = cmds(Package(name="tree", version="1.0", refresh=False))
+    assert apt == ["DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=120 -o Dpkg::Options::=--force-confdef "
+                   "-o Dpkg::Options::=--force-confold install -y -q --allow-downgrades -- tree=1.0"]
+    assert "--oldpackage" in cmds(Package(name="tree", version="1.0", refresh=False), manager="zypper")[-1]

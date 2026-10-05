@@ -242,3 +242,8 @@ def test_pacman_list_replaces_every_active_line():
     start = "[options]\n#NoExtract   =\nNoExtract = usr/share/man/*\nNoExtract = usr/share/info/*\n\n[core]\nInclude = x\n"
     text = pacman_text({"no_extract": ["usr/share/doc/*"]}, start=start)
     assert text.count("\nNoExtract") == 1 and "NoExtract = usr/share/doc/*\n" in text and "#NoExtract   =" in text
+
+
+def test_proxmox_baseline_leaves_hostname_alone():
+    from bastet.core.hosttypes import load_host_types
+    assert load_host_types()["proxmox-node"].roles["systemd"]["manage_hostname"] is False

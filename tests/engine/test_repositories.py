@@ -102,3 +102,53 @@ def test_stray_sources_ignore_odd_lines():
     s = StraySources(keep=())
     cur = s.current({"stray": ProbeResult(0, "grep: warning\n/etc/apt/sources.list.d/x.sources\n/etc/other\n")})
     assert cur["stray"] == ("/etc/apt/sources.list.d/x.sources",)
+
+
+# repository knobs unsupported off apt, untrusted-means-signed, shared file parts, zypper/apk keys
+
+def test_repository_knobs_unsupported_off_apt():
+    for manager in ("dnf", "pacman", "apk"):
+        for knob in ({"suites": ("x",)}, {"components": ("main",)}, {"architectures": ("amd64",)}, {"types": ("deb-src",)}):
+            repo = Repository(name="r", uris=("http://a",), **knob)
+            with pytest.raises(Unsupported):
+                repo.current(results_for(repo, manager))
+    for knob in ({"options": (("a", "b"),)}, {"signed_by": "/k"}, {"trusted": True}):
+        repo = Repository(name="r", uris=("http://a",), **knob)
+        with pytest.raises(Unsupported):
+            repo.current(results_for(repo, "apk"))
+    for knob in ({"signed_by": "/k"}, {"trusted": False}):
+        repo = Repository(name="r", uris=("http://a",), **knob)
+        with pytest.raises(Unsupported):
+            repo.current(results_for(repo, "pacman"))
+    two = Repository(name="two", uris=("http://a", "http://b"))
+    with pytest.raises(Unsupported):
+        two.current(results_for(two, "zypper"))
+    with pytest.raises(ValueError):
+        Repository(name="r", uris=("http://a",), key="K", signed_by="/k")
+
+
+def test_untrusted_means_signature_required_on_dnf():
+    repo = Repository(name="r", uris=("http://a",), trusted=False)
+    assert "gpgcheck=1" in repo._ini("dnf")
+
+
+def test_shared_file_parts_are_threaded():
+    import base64
+    repo = Repository(name="alp", uris=("https://a/main", "https://a/community"))
+    cur = repo.current(results_for(repo, "apk"))
+    final = [part.wanted(state["content"]) for part, state in repo._threaded(cur)][-1]
+    assert final == "https://a/main\nhttps://a/community\n"
+    script = "\n".join(repo.fix(repo.compare(cur), cur))
+    last = [line for line in script.splitlines() if "base64 -d" in line][-1]
+    assert base64.b64decode(last.split("'")[3]).decode() == final
+    assert repo.touches() == Repository(name="other", uris=("http://b",)).touches() is not None
+
+
+def test_zypper_key_imported_and_apk_key_name():
+    repo = Repository(name="z", uris=("http://a",), key="-----BEGIN PGP PUBLIC KEY BLOCK-----\nX\n-----END PGP PUBLIC KEY BLOCK-----\n")
+    cur = repo.current(results_for(repo, "zypper"))
+    assert repo.fix(repo.compare(cur), cur)[-1] == "rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-bastet-z"
+    apk = Repository(name="edge", uris=("http://a",), key="K", key_name="alpine-devel@lists.alpinelinux.org-6165ee59.rsa.pub")
+    assert apk.parts("apk")[-1].path == "/etc/apk/keys/alpine-devel@lists.alpinelinux.org-6165ee59.rsa.pub"
+    with pytest.raises(ValueError):
+        Repository(name="e", uris=("http://a",), key_name="../x")

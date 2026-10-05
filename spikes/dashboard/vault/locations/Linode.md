@@ -1,4 +1,0 @@
----
-bastet: location
----
-# Linode

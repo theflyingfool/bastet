@@ -3,7 +3,9 @@ from pathlib import Path
 import pytest
 
 from bastet.core.errors import BastetError
+from bastet.core.shell import ProbeResult
 from bastet.engine.files import Block, Directory, File, Line, Symlink
+from bastet.engine.model import Unsupported
 from bastet.engine.packages import Package, Repository
 from bastet.engine.systemd import Hostname, Locale, TimeSettings, Unit
 from bastet.engine.users import AuthorizedKey, Group, User
@@ -26,6 +28,10 @@ def info(type_="vm", os="Debian GNU/Linux 13 (trixie)", root=Path("/nonexistent"
 
 def resources(*applied, host=None):
     return [r for b in batches_for(list(applied), host or info()) for r in b.resources]
+
+
+def ok(text):
+    return ProbeResult(0, text)
 
 
 def test_systemd_timesyncd_on_debian():
@@ -182,3 +188,110 @@ def test_aur_names_are_checked():
     with pytest.raises(BastetError, match="packages.aur_user: "):
         resources(ap("packages", {"aur_user": "x; rm -rf /", "install": [{"name": "a", "aur": True}]}),
                   host=info(os="Arch Linux"))
+
+
+# NTP servers without ntp: true
+
+def test_ntp_servers_need_ntp_on():
+    with pytest.raises(BastetError) as e:
+        resources(ap("systemd", {"ntp_service": "timesyncd", "ntp_servers": ["10.0.10.1"]}), host=info(os="Arch Linux"))
+    assert "ntp: true" in str(e.value)
+
+
+# what Bastet installs is never unaccounted
+
+def test_packages_installed_by_other_roles_are_tracked():
+    from bastet.engine.packages import Unaccounted
+    out = resources(ap("systemd", {"ntp": True, "ntp_service": "chrony"}), ap("packages", {"install": ["tree"]}),
+                    host=info(os="Arch Linux"))
+    unacc = next(r for r in out if isinstance(r, Unaccounted))
+    assert set(unacc.tracked) >= {"tree", "chrony"}
+
+
+# security policy and zypper excludes
+
+def test_security_policy_reports_the_rest():
+    from bastet.engine.packages import Updates
+    out = resources(ap("packages", {"updates": "security"}), host=info(os="Arch Linux"))
+    ups = [r for r in out if isinstance(r, Updates)]
+    assert [(u.policy, u.rest) for u in ups] == [("security", False), ("manual", True)]
+    rest = ups[1]
+    cur = rest.current({"manager": ok("apt-get"), "pending": ok("tree/trixie 2 amd64 [upgradable from: 1]\nssl/trixie-security 2 amd64 [upgradable from: 1]\n"),
+                        "security": ok("")})
+    assert rest.report_only() and [c.before for c in rest.compare(cur)] == ["1 pending"] and rest.identity != ups[0].identity
+    forced = resources(ap("packages", {"updates": "security"}), host=HostInfo("m", "vm", {"os": "Arch"}, Path("/x"), {}, apply_updates=True))
+    assert [u.policy for u in forced if isinstance(u, Updates)] == ["auto"]
+
+
+def test_zypper_security_with_exclude_unsupported():
+    from bastet.engine.packages import Updates
+    u = Updates(policy="security", exclude=("kernel-default",))
+    with pytest.raises(Unsupported):
+        u.current({"manager": ok("zypper"), "pending": ok(""), "security": ok("")})
+
+
+# held and ignored packages aren't pending
+
+def test_held_and_ignored_packages_not_pending():
+    from bastet.engine.packages import Updates
+    u = Updates(policy="auto")
+    cur = u.current({"manager": ok("apt-get"), "security": ok(""),
+                     "pending": ok("Listing...\npve-kernel/trixie 2 amd64 [upgradable from: 1]\ntree/trixie 2 amd64 [upgradable from: 1]\n@@HELD@@\npve-kernel\n")})
+    assert cur["pending"] == ("tree",)
+    p = u.current({"manager": ok("pacman"), "security": ok(""), "pending": ok("linux 1 -> 2 [ignored]\ntree 1 -> 2\n@@RC 0\n")})
+    assert p["pending"] == ("tree",)
+
+
+# a failed refresh is an error, not "up to date"
+
+@pytest.mark.parametrize("manager,pending", [("pacman", "@@RC 1\n"), ("dnf", "@@RC 1\n"), ("apt-get", "@@RC refresh-failed\n")])
+def test_failed_update_check_is_an_error(manager, pending):
+    from bastet.engine.model import ReadError
+    from bastet.engine.packages import Updates
+    with pytest.raises(ReadError):
+        Updates().current({"manager": ok(manager), "pending": ok(pending), "security": ok("")})
+    assert Updates().current({"manager": ok("pacman"), "pending": ok("@@RC 2\n"), "security": ok("")})["pending"] == ()
+
+
+# roles can't lock Bastet out
+
+@pytest.mark.parametrize("values", [
+    {"users": {"bastet": {"expires": "2020-01-01"}}},
+    {"users": {"bastet": {"locked": True}}},
+    {"users": {"bastet": {"shell": "/usr/sbin/nologin"}}},
+    {"users": {"bastet": {"keys": [{"key": "ssh-ed25519 AAAAx bastet", "state": "absent"}]}}},
+    {"users": {"bastet": {"sudo": {"nopasswd": True}}}},
+    {"sudoers": {"bastet": {"rules": ["bastet ALL=(ALL) /usr/bin/true"]}}},
+])
+def test_roles_cannot_lock_bastet_out(values):
+    with pytest.raises(BastetError) as e:
+        resources(ap("users", values), host=info(os="Arch Linux"))
+    assert "lock Bastet out" in str(e.value)
+
+
+# knobs: on-change triggers, secret, commands, remove knobs, updates extra_args
+
+def test_files_restart_reload_secret_and_commands():
+    from bastet.engine.command import Command
+    out = resources(ap("files", {
+        "files": {"/etc/caddy/Caddyfile": {"content": "x", "reload": ["caddy.service"]}},
+        "lines": [{"path": "/etc/ssh/sshd_config", "line": "PermitRootLogin no", "restart": ["sshd.service"], "secret": True}],
+        "blocks": [{"path": "/etc/x", "marker": "m", "block": "b", "reload": ["x.service"]}],
+        "commands": [{"name": "init db", "run": "gitea migrate", "unless": "test -e /var/lib/gitea/done"}],
+    }), host=info(os="Arch Linux"))
+    f = next(r for r in out if isinstance(r, File))
+    line = next(r for r in out if isinstance(r, Line))
+    assert [t.label for t in f.on_change] == ["reload caddy.service"]
+    assert [t.label for t in line.on_change] == ["restart sshd.service"] and line.secret is True
+    assert [t.label for t in next(r for r in out if isinstance(r, Block)).on_change] == ["reload x.service"]
+    assert any(isinstance(r, Command) and r.name == "init db" for r in out)
+
+
+def test_remove_knobs_and_updates_extra_args():
+    from bastet.engine.packages import Updates
+    out = resources(ap("packages", {"remove": [{"name": "nano", "manager": "pacman"}], "extra_args": ["--needed"]}),
+                    host=info(os="Arch Linux"))
+    nano = next(r for r in out if isinstance(r, Package))
+    assert nano.manager == "pacman"
+    upd = next(r for r in out if isinstance(r, Updates))
+    assert upd.extra_args == ("--needed",)

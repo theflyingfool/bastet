@@ -1,5 +1,6 @@
 import pytest
 
+from bastet.core.errors import Unreachable
 from bastet.core.remote import LocalRunner
 from bastet.engine.model import Trigger
 from bastet.engine.run import Batch, ConflictError, run_host
@@ -171,3 +172,29 @@ def test_group_failure_fails_every_member(tmp_path):
     assert s[str(tmp_path / "a")] == ("failed", "E: Unable to locate package nope")
     assert s[str(tmp_path / "b")] == ("failed", "E: Unable to locate package nope")
     assert s[str(tmp_path / "after")][0] == "skipped"
+
+
+# fixes get their own long timeout, and a timeout fails the group instead of losing the host
+
+class TimingOutRunner:
+    name = "slow"
+
+    def __init__(self):
+        self.timeouts = []
+
+    def run(self, script, *, timeout=120):
+        self.timeouts.append(timeout)
+        if "SLOW-FIX" in script:
+            raise Unreachable("bastet@203.0.113.10: timed out after 1800s")
+        return LocalRunner().run(script, timeout=timeout)
+
+
+def test_fix_timeout_fails_the_group_and_keeps_the_run(tmp_path):
+    runner = TimingOutRunner()
+    slow = [GroupedFlag(path=str(tmp_path / n), value="SLOW-FIX", log=str(tmp_path / "log")) for n in "ab"]
+    run = run_host(runner, "h", [Batch("one", [*slow, Flag(path=str(tmp_path / "c"), value="x")]),
+                                 Batch("two", [Flag(path=str(tmp_path / "d"), value="y")])], apply=True)
+    s = {i.resource.label: (i.status, i.error) for i in run.items}
+    assert s[str(tmp_path / "a")][0] == "failed" and "timed out" in s[str(tmp_path / "a")][1]
+    assert s[str(tmp_path / "c")][0] == "skipped" and s[str(tmp_path / "d")][0] == "skipped"
+    assert max(runner.timeouts) >= 1800

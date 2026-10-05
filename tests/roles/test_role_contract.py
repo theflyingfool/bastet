@@ -73,3 +73,15 @@ def test_unresolved_secret_reference_passes_any_type_check():
 def test_secret_reference_survives_check_values_on_a_non_string_option():
     out = check_values(load_roles()["users"], {"users": {"nick": {"uid": "secret:nick_uid"}}}, "f")
     assert out["users"]["nick"]["uid"] == "secret:nick_uid"
+
+
+@pytest.mark.parametrize("role,values", [
+    ("packages", {"install": [{"version": "1.7"}]}),
+    ("packages", {"remove": [{"purge": True}]}),
+    ("files", {"lines": [{"line": "x"}]}),
+    ("systemd", {"dropins": [{"unit": "a.service"}]}),
+])
+def test_missing_required_fields_are_named(role, values):
+    with pytest.raises(BastetError) as e:
+        check_values(load_roles()[role], values, role)
+    assert "needs" in str(e.value)

@@ -89,3 +89,40 @@ def test_group():
 def test_useradd_looked_up_as_root():
     """/usr/sbin isn't on a normal user's PATH; sudo's secure_path has it."""
     assert {r.name: r.root for r in User(name="nick").reads()}["tools"] is True
+
+
+# a new password never unlocks a locked account; password ageing and creation knobs; group member append
+
+def password_state(shadow):
+    return {"passwd": ok("nick:x:1000:1000:Nick:/home/nick:/bin/bash"), "groups": ok("nick|nick"),
+            "shadow": ok(shadow), "tools": ok("/usr/sbin/useradd")}
+
+
+def test_new_password_keeps_lock():
+    for locked in (True, None):
+        u = User(name="nick", password_hash="$6$new$" + "y" * 86, locked=locked)
+        cur = u.current(password_state(f"nick:!{HASH}:19000:0:99999:7:::"))
+        out = u.fix(u.compare(cur), cur)
+        assert out[-1] == "usermod -L nick"
+
+
+def test_password_only_on_create():
+    u = User(name="nick", password_hash="$6$new$" + "y" * 86, update_password="on_create")
+    assert u.compare(u.current(password_state(f"nick:{HASH}:19000:0:99999:7:::"))) == []
+
+
+def test_password_ageing_and_creation_knobs():
+    u = User(name="nick", max_days=90, min_days=1, warn_days=14, inactive_days=30)
+    cur = u.current(password_state(f"nick:{HASH}:19000:0:99999:7:::"))
+    assert [c.field for c in u.compare(cur)] == ["max_days", "min_days", "warn_days", "inactive_days"]
+    assert u.fix(u.compare(cur), cur) == ["chage -M 90 -m 1 -W 14 -I 30 nick"]
+    new = User(name="svc", uid=0, non_unique=True, skeleton="/etc/skel-svc")
+    absent = new.current({"passwd": ok(""), "groups": ok("|"), "shadow": ok(""), "tools": ok("/usr/sbin/useradd")})
+    assert new.fix(new.compare(absent), absent)[0] == "useradd -u 0 -o -k /etc/skel-svc -m svc"
+
+
+def test_group_members_append():
+    g = Group(name="media", members=("jellyfin",), append_members=True)
+    present = g.current({"group": ok("media:x:2001:nick")})
+    assert g.fix(g.compare(present), present) == ["gpasswd -a jellyfin media"]
+    assert Group(name="media", members=("nick",), append_members=True).compare(present) == []

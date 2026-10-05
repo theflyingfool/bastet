@@ -64,6 +64,19 @@ def test_sudoer_rendering():
             sudoer(bad, user="x")
 
 
+def test_custom_key_path_keeps_directory():
+    k = AuthorizedKey(user="nick", key="ssh-ed25519 AAAAbody nick@laptop", path="/etc/ssh/authorized_keys/nick")
+    cur = k.current({"keys": ProbeResult(0, "nouser")})
+    script = "\n".join(k.fix(k.compare(cur), cur))
+    assert "chmod 700" not in script and "chmod 600" in script
+
+
+def test_key_can_be_revoked():
+    k = AuthorizedKey(user="nick", key="ssh-ed25519 AAAAbody nick@laptop", state="absent")
+    assert k.wanted("ssh-ed25519 AAAAbody nick@laptop\nssh-rsa AAAAother x\n") == "ssh-rsa AAAAother x\n"
+    assert k.wanted("ssh-rsa AAAAother x\n") == "ssh-rsa AAAAother x\n"
+
+
 def test_sudoer_rejected_rule_never_lands(tmp_path, monkeypatch):
     fake = tmp_path / "bin"
     fake.mkdir()
