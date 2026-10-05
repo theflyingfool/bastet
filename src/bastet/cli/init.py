@@ -100,7 +100,10 @@ def _setup_this_machine(ctx: Context, public_key: Path, *, yes: bool) -> None:
     if not ok and not yes:
         unit = sshd_inactive_unit(_runner)
         if unit and typer.confirm(f"Start sshd now (systemctl enable --now {unit})?", default=False):
-            _runner(["sudo", "-n", "systemctl", "enable", "--now", unit])
+            res = _runner(["sudo", "-n", "systemctl", "enable", "--now", unit])
+            if res.returncode != 0:
+                typer.secho(f"systemctl enable --now {unit} failed: {(res.stderr or res.stdout).strip()}", fg="yellow")
+                return
             ok, hint = sshd_ready(_runner, _scan_local)
     if not ok:
         typer.secho(hint, fg="yellow")

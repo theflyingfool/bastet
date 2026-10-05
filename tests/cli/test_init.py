@@ -33,7 +33,9 @@ class FakeLocalSystem:
         self.authorized_keys: str | None = None
         self.calls: list[list[str]] = []
         self.sshd_active = True
+        self.sshd_installed = True  # `systemctl cat sshd`; real systemd distinguishes this from "inactive"
         self.reachable = True  # whether a scan of 127.0.0.1 answers (independent of sshd_active)
+        self.enable_fails = False  # `sudo systemctl enable --now <unit>` fails, e.g. no unit file
 
     def scan(self, address: str = "127.0.0.1", port: int = 22):
         if not self.reachable:
@@ -43,9 +45,15 @@ class FakeLocalSystem:
 
     def __call__(self, argv: list[str]) -> ProcResult:
         self.calls.append(argv)
+        if argv in (["systemctl", "cat", "sshd"], ["systemctl", "cat", "ssh"]):
+            return ProcResult(0) if self.sshd_installed else ProcResult(1, "", f"No files found for {argv[-1]}.")
         if argv in (["systemctl", "is-active", "sshd"], ["systemctl", "is-active", "ssh"]):
+            if not self.sshd_installed:
+                return ProcResult(4, "inactive\n")
             return ProcResult(0, "active\n") if self.sshd_active else ProcResult(3, "inactive\n")
         if argv[:4] == ["sudo", "-n", "systemctl", "enable"] and argv[-1] in ("sshd", "ssh"):
+            if self.enable_fails:
+                return ProcResult(1, "", f"Failed to enable unit: Unit file {argv[-1]}.service does not exist.")
             self.sshd_active = True
             self.reachable = True
             return ProcResult(0)
@@ -403,6 +411,43 @@ def test_cli_init_declines_to_start_sshd_and_issues_no_enable_command(
     enable_calls = [c for c in _fake_local_machine.calls if c[:4] == ["sudo", "-n", "systemctl", "enable"]]
     assert enable_calls == []
     assert "No local host in the inventory yet" not in result.output
+
+
+def test_cli_init_reports_enable_now_failure(runner, tmp_path, monkeypatch, interactive, _fake_local_machine):
+    cfg = tmp_path / "c" / "bastet.yml"
+    monkeypatch.setenv("BASTET_CONFIG", str(cfg))
+    inv = tmp_path / "Homelab"
+    first = runner.invoke(app, ["init", "--inventory", str(inv), "-y"])
+    assert first.exit_code == 0, first.output
+    _fake_local_machine.calls.clear()
+    _fake_local_machine.sshd_active = False
+    _fake_local_machine.reachable = False
+    _fake_local_machine.enable_fails = True
+
+    result = runner.invoke(
+        app,
+        ["init", "--lab-name", "Homelab", "--public-domain", "", "--internal-domain", "", "--snippet"],
+        input="y\ny\n",  # go ahead: yes; start sshd now: yes
+    )
+    assert result.exit_code == 0, result.output
+    assert "enable --now sshd failed" in result.output
+    assert "Unit file sshd.service does not exist" in result.output
+
+
+def test_cli_init_sshd_uninstalled_prints_install_hint_with_no_start_offer(
+    runner, tmp_path, monkeypatch, interactive, _fake_local_machine
+):
+    _fake_local_machine.sshd_active = False
+    _fake_local_machine.sshd_installed = False
+    _fake_local_machine.reachable = False
+    cfg = tmp_path / "c" / "bastet.yml"
+    monkeypatch.setenv("BASTET_CONFIG", str(cfg))
+    result = runner.invoke(app, ["init", "--inventory", str(tmp_path / "Homelab"), "-y"])
+    assert result.exit_code == 0, result.output
+    assert "install openssh" in result.output
+    assert "Start sshd now" not in result.output
+    enable_calls = [c for c in _fake_local_machine.calls if c[:4] == ["sudo", "-n", "systemctl", "enable"]]
+    assert enable_calls == []
 
 
 def test_cli_init_yes_never_offers_to_start_sshd(runner, tmp_path, monkeypatch, interactive, _fake_local_machine):

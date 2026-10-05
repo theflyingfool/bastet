@@ -316,32 +316,47 @@ def local_user_setup(run: Runner, tmp_dir: Path, public_key: str) -> list[str]:
 SSHD_UNIT_NAMES = ("sshd", "ssh")  # Arch and most distros use `sshd`; Debian/Ubuntu use `ssh`
 
 
-def _sshd_unit_active(run: Runner) -> bool:
-    return any(run(["systemctl", "is-active", unit]).stdout.strip() == "active" for unit in SSHD_UNIT_NAMES)
+def _unit_installed(run: Runner, unit: str) -> bool:
+    """Whether systemd has a unit file for this name at all. `systemctl is-active` on an unknown
+    unit still prints `inactive` (with rc 4), so it can't tell an unknown unit from a known,
+    inactive one; `systemctl cat` fails for a unit that was never loaded."""
+    return run(["systemctl", "cat", unit]).returncode == 0
+
+
+def _unit_is_active(run: Runner, unit: str) -> bool:
+    return run(["systemctl", "is-active", unit]).stdout.strip() == "active"
+
+
+def _known_sshd_unit(run: Runner) -> str | None:
+    """The first installed unit name (`sshd`, then `ssh`), or `None` if neither is installed."""
+    return next((unit for unit in SSHD_UNIT_NAMES if _unit_installed(run, unit)), None)
 
 
 def sshd_inactive_unit(run: Runner) -> str | None:
-    """Which unit (`sshd` or `ssh`) looks inactive and so could be started; `None` when one is
-    already active (nothing to start) or neither name is recognised by systemd at all."""
+    """Which installed unit (`sshd` or `ssh`) looks inactive and so could be started; `None` when
+    one is already active (nothing to start) or neither name is installed at all."""
     for unit in SSHD_UNIT_NAMES:
-        status = run(["systemctl", "is-active", unit]).stdout.strip()
-        if status == "active":
+        if not _unit_installed(run, unit):
+            continue
+        if _unit_is_active(run, unit):
             return None
-        if status:
-            return unit
+        return unit
     return None
 
 
 def sshd_ready(run: Runner, scan: Callable[..., object]) -> tuple[bool, str | None]:
     """Is sshd answering on 127.0.0.1? The scan is tried first and is authoritative: if it answers,
-    sshd is ready whatever systemd reports (e.g. a socket-activated unit, or one `systemctl
-    is-active` doesn't recognise under either name). `systemctl` is only consulted, when the scan
-    fails, to pick which hint to print; sshd config is never edited here."""
+    sshd is ready whatever systemd reports (e.g. a socket-activated unit, or one neither known unit
+    name matches). `systemctl` is only consulted, when the scan fails, to pick which hint to print;
+    sshd config is never edited here."""
     try:
         scan("127.0.0.1", port=22)
         return True, None
     except BastetError:
         pass
-    if _sshd_unit_active(run):
+    unit = _known_sshd_unit(run)
+    if unit is None:
+        return False, "no sshd or ssh unit is installed; install openssh, e.g. `sudo pacman -S openssh` or `sudo apt install openssh-server`"
+    if _unit_is_active(run, unit):
         return False, "sshd isn't answering on 127.0.0.1; add `ListenAddress 127.0.0.1` to sshd_config and reload it"
-    return False, "sshd isn't active; enable and start it, e.g. `sudo systemctl enable --now sshd`"
+    return False, f"sshd isn't active; enable and start it, e.g. `sudo systemctl enable --now {unit}`"

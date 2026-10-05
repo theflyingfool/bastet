@@ -321,6 +321,28 @@ def test_local_user_setup_raises_when_sudoers_install_fails(tmp_path):
     assert fake.sudoers is None
 
 
+class FakeSystemd:
+    """Fakes `systemctl cat` (is this unit installed at all?) and `systemctl is-active`, matching
+    real systemd: `cat` fails for a unit that was never loaded, and `is-active` on an *unknown*
+    unit still prints `inactive`, just with rc 4 instead of rc 3."""
+
+    def __init__(self, **units: str | None):
+        self.units = units  # name -> "active" | "inactive" | None (not installed)
+
+    def __call__(self, argv: list[str]) -> ProcResult:
+        unit = argv[-1]
+        state = self.units.get(unit)
+        if argv[:2] == ["systemctl", "cat"]:
+            return ProcResult(0) if state is not None else ProcResult(1, "", f"No files found for {unit}.")
+        if argv[:2] == ["systemctl", "is-active"]:
+            if state is None:
+                return ProcResult(4, "inactive\n")
+            if state == "active":
+                return ProcResult(0, "active\n")
+            return ProcResult(3, "inactive\n")
+        raise AssertionError(argv)
+
+
 def test_sshd_ready_when_scan_succeeds_even_if_systemctl_says_inactive():
     """The scan is authoritative: a socket-activated unit, or one systemd doesn't recognise, still
     counts as ready as long as something answers on 127.0.0.1."""
@@ -335,15 +357,15 @@ def test_sshd_ready_reports_enable_hint_when_scan_fails_and_unit_inactive():
     def scan(address, port=22):
         raise BastetError("nothing answered")
 
-    ok, hint = sshd_ready(lambda argv: ProcResult(3, "inactive\n"), scan)
-    assert not ok and "sshd isn't active" in hint
+    ok, hint = sshd_ready(FakeSystemd(sshd="inactive"), scan)
+    assert not ok and "sshd isn't active" in hint and "sshd" in hint
 
 
 def test_sshd_ready_reports_listenaddress_hint_when_scan_fails_and_unit_active():
     def scan(address, port=22):
         raise BastetError("nothing answered")
 
-    ok, hint = sshd_ready(lambda argv: ProcResult(0, "active\n"), scan)
+    ok, hint = sshd_ready(FakeSystemd(sshd="active"), scan)
     assert not ok and "127.0.0.1" in hint and "ListenAddress" in hint
 
 
@@ -351,39 +373,29 @@ def test_sshd_ready_checks_the_debian_ssh_unit_name_too():
     def scan(address, port=22):
         raise BastetError("nothing answered")
 
-    def run(argv):
-        if argv == ["systemctl", "is-active", "sshd"]:
-            return ProcResult(4, "", "Unit sshd.service could not be found.")
-        if argv == ["systemctl", "is-active", "ssh"]:
-            return ProcResult(0, "active\n")
-        raise AssertionError(argv)
-
-    ok, hint = sshd_ready(run, scan)
+    ok, hint = sshd_ready(FakeSystemd(sshd=None, ssh="active"), scan)
     assert not ok and "127.0.0.1" in hint and "ListenAddress" in hint
 
 
+def test_sshd_ready_reports_install_hint_when_neither_unit_is_installed():
+    def scan(address, port=22):
+        raise BastetError("nothing answered")
+
+    ok, hint = sshd_ready(FakeSystemd(sshd=None, ssh=None), scan)
+    assert not ok and "install" in hint and "openssh" in hint
+
+
 def test_sshd_inactive_unit_none_when_already_active():
-    assert sshd_inactive_unit(lambda argv: ProcResult(0, "active\n")) is None
+    assert sshd_inactive_unit(FakeSystemd(sshd="active")) is None
 
 
 def test_sshd_inactive_unit_returns_sshd_when_inactive():
-    def run(argv):
-        assert argv == ["systemctl", "is-active", "sshd"]
-        return ProcResult(3, "inactive\n")
-
-    assert sshd_inactive_unit(run) == "sshd"
+    assert sshd_inactive_unit(FakeSystemd(sshd="inactive")) == "sshd"
 
 
 def test_sshd_inactive_unit_falls_back_to_ssh_when_sshd_is_unknown():
-    def run(argv):
-        if argv == ["systemctl", "is-active", "sshd"]:
-            return ProcResult(4, "", "Unit sshd.service could not be found.")
-        if argv == ["systemctl", "is-active", "ssh"]:
-            return ProcResult(3, "inactive\n")
-        raise AssertionError(argv)
-
-    assert sshd_inactive_unit(run) == "ssh"
+    assert sshd_inactive_unit(FakeSystemd(sshd=None, ssh="inactive")) == "ssh"
 
 
 def test_sshd_inactive_unit_none_when_neither_name_is_recognised():
-    assert sshd_inactive_unit(lambda argv: ProcResult(4, "", "could not be found")) is None
+    assert sshd_inactive_unit(FakeSystemd(sshd=None, ssh=None)) is None
