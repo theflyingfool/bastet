@@ -2,6 +2,7 @@
 node), isolated errors per host, and clean Ctrl-C handling.
 """
 
+import bisect
 import queue
 import threading
 from collections.abc import Callable, Mapping, Sequence
@@ -65,32 +66,39 @@ def run_parallel(
     as each host finishes. See bastet.core.parallel module docstring for the Ctrl-C and `after`
     rules.
     """
+    hosts = list(hosts)
     hostset = set(hosts)
     deps = {h: n for h, n in (after or {}).items() if h in hostset and n in hostset}
+    index = {host: i for i, host in enumerate(hosts)}
     _stop_event.clear()
 
     ready = {h: threading.Event() for h in hosts}  # host's outcome has been decided
     go = {h: threading.Event() for h in hosts}  # the main thread has decided run-or-skip
     outcomes: dict[str, Outcome[T]] = {}
     permission: dict[str, bool] = {}
-    events: "queue.Queue[tuple[str, object]]" = queue.Queue()  # ("ready", host) | ("done", Outcome)
+    events: "queue.Queue[tuple[str, str]]" = queue.Queue()  # ("ready" | "done", host)
 
     def finish(outcome: Outcome[T]) -> None:
         outcomes[outcome.host] = outcome
         ready[outcome.host].set()
-        events.put(("done", outcome))
+        events.put(("done", outcome.host))
 
     def run_one(host: str) -> None:
         _local.is_worker = True
         dep = deps.get(host)
         if dep is not None:
             ready[dep].wait()
-            if outcomes[dep].status != "done":
+            dep_outcome = outcomes[dep]
+            if dep_outcome.status == "not-started":
+                # its node never ran at all (e.g. Ctrl-C) -- this guest never got a chance either
+                finish(Outcome(host, "not-started", None, None, HostLog(host)))
+                return
+            if dep_outcome.status != "done":
                 finish(Outcome(host, "error", None, f"its node {dep} failed", HostLog(host)))
                 return
-        # Ask the main thread for permission before touching `work`, so admission (the jobs cap
-        # and Ctrl-C) is decided in one place and never races a worker that's already running.
-        events.put(("ready", host))
+            # Dependency-free hosts are pre-admitted (in input order) before any thread starts;
+            # a dependent host's readiness is only known once its node finishes, so it asks here.
+            events.put(("ready", host))
         go[host].wait()
         if not permission[host]:
             finish(Outcome(host, "not-started", None, None, HostLog(host)))
@@ -105,11 +113,9 @@ def run_parallel(
             outcome = Outcome(host, "error", None, f"unexpected error: {exc.__class__.__name__}: {exc}", log)
         finish(outcome)
 
-    threads = [threading.Thread(target=run_one, args=(host,)) for host in hosts]
-    for t in threads:
-        t.start()
-
-    waiting: list[str] = []
+    # Hosts with no dependency are ready from the start: decide their admission order (input
+    # order, up to `jobs`) right here, deterministically, before any thread exists to race over it.
+    waiting: list[str] = [h for h in hosts if h not in deps]
     active = 0
 
     def admit() -> None:
@@ -123,43 +129,50 @@ def run_parallel(
                 active += 1
             go[host].set()
 
+    admit()
+
+    threads = [threading.Thread(target=run_one, args=(host,)) for host in hosts]
+    for t in threads:
+        t.start()
+
     remaining = len(hosts)
-    interrupted = False
+
+    def handle(kind: str, host: str, *, guard_on_done: bool) -> None:
+        nonlocal active, remaining
+        if kind == "ready":
+            bisect.insort(waiting, host, key=lambda h: index[h])
+            admit()
+            return
+        if permission.get(host):
+            active -= 1
+        remaining -= 1
+        if on_done is not None:
+            if guard_on_done:
+                try:
+                    on_done(outcomes[host])
+                except BaseException:
+                    pass  # a second failure during the drain must not abort the drain
+            else:
+                on_done(outcomes[host])
+        admit()
+
     try:
         while remaining > 0:
-            kind, payload = events.get()
-            if kind == "ready":
-                waiting.append(payload)  # type: ignore[arg-type]
-                admit()
-            else:
-                outcome = payload
-                if permission.get(outcome.host):  # type: ignore[union-attr]
-                    active -= 1
-                remaining -= 1
-                if on_done is not None:
-                    on_done(outcome)  # type: ignore[arg-type]
-                admit()
-    except KeyboardInterrupt:
-        interrupted = True
+            kind, host = events.get()
+            handle(kind, host, guard_on_done=False)
+    except BaseException as exc:
+        # Any exception out of `on_done` -- not just Ctrl-C -- must still let every worker thread
+        # reach a decision (go.set()) and be joined, or they hang forever as non-daemon threads.
         _stop_event.set()
         admit()  # release anything already waiting for a slot as not-started
         while remaining > 0:
-            kind, payload = events.get()
-            if kind == "ready":
-                waiting.append(payload)  # type: ignore[arg-type]
-                admit()
-            else:
-                outcome = payload
-                if permission.get(outcome.host):  # type: ignore[union-attr]
-                    active -= 1
-                remaining -= 1
-                if on_done is not None:
-                    on_done(outcome)  # type: ignore[arg-type]
+            kind, host = events.get()
+            handle(kind, host, guard_on_done=True)
+        for t in threads:
+            t.join()
+        raise exc
 
     for t in threads:
         t.join()
 
-    results = [outcomes[host] for host in hosts]
-    if interrupted:
-        raise KeyboardInterrupt
-    return results
+    return [outcomes[host] for host in hosts]

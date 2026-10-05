@@ -196,3 +196,69 @@ def test_typer_confirm_not_wrapped_by_default():
     # Without guard_prompts() active, in_worker() being True must not matter here --
     # guard_prompts() itself lives in bastet.cli.common, not in core.parallel.
     assert hasattr(typer, "confirm")
+
+
+def test_hosts_admitted_in_input_order_under_a_tight_cap():
+    hosts = ["h0", "h1", "h2", "h3"]
+    for _ in range(5):  # repeated: admission order must not depend on thread-scheduling luck
+        started = []
+        started_lock = threading.Lock()
+
+        def work(host, log):
+            with started_lock:
+                started.append(host)
+            return host
+
+        run_parallel(hosts, work, jobs=1)
+
+        assert started == hosts
+
+
+def test_after_guest_is_not_started_when_its_node_is_not_started():
+    seen = {}
+
+    def work(host, log):
+        return host
+
+    def on_done(outcome):
+        seen[outcome.host] = outcome
+        if outcome.host == "other":
+            raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        run_parallel(["other", "n1", "guest"], work, jobs=1, on_done=on_done, after={"guest": "n1"})
+
+    assert seen["other"].status == "done"
+    assert seen["n1"].status == "not-started"
+    assert seen["guest"].status == "not-started"
+    assert seen["guest"].error is None
+
+
+def test_on_done_exception_other_than_keyboard_interrupt_does_not_hang():
+    def work(host, log):
+        return host
+
+    count = {"n": 0}
+
+    def on_done(outcome):
+        count["n"] += 1
+        if count["n"] == 1:
+            raise RuntimeError("boom")
+
+    captured: dict = {}
+
+    def target():
+        try:
+            captured["result"] = run_parallel(["a", "b", "c"], work, jobs=1, on_done=on_done)
+        except BaseException as exc:  # noqa: BLE001 - capturing for the assertion below
+            captured["exc"] = exc
+
+    before = threading.active_count()
+    t = threading.Thread(target=target)
+    t.start()
+    t.join(timeout=5)
+
+    assert not t.is_alive(), "run_parallel hung instead of raising"
+    assert isinstance(captured.get("exc"), RuntimeError)
+    assert "result" not in captured
+    assert threading.active_count() == before  # no worker threads left behind
