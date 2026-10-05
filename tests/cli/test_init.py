@@ -44,6 +44,10 @@ class FakeLocalSystem:
         self.calls.append(argv)
         if argv in (["systemctl", "is-active", "sshd"], ["systemctl", "is-active", "ssh"]):
             return ProcResult(0, "active\n") if self.sshd_active else ProcResult(3, "inactive\n")
+        if argv[:4] == ["sudo", "-n", "systemctl", "enable"] and argv[-1] in ("sshd", "ssh"):
+            self.sshd_active = True
+            self.reachable = True
+            return ProcResult(0)
         if argv == ["id", "bastet"]:
             return ProcResult(0 if self.user_exists else 1)
         if argv[:3] == ["sudo", "-n", "useradd"]:
@@ -344,6 +348,67 @@ def test_cli_init_sshd_ready_even_if_systemctl_reports_inactive(
     assert result.exit_code == 0, result.output
     assert "sshd isn't" not in result.output
     assert "No local host in the inventory yet" in result.output
+
+
+def test_cli_init_offers_to_start_sshd_and_continues_when_confirmed(
+    runner, tmp_path, monkeypatch, interactive, _fake_local_machine
+):
+    cfg = tmp_path / "c" / "bastet.yml"
+    monkeypatch.setenv("BASTET_CONFIG", str(cfg))
+    inv = tmp_path / "Homelab"
+    first = runner.invoke(app, ["init", "--inventory", str(inv), "-y"])
+    assert first.exit_code == 0, first.output
+    _fake_local_machine.calls.clear()
+    _fake_local_machine.sshd_active = False
+    _fake_local_machine.reachable = False
+
+    result = runner.invoke(
+        app,
+        ["init", "--lab-name", "Homelab", "--public-domain", "", "--internal-domain", "", "--snippet"],
+        input="y\ny\n",  # go ahead: yes; start sshd now: yes
+    )
+    assert result.exit_code == 0, result.output
+    assert "Start sshd now" in result.output
+    enable_calls = [c for c in _fake_local_machine.calls if c[:4] == ["sudo", "-n", "systemctl", "enable"]]
+    assert enable_calls == [["sudo", "-n", "systemctl", "enable", "--now", "sshd"]]
+    assert "No local host in the inventory yet" in result.output
+
+
+def test_cli_init_declines_to_start_sshd_and_issues_no_enable_command(
+    runner, tmp_path, monkeypatch, interactive, _fake_local_machine
+):
+    cfg = tmp_path / "c" / "bastet.yml"
+    monkeypatch.setenv("BASTET_CONFIG", str(cfg))
+    inv = tmp_path / "Homelab"
+    first = runner.invoke(app, ["init", "--inventory", str(inv), "-y"])
+    assert first.exit_code == 0, first.output
+    _fake_local_machine.calls.clear()
+    _fake_local_machine.sshd_active = False
+    _fake_local_machine.reachable = False
+
+    result = runner.invoke(
+        app,
+        ["init", "--lab-name", "Homelab", "--public-domain", "", "--internal-domain", "", "--snippet"],
+        input="y\nn\n",  # go ahead: yes; start sshd now: no
+    )
+    assert result.exit_code == 0, result.output
+    assert "sshd isn't active" in result.output
+    enable_calls = [c for c in _fake_local_machine.calls if c[:4] == ["sudo", "-n", "systemctl", "enable"]]
+    assert enable_calls == []
+    assert "No local host in the inventory yet" not in result.output
+
+
+def test_cli_init_yes_never_offers_to_start_sshd(runner, tmp_path, monkeypatch, interactive, _fake_local_machine):
+    _fake_local_machine.sshd_active = False
+    _fake_local_machine.reachable = False
+    cfg = tmp_path / "c" / "bastet.yml"
+    monkeypatch.setenv("BASTET_CONFIG", str(cfg))
+    result = runner.invoke(app, ["init", "--inventory", str(tmp_path / "Homelab"), "-y"])
+    assert result.exit_code == 0, result.output
+    assert "Start sshd now" not in result.output
+    assert "sshd isn't active" in result.output
+    enable_calls = [c for c in _fake_local_machine.calls if c[:4] == ["sudo", "-n", "systemctl", "enable"]]
+    assert enable_calls == []
 
 
 def test_cli_init_declined_fingerprint_is_not_recorded(runner, tmp_path, monkeypatch, interactive):

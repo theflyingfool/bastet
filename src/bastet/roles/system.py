@@ -301,7 +301,11 @@ def _guard_ssh(settings: dict, where: str, *, criteria: str | None = None, host=
             stop(f"{knob} in a Match that can reach bastet")
     listen = settings.get("listen_address")
     if listen is not None and criteria is None:
-        reachable = {str(host.data.get(k)).split("/")[0] for k in ("ip", "address") if host is not None and host.data.get(k)}
+        if host is not None and host.data.get("connection") == "local":
+            # a local host is reached at 127.0.0.1 (or its `address:`), never its LAN `ip:`
+            reachable = {str(host.data.get("address")).split("/")[0] if host.data.get("address") else "127.0.0.1"}
+        else:
+            reachable = {str(host.data.get(k)).split("/")[0] for k in ("ip", "address") if host is not None and host.data.get(k)}
         ok = False
         for entry in _names(listen):
             m = re.match(r"^\[?([^\]]+?)\]?(?::(\d+))?(?:\s+rdomain\s+\S+)?$", entry.strip())

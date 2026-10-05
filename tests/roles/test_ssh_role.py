@@ -138,6 +138,32 @@ def test_safe_settings_allowed(values):
 def test_match_settings_are_typed():
     with pytest.raises(BastetError, match="pubkey_authentication"):
         out({"match": [{"criteria": "User nick", "settings": {"pubkey_authentication": "no"}}]})
+
+
+def test_listen_address_127_allowed_on_a_local_host():
+    """`connection: local` means Bastet reaches the host at 127.0.0.1 (or its `address:`), not its
+    LAN `ip:` -- so the lockout guard must judge listen_address against that, not the LAN address."""
+    h = HostInfo(name="h", type="laptop", data={"os": "Arch Linux", "connection": "local", "ip": "10.10.0.15"},
+                 root=Path("/x"), lab={})
+    assert [r for b in batches_for([ap({"listen_address": ["127.0.0.1"]})], h) for r in b.resources]
+
+
+def test_listen_address_lan_ip_refused_on_a_local_host():
+    h = HostInfo(name="h", type="laptop", data={"os": "Arch Linux", "connection": "local", "ip": "10.10.0.15"},
+                 root=Path("/x"), lab={})
+    with pytest.raises(BastetError, match="lock Bastet out"):
+        [r for b in batches_for([ap({"listen_address": ["10.10.0.15"]})], h) for r in b.resources]
+
+
+def test_listen_address_honours_a_local_hosts_own_address_override():
+    h = HostInfo(
+        name="h", type="laptop",
+        data={"os": "Arch Linux", "connection": "local", "ip": "10.10.0.15", "address": "laptop.local"},
+        root=Path("/x"), lab={},
+    )
+    assert [r for b in batches_for([ap({"listen_address": ["laptop.local"]})], h) for r in b.resources]
+    with pytest.raises(BastetError, match="lock Bastet out"):
+        [r for b in batches_for([ap({"listen_address": ["127.0.0.1"]})], h) for r in b.resources]
     with pytest.raises(BastetError, match="deny_users"):
         out({"match": [{"criteria": "all", "settings": {"deny_users": "nick bastet"}}]})
 

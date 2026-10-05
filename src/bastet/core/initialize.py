@@ -305,6 +305,18 @@ def _sshd_unit_active(run: Runner) -> bool:
     return any(run(["systemctl", "is-active", unit]).stdout.strip() == "active" for unit in SSHD_UNIT_NAMES)
 
 
+def sshd_inactive_unit(run: Runner) -> str | None:
+    """Which unit (`sshd` or `ssh`) looks inactive and so could be started; `None` when one is
+    already active (nothing to start) or neither name is recognised by systemd at all."""
+    for unit in SSHD_UNIT_NAMES:
+        status = run(["systemctl", "is-active", unit]).stdout.strip()
+        if status == "active":
+            return None
+        if status:
+            return unit
+    return None
+
+
 def sshd_ready(run: Runner, scan: Callable[..., object]) -> tuple[bool, str | None]:
     """Is sshd answering on 127.0.0.1? The scan is tried first and is authoritative: if it answers,
     sshd is ready whatever systemd reports (e.g. a socket-activated unit, or one `systemctl

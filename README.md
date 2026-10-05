@@ -26,8 +26,15 @@ for `bastet secret show`'s clipboard option.
 
 Gather runs one POSIX `sh` script per host, over SSH -- including the computer you run Bastet from,
 reached at `127.0.0.1`: its sshd needs to be active and answering there (`ListenAddress 127.0.0.1` is
-enough even if it listens nowhere else). `bastet init` sets up the local `bastet` user for this.
+enough even if it listens nowhere else). `bastet init` sets up the local `bastet` user for this, and
+can start sshd for you if it isn't running yet.
 No agent, no Python and no Ansible are needed on hosts.
+
+**Run `bastet init` and your first `bastet apply` on a laptop while it's disconnected from any
+network.** Until the `ssh` role is applied (with `listen_address: 127.0.0.1` in the laptop's own
+host note), a stock sshd listens on every interface and may still allow password logins -- exactly
+what `bastet init`'s local setup and the `ssh` role's lockout guard exist to close off. Do the setup
+and the first `apply` offline, then reconnect.
 
 | Tool | Package | Required? | Gives |
 |---|---|---|---|

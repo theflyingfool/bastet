@@ -8,7 +8,7 @@ from bastet.core.config import load_config
 from bastet.core.errors import BastetError
 from bastet.core.initialize import (
     InitOptions, ProcResult, SUDOERS_LINE, existing_recipients, generate_recovery_key, initialize,
-    local_user_setup, sshd_ready,
+    local_user_setup, sshd_inactive_unit, sshd_ready,
 )
 
 
@@ -338,3 +338,30 @@ def test_sshd_ready_checks_the_debian_ssh_unit_name_too():
 
     ok, hint = sshd_ready(run, scan)
     assert not ok and "127.0.0.1" in hint and "ListenAddress" in hint
+
+
+def test_sshd_inactive_unit_none_when_already_active():
+    assert sshd_inactive_unit(lambda argv: ProcResult(0, "active\n")) is None
+
+
+def test_sshd_inactive_unit_returns_sshd_when_inactive():
+    def run(argv):
+        assert argv == ["systemctl", "is-active", "sshd"]
+        return ProcResult(3, "inactive\n")
+
+    assert sshd_inactive_unit(run) == "sshd"
+
+
+def test_sshd_inactive_unit_falls_back_to_ssh_when_sshd_is_unknown():
+    def run(argv):
+        if argv == ["systemctl", "is-active", "sshd"]:
+            return ProcResult(4, "", "Unit sshd.service could not be found.")
+        if argv == ["systemctl", "is-active", "ssh"]:
+            return ProcResult(3, "inactive\n")
+        raise AssertionError(argv)
+
+    assert sshd_inactive_unit(run) == "ssh"
+
+
+def test_sshd_inactive_unit_none_when_neither_name_is_recognised():
+    assert sshd_inactive_unit(lambda argv: ProcResult(4, "", "could not be found")) is None

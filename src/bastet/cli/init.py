@@ -14,7 +14,7 @@ from bastet.core.errors import BastetError
 from bastet.core.frontmatter import set_keys
 from bastet.core.initialize import (
     InitOptions, ProcResult, existing_recipients, generate_recovery_key, initialize, local_user_setup,
-    real_runner, sshd_ready,
+    real_runner, sshd_inactive_unit, sshd_ready,
 )
 
 _RECOVERY_WARNING = (
@@ -97,6 +97,11 @@ def _setup_this_machine(ctx: Context, public_key: Path, *, yes: bool) -> None:
             typer.secho(f"Setting up this machine failed: {exc}", fg="yellow")
             return
     ok, hint = sshd_ready(_runner, _scan_local)
+    if not ok and not yes:
+        unit = sshd_inactive_unit(_runner)
+        if unit and typer.confirm(f"Start sshd now (systemctl enable --now {unit})?", default=False):
+            _runner(["sudo", "-n", "systemctl", "enable", "--now", unit])
+            ok, hint = sshd_ready(_runner, _scan_local)
     if not ok:
         typer.secho(hint, fg="yellow")
         return
