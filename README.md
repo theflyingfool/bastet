@@ -86,6 +86,12 @@ hosts to work on at once; without it, they use `bastet.yml`'s setting:
     parallel:
       jobs: 8      # default
 
+Questions (new host keys, setting up the `bastet` user, installing tools, reboots) are asked one host at a time
+before or after the parallel part; each host's output is printed as one block when it finishes. `apply` checks
+every host, then asks once: `y` for all, `n` for none, or numbers (`1,3`) to pick hosts. A guest waits for its node
+(and is skipped if the node failed); a node reboots only after its guests. Ctrl-C starts no new host and stops
+running ones at their next change.
+
 ## Install
 
 Bastet runs from its source folder. Install it as a uv tool in editable mode, so `bastet` on your PATH always runs
