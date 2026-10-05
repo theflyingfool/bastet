@@ -108,3 +108,27 @@ def test_check_alert_then_carries_on(runner, box, inventory, secret_keys, remote
     assert result.exit_code == 0, result.output
     assert "ALERT" in result.output
     assert "HOST: box" in result.output  # the check still ran
+
+
+def test_change_pulled_by_check_still_stops_a_later_apply(
+    runner, box, inventory, secret_keys, test_role, remote, tmp_path, monkeypatch
+):
+    def boom(*a, **k):
+        raise AssertionError("run_host must not be called before the change is confirmed")
+
+    _push_secret_change(remote, tmp_path, secret_keys["pub"])
+    first = runner.invoke(app, ["check", "box"])
+    assert "ALERT" in first.output
+    monkeypatch.setattr(run_mod, "run_host", boom)
+    result = runner.invoke(app, ["apply", "box", "-y"])  # nothing new to pull now; the change is still unconfirmed
+    assert result.exit_code == 1 and "ALERT" in result.output
+
+
+def test_confirmed_change_stops_alerting(
+    runner, box, inventory, secret_keys, remote, tmp_path, interactive, monkeypatch
+):
+    monkeypatch.setattr(run_mod, "_wait_answer", lambda prompt, timeout: "y\n")
+    _push_secret_change(remote, tmp_path, secret_keys["pub"])
+    assert runner.invoke(app, ["apply", "box", "-y"]).exit_code == 0
+    again = runner.invoke(app, ["check", "box"])
+    assert "ALERT" not in again.output

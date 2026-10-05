@@ -10,7 +10,7 @@ from pathlib import Path
 import typer
 
 import bastet.cli.secret as secret_mod
-from bastet.cli.common import Context, handles_errors, load_context, refresh_generated, scan_first, ssh_ports
+from bastet.cli.common import confirm_upstream_secrets, Context, handles_errors, load_context, refresh_generated, scan_first, ssh_ports
 from bastet.core.secrets import health as secret_health
 from bastet.cli.gather import _fixed_ip, local_runner, scan_keys, ssh_runner, sudo_validate
 from bastet.core import hostkeys
@@ -191,8 +191,10 @@ def _hosts(ctx: Context, names: list[str] | None) -> list[Document]:
 
 def _run(names: list[str] | None, *, apply_changes: bool, yes: bool, verbose: bool, updates: bool = False) -> None:
     ctx = load_context()
-    if apply_changes and ctx.upstream_secrets and not _confirm_upstream_secrets(ctx):
-        raise typer.Exit(1)
+    if apply_changes and ctx.upstream_secrets:
+        if not _confirm_upstream_secrets(ctx):
+            raise typer.Exit(1)
+        confirm_upstream_secrets(ctx.root)
     roles = load_roles()
     docs = _hosts(ctx, names)
     for problem in ctx.inventory.problems:  # a role file that applies nowhere would otherwise be silently ignored

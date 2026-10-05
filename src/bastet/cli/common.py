@@ -1,4 +1,5 @@
 import functools
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -100,9 +101,33 @@ def _refuse_if_plaintext(root: Path) -> None:
         raise BastetError(f"{n} secret(s) are plain text: finish them and run `bastet secret lock`")
 
 
+UNCONFIRMED = ".bastet/unconfirmed-secrets.json"
+
+
+def _unconfirmed(root: Path) -> list[str]:
+    try:
+        return sorted(set(json.loads((root / UNCONFIRMED).read_text(encoding="utf-8"))))
+    except (OSError, ValueError, TypeError):
+        return []
+
+
+def confirm_upstream_secrets(root: Path) -> None:
+    """The person accepted the pulled secret changes (in apply): stop alerting about them."""
+    (root / UNCONFIRMED).unlink(missing_ok=True)
+
+
 def alert_upstream_secrets(repo: GitRepo, root: Path, changed: list[str]) -> list[str]:
-    """A pull that changed any `_secrets/` note: a red alert naming who, from where, and when (spec 15.8)."""
-    secret_paths = sorted(p for p in changed if p.startswith("_secrets/") and p.endswith(".md"))
+    """Secret notes a pull changed and nobody has confirmed yet: a red alert naming who, from where, and when
+    (spec 15.8). They stay unconfirmed across commands until an `apply` confirms them, so a change pulled by
+    `check` still stops the next `apply`."""
+    new = [p for p in changed if p.startswith("_secrets/") and p.endswith(".md")]
+    secret_paths = sorted(set(_unconfirmed(root)) | set(new))
+    if new:
+        from bastet.core.secrets.plaintext import _ensure_gitignored  # keeps .bastet/ out of git
+
+        _ensure_gitignored(root)
+        (root / UNCONFIRMED).parent.mkdir(parents=True, exist_ok=True)
+        (root / UNCONFIRMED).write_text(json.dumps(secret_paths), encoding="utf-8")
     if not secret_paths:
         return []
     typer.secho("ALERT: secrets changed upstream:", fg="red", err=True, bold=True)
