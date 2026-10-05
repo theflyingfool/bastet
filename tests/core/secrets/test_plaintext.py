@@ -182,8 +182,11 @@ def test_unlock_saves_original_and_gitignores_bastet_dir(repo, sctx):
     saved = repo / ".bastet" / "unlock" / f"{sp.rel}.age"
     assert saved.is_file()
     assert open_sealed(saved.read_text().strip(), sp.text, sctx.identities()).value == "value"
-    gitignore = (repo / ".gitignore").read_text()
-    assert ".bastet/" in gitignore.splitlines()
+    # kept out of git locally (.git/info/exclude), without editing the tracked .gitignore
+    assert not (repo / ".gitignore").exists() or ".bastet/" not in (repo / ".gitignore").read_text()
+    exclude = (repo / ".git" / "info" / "exclude").read_text()
+    assert ".bastet/" in exclude.splitlines()
+    assert ".bastet" not in git(repo, "status", "--porcelain")
 
 
 def test_unlock_one_by_name_leaves_others_sealed(repo, sctx):

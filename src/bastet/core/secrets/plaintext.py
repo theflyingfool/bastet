@@ -23,15 +23,21 @@ def _unlock_copy_path(root: Path, sp: SecretPath) -> Path:
 
 
 def _ensure_gitignored(root: Path) -> None:
-    gi = root / ".gitignore"
-    if gi.is_file():
-        lines = gi.read_text(encoding="utf-8").splitlines()
-        if any(line.strip() == GITIGNORE_LINE for line in lines):
-            return
-        lines.append(GITIGNORE_LINE)
-        gi.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    else:
-        gi.write_text(GITIGNORE_LINE + "\n", encoding="utf-8")
+    """Keep `.bastet/` out of git for this clone only (.git/info/exclude), never editing the tracked .gitignore,
+    so no Bastet command leaves an uncommitted change in the inventory."""
+    import subprocess
+
+    try:
+        out = subprocess.run(["git", "-C", str(root), "rev-parse", "--git-path", "info/exclude"],
+                             capture_output=True, text=True, check=True).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return  # not a git repository: nothing to keep out of
+    exclude = Path(out) if Path(out).is_absolute() else root / out
+    lines = exclude.read_text(encoding="utf-8").splitlines() if exclude.is_file() else []
+    if any(line.strip() == GITIGNORE_LINE for line in lines):
+        return
+    exclude.parent.mkdir(parents=True, exist_ok=True)
+    exclude.write_text("\n".join([*lines, GITIGNORE_LINE]) + "\n", encoding="utf-8")
 
 
 class _Unreadable:
