@@ -5,7 +5,8 @@ Your inventory is a folder of Markdown notes (an Obsidian vault works well);
 Bastet fills in what it can discover, shows you every change as a diff first,
 and commits its own changes to git.
 
-Status: early. Milestone 1 ("See your lab"): inventory files, gather, views.
+Status: early. What's there now: inventory notes and views, gather, a check/apply engine, nine built-in
+roles (base, pacman, proxmox, packages, users, files, ssh, harden, systemd), and age-encrypted secret notes.
 
 ## Requirements
 
@@ -113,11 +114,12 @@ else `~/.config/bastet/bastet.yml`.
 | `bastet add host [NAME] [--type …]` | Writes a minimal host file; asks for anything you leave out (`-y` to never ask) |
 | `bastet add hardware [NAME] [--category …]` | Writes a hardware file; asks for anything you leave out |
 | `bastet gather [HOST…]` | Collects facts and writes them into host files after a diff; `--take FIELD` accepts a value you'd set by hand |
-| `bastet refresh` | Regenerates page summaries and the dashboard (`_bastet/`) from your files; `show`, `add` and `gather` do this too |
-| `bastet show [NAME]` | Lists the inventory and problems, or one object and what links to it |
+| `bastet refresh` | Regenerates page summaries and the dashboard (`_bastet/`) from your files; `add` and `gather` do this too |
+| `bastet show [NAME]` | Read-only: lists the inventory and its problems, or shows one object and what links to it |
 | `bastet add role [ROLE…] [--to TARGET]` | Writes role files under `_roles/` after showing the diff; offers the roles and targets as lists when left out |
-| `bastet check [HOST…]` | Shows what differs between each host and its roles; changes nothing |
-| `bastet apply [HOST…] [-y] [--updates]` | Shows the check, asks, applies the changes and verifies them; `--updates` also installs pending updates on hosts whose policy is manual |
+| `bastet check [HOST…]` | Shows what differs between each host and its roles, and every inventory problem; changes nothing |
+| `bastet apply [HOST…] [-y] [--updates]` | Shows the check, asks, applies the changes and verifies them, printing every inventory problem too; `--updates` also installs pending updates on hosts whose policy is manual |
+| `bastet map` | Regenerates the cabling and network maps under `_bastet/maps/` (`refresh` does this too, along with everything else) |
 | `bastet secret` | The secret inventory: every secret, its host/role/option, whether it's set, who uses it, secrets roles need but don't have, and a health summary. Never values. |
 | `bastet secret set [HOST ROLE OPTION]` | Numbered list of secrets that need a value (`0` = all, `q` = quit), or the same for one named secret. Type or paste a value, Enter to generate (when the contract allows), or `e` to fill it in yourself. Reads from stdin when piped. |
 | `bastet secret show HOST ROLE OPTION` | The one deliberate way to see a value: display it or copy it to the clipboard (cleared after 45s). Refuses when output isn't a terminal. |
