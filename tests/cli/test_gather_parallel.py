@@ -9,6 +9,7 @@ import bastet.cli.gather as gather_mod
 from bastet.cli.app import app
 from bastet.core.errors import AuthFailed
 from bastet.core.hostkeys import parse_keyscan
+from bastet.core.parallel import in_worker
 from bastet.core.remote import CommandResult
 from gather_fixtures import LAPTOP, RACK, stdout_for
 
@@ -137,7 +138,7 @@ def test_prompts_all_asked_on_main_thread(runner, inventory, secret_keys, monkey
     real_confirm = __import__("typer").confirm
 
     def spy_confirm(*args, **kwargs):
-        assert not gather_mod.in_worker(), "a prompt ran off the main thread"
+        assert not in_worker(), "a prompt ran off the main thread"
         return real_confirm(*args, **kwargs)
 
     monkeypatch.setattr(__import__("typer"), "confirm", spy_confirm)
@@ -290,3 +291,30 @@ def test_dash_j_1_and_dash_j_3_give_identical_results(runner, tmp_path, monkeypa
     files_a = sorted(git(root_a, "log", "-1", "--grep=^gather", "--name-only", "--format=").split())
     files_b = sorted(git(root_b, "log", "-1", "--grep=^gather", "--name-only", "--format=").split())
     assert files_a == files_b and files_a
+
+
+def test_ctrl_c_prints_interrupted_nothing_written_and_exits_nonzero(runner, three_hosts, monkeypatch):
+    """A KeyboardInterrupt raised while gathering (e.g. the user hits Ctrl-C) must not escape as a
+    bare traceback -- the command prints a message and exits non-zero, and nothing is written."""
+    barrier = threading.Barrier(1, timeout=1)
+    monkeypatch.setattr(
+        gather_mod, "ssh_runner", lambda target: BlockingRunner(dict(LAPTOP, hostname=target.address), barrier)
+    )
+
+    count = {"n": 0}
+    real_echo_outcome = gather_mod._echo_outcome
+
+    def flaky_echo_outcome(outcome, done):
+        count["n"] += 1
+        if count["n"] == 1:
+            raise KeyboardInterrupt
+        return real_echo_outcome(outcome, done)
+
+    monkeypatch.setattr(gather_mod, "_echo_outcome", flaky_echo_outcome)
+
+    result = runner.invoke(app, ["gather", "h1", "h2", "h3", "-y", "-j", "1"])
+
+    assert result.exit_code == 1
+    assert "interrupted; nothing written" in result.output
+    for name in ("h1", "h2", "h3"):
+        assert "os:" not in (three_hosts / "hosts" / f"{name}.md").read_text()

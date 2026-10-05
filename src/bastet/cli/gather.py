@@ -39,7 +39,7 @@ from bastet.core.frontmatter import Document, parse_document, set_keys
 from bastet.core.unifi import device_facts, machine_item, parse_mca, redact
 from bastet.core.gatherplan import Note, plan_update
 from bastet.core.hardware import HardwareView, RunState, observe_hardware, plan_hardware
-from bastet.core.parallel import HostLog, Outcome, in_worker, run_parallel
+from bastet.core.parallel import HostLog, Outcome, run_parallel
 from bastet.core.remote import SshRunner, SshTarget, run_interactive
 from bastet.core.secrets.redact import ACTIVE
 from bastet.core.shell import ProbeResult
@@ -316,7 +316,11 @@ def gather(
 ) -> None:
     """Collect facts from hosts and write them into their files, after showing the diff."""
     with guard_prompts():
-        _gather(hosts, take, accept_new_hostkey, yes, jobs)
+        try:
+            _gather(hosts, take, accept_new_hostkey, yes, jobs)
+        except KeyboardInterrupt:
+            typer.secho("interrupted; nothing written", fg="yellow")
+            raise typer.Exit(1) from None
 
 
 def _gather(
