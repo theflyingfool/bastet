@@ -235,6 +235,38 @@ class GitRepo:
             return []
         return [tuple(line.split("\x1f")) for line in r.stdout.splitlines() if line.count("\x1f") == 2]
 
+    def file_versions(self, path: Path, shas: Iterable[str]) -> dict[str, str | None]:
+        """`path` as it read at each of `shas`, None where it didn't exist yet; one `git cat-file --batch` process."""
+        shas = list(shas)
+        if not shas:
+            return {}
+        rel = self._rel(path)
+        request = "".join(f"{sha}:{rel}\n" for sha in shas).encode()
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(self.root), "cat-file", "--batch"],
+                input=request,
+                capture_output=True,
+                env=git_env(),
+                timeout=TIMEOUT,
+            )
+        except subprocess.TimeoutExpired:
+            raise BastetError(f"git cat-file timed out after {TIMEOUT}s", file=self.root) from None
+        out = result.stdout
+        versions: dict[str, str | None] = {}
+        pos = 0
+        for sha in shas:
+            nl = out.index(b"\n", pos)
+            header = out[pos:nl].split()
+            pos = nl + 1
+            if header[-1] == b"missing":
+                versions[sha] = None
+                continue
+            size = int(header[2])
+            versions[sha] = out[pos : pos + size].decode("utf-8")
+            pos += size + 1  # the trailing newline after the object's content
+        return versions
+
     def ensure_hook(self) -> None:
         """Install the plain-text-secret-refusing pre-commit hook; idempotent, chains a pre-existing foreign hook."""
         hooks_dir = Path(self._git("rev-parse", "--git-path", "hooks").stdout.strip())

@@ -179,6 +179,36 @@ def test_squash_since_leaves_other_staged_files_alone(repo):
     assert "A  unrelated.md" in git(repo.root, "status", "--porcelain")
 
 
+def test_file_versions_reads_each_sha_in_one_batch(repo):
+    a = repo.root / "a.md"
+    a.write_text("v1\n")
+    repo.commit([a], "c1")
+    sha1 = repo.head()
+    a.write_text("v2 ü\n")
+    repo.commit([a], "c2")
+    sha2 = repo.head()
+    assert repo.file_versions(a, [sha1, sha2]) == {sha1: "v1\n", sha2: "v2 ü\n"}
+
+
+def test_file_versions_path_absent_at_sha_is_none(repo):
+    first = repo.root / "first.md"
+    first.write_text("x\n")
+    repo.commit([first], "c0")
+    sha0 = repo.head()
+    a = repo.root / "a.md"
+    a.write_text("v1\n")
+    repo.commit([a], "c1")
+    sha1 = repo.head()
+    assert repo.file_versions(a, [sha0, sha1]) == {sha0: None, sha1: "v1\n"}
+
+
+def test_file_versions_empty_shas_is_empty_dict(repo):
+    a = repo.root / "a.md"
+    a.write_text("v1\n")
+    repo.commit([a], "c1")
+    assert repo.file_versions(a, []) == {}
+
+
 def test_squash_since_refuses_when_some_commits_are_already_pushed(tmp_path, repo):
     bare = tmp_path / "remote.git"
     subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(bare)], check=True)

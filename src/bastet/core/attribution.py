@@ -39,9 +39,11 @@ def last_setter(repo: GitRepo, path: Path, key: str) -> Setter | None:
         return None
     if _value(repo.file_at("HEAD", path), path, key) != current:
         return Setter("you", None, None)
+    log = repo.file_log(path)
+    versions = repo.file_versions(path, [sha for sha, _, _ in log])
     setter = None
-    for sha, author, date in repo.file_log(path):
-        if _value(repo.file_at(sha, path), path, key) == current:
+    for sha, author, date in log:
+        if _value(versions[sha], path, key) == current:
             setter = Setter(author, date, sha)
         else:
             break
