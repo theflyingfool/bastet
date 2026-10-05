@@ -89,3 +89,19 @@ def test_redactor_ignores_short_values():
     redactor = Redactor()
     redactor.add("abc")
     assert redactor.mask("abc is short") == "abc is short"
+
+
+def test_unset_secret_option_reads_its_own_note():
+    from bastet.roles.contract import Option
+    options = {"admin_password": Option(type="string", secret=True), "port": Option(type="int")}
+    values, secret = resolve_refs({"admin_password": None, "port": 3000}, host="git1", role="gitea",
+                                  options=options, sctx=FakeSecrets({"git1/gitea/admin_password": "from-the-note"}))
+    assert values == {"admin_password": "from-the-note", "port": 3000} and secret == {"admin_password"}
+
+
+def test_unset_secret_option_without_a_note_is_missing():
+    import pytest
+    from bastet.roles.contract import Option
+    with pytest.raises(MissingSecret, match="bastet secret set git1 gitea admin_password"):
+        resolve_refs({"admin_password": None}, host="git1", role="gitea",
+                     options={"admin_password": Option(type="string", secret=True)}, sctx=FakeSecrets({}))

@@ -72,6 +72,8 @@ def resolve_refs(values: dict, *, host: str, role: str, options: dict[str, Optio
         if opt is None:
             out[key] = value
             continue
+        if value is None and opt.secret:
+            value = f"{SECRET_PREFIX}{key}"  # an unset secret option reads its own note: <host>/<role>/<option>
         nv, secret = _walk(opt, value, f"{role}.{key}", host, role, sctx)
         out[key] = nv
         if secret:
