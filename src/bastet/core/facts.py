@@ -2,8 +2,9 @@ import json
 import re
 from dataclasses import dataclass, field
 
-from bastet.core.collect import PROBES, ProbeResult
+from bastet.core.collect import PROBES
 from bastet.core.hwparse import parse_links
+from bastet.core.shell import ProbeResult
 from bastet.core.units import format_size, ram_label
 
 CHASSIS_FROM_SMBIOS = {

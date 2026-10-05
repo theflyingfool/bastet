@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from bastet.core.changes import write_changes
-from bastet.core.collect import parse_sections
+from bastet.core.shell import parse_sections
 from bastet.core.facts import extract
 from bastet.core.gitrepo import GitRepo
 from bastet.core.hardware import observe_hardware, plan_hardware

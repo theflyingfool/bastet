@@ -1,6 +1,6 @@
 import pytest
 
-from bastet.core.collect import ProbeResult
+from bastet.core.shell import ProbeResult
 from bastet.engine.model import Unsupported
 from bastet.engine.users import Group, User
 

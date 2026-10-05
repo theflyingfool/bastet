@@ -1,6 +1,6 @@
 import pytest
 
-from bastet.core.collect import ProbeResult
+from bastet.core.shell import ProbeResult
 from bastet.core.remote import LocalRunner
 from bastet.engine.model import Unsupported
 from bastet.engine.packages import Reboot, Unaccounted, Updates

@@ -1,9 +1,8 @@
 import json
 
-from bastet.core.collect import (
-    MARK, PROBES, Probe, ProbeResult, Snapshot, build_script, collect, parse_sections, save_snapshot,
-)
+from bastet.core.collect import PROBES, Snapshot, collect, save_snapshot
 from bastet.core.remote import LocalRunner
+from bastet.core.shell import MARK, Probe, ProbeResult, build_script, parse_sections
 
 
 def test_probe_names_unique_and_required_set():
@@ -31,7 +30,7 @@ def test_parse_sections():
 
 
 def test_build_script_has_every_probe():
-    script = build_script()
+    script = build_script(PROBES)
     for p in PROBES:
         assert f"'{p.name}'" in script
 
@@ -96,7 +95,7 @@ def test_completeness_probes_present():
         assert n in names, n
     assert names["ipmi_fru"].root and names["ipmi_mc"].root and not names["usb"].root
     assert ",39" in names["dmidecode"].command
-    subprocess.run(["sh", "-n"], input=build_script(), text=True, check=True)
+    subprocess.run(["sh", "-n"], input=build_script(PROBES), text=True, check=True)
 
 
 def test_firmware_probe_succeeds_without_secure_boot_variable(tmp_path):
@@ -110,7 +109,7 @@ def test_firmware_probe_succeeds_without_secure_boot_variable(tmp_path):
 def test_prelude_puts_sbin_on_path_for_normal_users():
     """Debian keeps ethtool, smartctl and friends in /usr/sbin, which isn't on a normal user's PATH."""
     import subprocess
-    from bastet.core.collect import PRELUDE
+    from bastet.core.shell import PRELUDE
     out = subprocess.run(["sh", "-c", PRELUDE + '\necho "$PATH"'], capture_output=True, text=True,
                          env={"PATH": "/usr/bin:/bin"}).stdout.strip().split(":")
     assert out[:2] == ["/usr/bin", "/bin"] and {"/usr/local/sbin", "/usr/sbin", "/sbin"} <= set(out)

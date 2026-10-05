@@ -2,7 +2,7 @@
 
 import secrets
 
-from bastet.core.collect import PRELUDE, Probe, ProbeResult, build_script, parse_sections
+from bastet.core.shell import PRELUDE, Probe, ProbeResult, build_script, parse_sections
 from bastet.engine.model import Read
 
 NOT_REPORTED = ProbeResult(125, "")

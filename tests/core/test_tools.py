@@ -1,4 +1,4 @@
-from bastet.core.collect import ProbeResult, parse_sections
+from bastet.core.shell import ProbeResult, parse_sections
 from bastet.core.hosttypes import load_host_types
 from bastet.core.tools import install_script, needed_tools
 from gather_fixtures import LAPTOP, RACK, SERVER, VPS, stdout_for

@@ -1,4 +1,5 @@
-"""After apply: reboot a host that needs it, as its packages role's reboot policy says."""
+"""Apply's reboot step, not a command of its own: after apply, reboot a host that needs it, as its
+packages role's reboot policy says."""
 
 from __future__ import annotations
 

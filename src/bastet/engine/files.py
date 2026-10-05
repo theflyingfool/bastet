@@ -9,7 +9,7 @@ import shlex
 from dataclasses import dataclass
 from typing import ClassVar
 
-from bastet.core.collect import ProbeResult
+from bastet.core.shell import ProbeResult
 from bastet.engine.model import ABSENT, FieldChange, Read, ReadError, Resource
 
 

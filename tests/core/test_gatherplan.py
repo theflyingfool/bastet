@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from bastet.core.collect import parse_sections
+from bastet.core.shell import parse_sections
 from bastet.core.facts import extract
 from bastet.core.frontmatter import parse_document
 from bastet.core.gatherplan import plan_update

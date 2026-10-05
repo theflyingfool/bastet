@@ -6,7 +6,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from bastet.core.changes import Change
-from bastet.core.collect import ProbeResult
 from bastet.core.facts import SKIP_DISKS, Extracted
 from bastet.core.frontmatter import Document, new_document, set_keys
 from bastet.core.gatherplan import Note, merge_facts
@@ -18,6 +17,7 @@ from bastet.core.hwparse import (
 )
 from bastet.core.inventory import Inventory, markdown_files
 from bastet.core.links import link_target, make_link
+from bastet.core.shell import ProbeResult
 from bastet.core.units import format_size
 from bastet.core.views import ensure_page_embed, summary_embed
 

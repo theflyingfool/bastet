@@ -1,6 +1,7 @@
 import json
 
-from bastet.core.collect import MARK, PROBES
+from bastet.core.collect import PROBES
+from bastet.core.shell import MARK
 
 LAPTOP = {
     "os_release": 'NAME="Arch Linux"\nPRETTY_NAME="Arch Linux"\nID=arch',

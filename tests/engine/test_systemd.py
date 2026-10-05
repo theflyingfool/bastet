@@ -1,6 +1,6 @@
 import pytest
 
-from bastet.core.collect import ProbeResult
+from bastet.core.shell import ProbeResult
 from bastet.engine.model import Unsupported
 from bastet.engine.systemd import Hostname, Locale, TimeSettings, Unit, daemon_reload, drop_in, restart
 

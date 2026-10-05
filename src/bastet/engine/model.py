@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import ClassVar
 
-from bastet.core.collect import ProbeResult
+from bastet.core.shell import ProbeResult
 
 ABSENT = "(absent)"
 

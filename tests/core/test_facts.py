@@ -1,4 +1,4 @@
-from bastet.core.collect import parse_sections
+from bastet.core.shell import parse_sections
 from bastet.core.facts import extract, propose_type
 from gather_fixtures import LAPTOP, VPS, stdout_for
 

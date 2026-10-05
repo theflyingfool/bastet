@@ -3,9 +3,9 @@
 import json
 import shlex
 
-from bastet.core.collect import ProbeResult
 from bastet.core.hosttypes import HostType
 from bastet.core.hwparse import has_bmc, parse_dmidecode, parse_lspci
+from bastet.core.shell import ProbeResult
 
 # Generic tool package -> name per package manager.
 PACKAGES = {

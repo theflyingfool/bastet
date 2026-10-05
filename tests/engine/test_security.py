@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from bastet.core.collect import ProbeResult
+from bastet.core.shell import ProbeResult
 from bastet.engine.security import AppArmorStatus, ListeningPorts, LynisReport, ServiceExposure, VulnerablePackages
 
 FIX = Path(__file__).parent / "fixtures" / "security"

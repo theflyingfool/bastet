@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from bastet.core.collect import ProbeResult
+from bastet.core.shell import ProbeResult
 from bastet.core.remote import LocalRunner
 from bastet.engine.model import ABSENT
 from bastet.engine.run import Batch, run_host

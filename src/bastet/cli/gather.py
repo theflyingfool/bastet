@@ -28,7 +28,7 @@ from bastet.core.bootstrap import setup_command
 from bastet.core.cabling import merge_links, propose_links
 from bastet.core.networks import compare_networks, lab_networks
 from bastet.core.changes import Change
-from bastet.core.collect import ProbeResult, Snapshot, collect, save_snapshot
+from bastet.core.collect import Snapshot, collect, save_snapshot
 from bastet.core.config import data_dir
 from bastet.core.errors import AuthFailed, BastetError, Unreachable
 from bastet.core.facts import Extracted, extract
@@ -37,6 +37,7 @@ from bastet.core.unifi import device_facts, machine_item, parse_mca, redact
 from bastet.core.gatherplan import Note, plan_update
 from bastet.core.hardware import HardwareView, RunState, observe_hardware, plan_hardware
 from bastet.core.remote import SshRunner, SshTarget, run_interactive
+from bastet.core.shell import ProbeResult
 
 LOCAL_ADDRESS = "127.0.0.1"
 
