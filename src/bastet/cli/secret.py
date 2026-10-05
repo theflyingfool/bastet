@@ -18,6 +18,7 @@ from bastet.core.changes import Change, write_changes
 from bastet.core.errors import BastetError
 from bastet.core.secrets import crypto, plaintext
 from bastet.core.secrets import health as secret_health
+from bastet.core.secrets.crypto import SecretError
 from bastet.core.secrets.notes import SecretNote, SecretPath, all_notes_safe
 from bastet.roles.contract import Option, load_roles
 from bastet.roles.resolve import resolve
@@ -117,19 +118,25 @@ def _collect_uses(ctx: Context, hosts: list[str] | None = None) -> dict[str, Nee
             applied = resolve(ctx.inventory, doc, ctx.types, roles)
         except BastetError:
             continue  # a broken role file elsewhere shouldn't break the secret inventory
-        for a in applied:
-            for key, value in a.values.items():
-                opt = a.role.options.get(key)
-                if opt is None:
-                    continue
-                if value is None:
-                    # a `secret: true` option with no value at all still needs a secret, implicitly
-                    # at the host/role/option path (no explicit `secret:` reference required).
-                    if opt.secret:
-                        _record(uses, SecretPath(doc.name, a.role.name, key), opt, doc.name)
-                    continue
-                for sp, leaf in _refs_in(opt, value, doc.name, a.role.name):
-                    _record(uses, sp, leaf, doc.name)
+        try:
+            for a in applied:
+                for key, value in a.values.items():
+                    opt = a.role.options.get(key)
+                    if opt is None:
+                        continue
+                    if value is None:
+                        # a `secret: true` option with no value at all still needs a secret, implicitly
+                        # at the host/role/option path (no explicit `secret:` reference required).
+                        if opt.secret:
+                            _record(uses, SecretPath(doc.name, a.role.name, key), opt, doc.name)
+                        continue
+                    for sp, leaf in _refs_in(opt, value, doc.name, a.role.name):
+                        _record(uses, sp, leaf, doc.name)
+        except SecretError:
+            # a host or role name this host's secret paths would be built from isn't a valid secret
+            # path component (I8, e.g. a host name with a space): don't let it crash the inventory
+            # or check's summary for every other host.
+            continue
     return uses
 
 

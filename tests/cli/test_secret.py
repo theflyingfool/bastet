@@ -169,6 +169,23 @@ def test_unset_secret_option_is_implied_needed(runner, secret_keys, inventory, i
     assert "box/impliedsecret/api_key" in listed.output and "missing" in listed.output
 
 
+def test_a_host_name_with_a_space_does_not_crash_the_secret_inventory(runner, secret_keys, inventory, test_role):
+    """I8 validates SecretPath components, so an implicit secret path built from a host name with a
+    space in it (a real host note filename, e.g. "SuperMicro 2U.md") now raises SecretError where it
+    didn't before -- that must not crash `bastet secret` (or `check`'s summary) for every other host."""
+    (inventory / "hosts" / "weird host.md").write_text("---\nbastet: host\ntype: laptop\n---\n# weird host\n")
+    roles = inventory / "_roles" / "hosts" / "weird host"
+    roles.mkdir(parents=True)
+    (roles / "impliedsecret.md").write_text('---\nbastet: role\nrole: impliedsecret\napplies_to: "[[weird host]]"\n---\n')
+    git(inventory, "add", ".")
+    git(inventory, "commit", "-q", "-m", "a host with a space in its name")
+
+    result = runner.invoke(app, ["secret"])
+
+    assert result.exit_code == 0, result.output
+    assert "box/testsecret/admin_password" in result.output  # other hosts are still listed
+
+
 def test_squash_does_not_sweep_in_an_unrelated_staged_file(runner, secret_keys, inventory, interactive, test_role):
     (inventory / "unrelated.md").write_text("---\nbastet: host\ntype: laptop\n---\n# unrelated\n")
     git(inventory, "add", "unrelated.md")

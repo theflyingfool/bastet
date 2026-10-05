@@ -251,22 +251,28 @@ def collect_uses(inv, types: dict) -> dict[str, list[str]]:
             applied = resolve(inv, doc, types, roles)
         except BastetError:
             continue
-        for a in applied:
-            for key, value in a.values.items():
-                opt = a.role.options.get(key)
-                if opt is None:
-                    continue
-                if value is None:
-                    if opt.secret:
-                        sp = SecretPath(doc.name, a.role.name, key)
+        try:
+            for a in applied:
+                for key, value in a.values.items():
+                    opt = a.role.options.get(key)
+                    if opt is None:
+                        continue
+                    if value is None:
+                        if opt.secret:
+                            sp = SecretPath(doc.name, a.role.name, key)
+                            uses.setdefault(sp.text, [])
+                            if doc.name not in uses[sp.text]:
+                                uses[sp.text].append(doc.name)
+                        continue
+                    for sp in _refs_in(opt, value, doc.name, a.role.name):
                         uses.setdefault(sp.text, [])
                         if doc.name not in uses[sp.text]:
                             uses[sp.text].append(doc.name)
-                    continue
-                for sp in _refs_in(opt, value, doc.name, a.role.name):
-                    uses.setdefault(sp.text, [])
-                    if doc.name not in uses[sp.text]:
-                        uses[sp.text].append(doc.name)
+        except SecretError:
+            # a host or role name this host's secret paths would be built from isn't a valid secret
+            # path component (I8, e.g. a host name with a space): don't let it crash health findings
+            # or Secrets.md for every other host.
+            continue
     return uses
 
 
