@@ -84,6 +84,21 @@ def test_control_path_dir_is_private(tmp_path, monkeypatch):
     assert p == tmp_path / "bastet" / "%C" and (tmp_path / "bastet").stat().st_mode & 0o777 == 0o700
 
 
+def test_control_path_falls_back_to_cache_dir_without_xdg_runtime_dir(tmp_path, monkeypatch):
+    monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    p = control_path()
+    expected = tmp_path / ".cache" / "bastet" / "ssh"
+    assert p == expected / "%C" and expected.stat().st_mode & 0o777 == 0o700
+
+
+def test_control_path_falls_back_when_xdg_runtime_dir_is_empty(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", "")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    p = control_path()
+    assert p == tmp_path / ".cache" / "bastet" / "ssh" / "%C"
+
+
 def test_close_master_sends_exit(monkeypatch):
     calls = []
     monkeypatch.setattr("bastet.core.remote.subprocess.run", lambda args, **kw: calls.append(args))

@@ -1,6 +1,5 @@
 import os
 import subprocess
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -54,10 +53,10 @@ def ssh_args(target: SshTarget, *, interactive: bool = False) -> list[str]:
 
 
 def control_path() -> Path:
-    """Where multiplexed connections live: one socket per host (%C), in a private directory."""
-    base = Path(os.environ.get("XDG_RUNTIME_DIR") or tempfile.gettempdir()) / "bastet"
+    """Where multiplexed connections live: one socket per host (%C), in a private per-user directory."""
+    runtime_dir = os.environ.get("XDG_RUNTIME_DIR")
+    base = Path(runtime_dir) / "bastet" if runtime_dir else Path.home() / ".cache" / "bastet" / "ssh"
     base.mkdir(mode=0o700, parents=True, exist_ok=True)
-    base.chmod(0o700)
     return base / "%C"
 
 
