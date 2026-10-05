@@ -10,6 +10,7 @@ import pytest
 import bastet.cli.reboot as reboot_mod
 import bastet.cli.run as run_mod
 from bastet.cli.app import app
+from bastet.core.errors import BastetError
 from bastet.engine.model import FieldChange
 from bastet.engine.packages import Reboot
 from bastet.engine.run import Batch, HostRun, Item
@@ -378,3 +379,45 @@ def test_ctrl_c_during_apply_stops_later_items_on_that_host(runner, inventory, t
     assert a.read_text() == "1"
     assert not b.exists()
     assert "stopped (Ctrl-C)" in result.output
+
+
+def test_reboot_decision_error_is_one_hosts_red_line_others_still_reboot(runner, three_hosts, monkeypatch):
+    """A BastetError from reboot_decision (e.g. the reboot-status probe failed, or the connection
+    dropped) must be that one host's red line, not an exception that aborts the whole run -- the
+    other hosts' reboot decisions, their reboots, and phase 7 (notes, summary, refresh) must still
+    happen."""
+    pending = {"pve1": 0, "pve2": 0, "git1": 0}
+    reboots = {
+        "pve1": [Reboot(policy="auto", timeout=30)],
+        "pve2": [Reboot(policy="auto", timeout=30)],
+        "git1": [],
+    }
+    monkeypatch.setattr(run_mod, "plan_for", plan_stub(pending, reboots))
+    monkeypatch.setattr(run_mod, "connect", connect_stub())
+    monkeypatch.setattr(run_mod, "run_host", lambda runner_, host, batches, **kw: _check_run(host, 0))
+
+    def reboot_needed(runner_, host, rb):
+        if host == "pve1":
+            raise BastetError(f"{host}: couldn't tell whether a reboot is needed: boom")
+        return (True, "kernel")
+
+    monkeypatch.setattr(reboot_mod, "reboot_needed", reboot_needed)
+
+    rebooted: list[str] = []
+
+    def perform_reboot(plan, connect_again, sleep=None, clock=None):
+        rebooted.append(plan.host)
+        return f"{plan.host}: rebooted, back after 1s"
+
+    monkeypatch.setattr(run_mod, "perform_reboot", perform_reboot)
+
+    refreshed = []
+    monkeypatch.setattr(run_mod, "refresh_generated", lambda ctx, **kw: refreshed.append(True) or 0)
+
+    result = runner.invoke(app, ["apply", "-y"])
+
+    assert result.exit_code == 1  # pve1 failed
+    assert "pve1: couldn't tell whether a reboot is needed: boom" in result.output
+    assert rebooted == ["pve2"]  # pve2's reboot still happens
+    assert "pve2: rebooted" in result.output
+    assert refreshed == [True]  # phase 7 still runs

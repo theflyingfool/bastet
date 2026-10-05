@@ -450,10 +450,15 @@ def _run(names: list[str] | None, *, apply_changes: bool, yes: bool, verbose: bo
                         if h in errored_hosts:
                             continue
                         r = by_name[h]
-                        result = reboot_decision(
-                            runners[h], targets.get(h), r.doc, r.reboots,
-                            yes=yes, apply_failed=apply_failed_map.get(h, False),
-                        )
+                        try:
+                            result = reboot_decision(
+                                runners[h], targets.get(h), r.doc, r.reboots,
+                                yes=yes, apply_failed=apply_failed_map.get(h, False),
+                            )
+                        except BastetError as exc:
+                            typer.secho(ctx.secrets.redactor.mask(exc.message), fg="red")
+                            failed_hosts.add(h)
+                            continue
                         if result is None:
                             continue
                         if isinstance(result, str):
