@@ -90,7 +90,8 @@ def _write_security_note(ctx: Context, doc: Document, items) -> bool:
         write_changes([Change(path, before, text)])
         return ctx.repo.commit([path], ctx.secrets.redactor.mask(f"refresh: security note {doc.name}"))
     except Exception as exc:  # a note must never stop a check or an apply
-        typer.secho(f"{doc.name}: security note not written: {exc.__class__.__name__}: {exc}", fg="yellow")
+        typer.secho(ctx.secrets.redactor.mask(f"{doc.name}: security note not written: {exc.__class__.__name__}: {exc}"),
+                    fg="yellow")
         return False
 
 
@@ -259,7 +260,7 @@ def _run(names: list[str] | None, *, apply_changes: bool, yes: bool, verbose: bo
                 if any(isinstance(res, LynisReport) for b in batches for res in b.resources):
                     warning = run_audit(runner, doc)
                     if warning:
-                        typer.secho(warning, fg="yellow")
+                        typer.secho(ctx.secrets.redactor.mask(warning), fg="yellow")
                     else:  # the fresh audit replaces the report the check read
                         fresh = run_host(runner, doc.name, [Batch("lynis", [LynisReport()])], apply=False).items
                         notes_written |= _write_security_note(
@@ -267,7 +268,7 @@ def _run(names: list[str] | None, *, apply_changes: bool, yes: bool, verbose: bo
                 note = handle_reboot(runner, target, doc, reboots, yes=yes, apply_failed=apply_failed,
                                      connect_again=lambda doc=doc: connect(ctx, doc, Path(tmp), yes=yes)[0])
                 if note:
-                    typer.echo(note)
+                    typer.echo(ctx.secrets.redactor.mask(note))
             except BastetError as exc:
                 if not apply_changes and isinstance(exc, MissingSecret):
                     opt = secret_mod._opt_for(exc.sp)
