@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field, fields, replace
 
 from bastet.core.errors import BastetError
@@ -46,13 +47,18 @@ class HostRun:
     applied: bool
     items: list[Item]
     triggers: list[TriggerRun] = field(default_factory=list)
+    stopped: bool = False
 
     def count(self, status: str) -> int:
         return sum(1 for i in self.items if i.status == status)
 
     @property
     def ok(self) -> bool:
-        return self.count("failed") == 0 and all(t.ok for t in self.triggers)
+        return (
+            not self.stopped
+            and self.count("failed") == 0
+            and all(t.ok for t in self.triggers)
+        )
 
 
 def collect_items(batches: list[Batch]) -> list[tuple[Batch, list[Item]]]:
@@ -158,7 +164,15 @@ def _exec(runner, commands: list[str], root: bool, timeout: int) -> tuple[bool, 
     return (True, None) if res.returncode == 0 else (False, _tail(res.stderr, res.returncode))
 
 
-def run_host(runner, host: str, batches: list[Batch], *, apply: bool, fix_timeout: int = FIX_TIMEOUT) -> HostRun:
+def run_host(
+    runner,
+    host: str,
+    batches: list[Batch],
+    *,
+    apply: bool,
+    fix_timeout: int = FIX_TIMEOUT,
+    should_stop: Callable[[], bool] | None = None,
+) -> HostRun:
     planned = collect_items(batches)
     items = [i for _, mine in planned for i in mine]
     run = HostRun(host, apply, items)
@@ -182,6 +196,10 @@ def run_host(runner, host: str, batches: list[Batch], *, apply: bool, fix_timeou
             if item.status == "failed" and not item.resource.report_only() and broken is None and host_broken is None:
                 broken = item.resource.label
             if item.status != "would-change":
+                continue
+            if run.stopped or (should_stop is not None and should_stop()):
+                run.stopped = True
+                item.status, item.error = "skipped", "stopped (Ctrl-C)"
                 continue
             if host_broken is not None:
                 item.status, item.error = "skipped", f"earlier failure on this host: {host_broken}"

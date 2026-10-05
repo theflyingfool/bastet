@@ -225,3 +225,38 @@ def test_fix_timeout_fails_the_group_and_keeps_the_run(tmp_path):
     assert s[str(tmp_path / "a")][0] == "failed" and "timed out" in s[str(tmp_path / "a")][1]
     assert s[str(tmp_path / "c")][0] == "skipped" and s[str(tmp_path / "d")][0] == "skipped"
     assert max(runner.timeouts) >= 1800
+
+
+def test_should_stop_flips_after_first_fix_skipping_rest(tmp_path):
+    log = tmp_path / "log"
+    trigger = Trigger("t", f"echo ran >> {log}", root=False)
+    a = Flag(path=str(tmp_path / "a"), value="1", on_change=(trigger,))
+    b = Flag(path=str(tmp_path / "b"), value="2")
+    c = Flag(path=str(tmp_path / "c"), value="3")
+    run = run_host(LocalRunner(), "h", [
+        Batch("one", [a, b]),
+        Batch("two", [c]),
+    ], apply=True, should_stop=lambda: (tmp_path / "a").exists())
+    s = statuses(run)
+    assert s[str(tmp_path / "a")] == ("changed", None)
+    assert s[str(tmp_path / "b")] == ("skipped", "stopped (Ctrl-C)")
+    assert s[str(tmp_path / "c")] == ("skipped", "stopped (Ctrl-C)")
+    assert not (tmp_path / "b").exists() and not (tmp_path / "c").exists()
+    assert [(t.trigger.label, t.ok) for t in run.triggers] == [("t", True)]
+    assert log.read_text() == "ran\n"
+    assert not run.ok
+
+
+def test_should_stop_none_keeps_today_behavior(tmp_path):
+    a = Flag(path=str(tmp_path / "a"), value="1")
+    b = Flag(path=str(tmp_path / "b"), value="2")
+    run = run_host(LocalRunner(), "h", [
+        Batch("one", [a]),
+        Batch("two", [b]),
+    ], apply=True, should_stop=None)
+    s = statuses(run)
+    assert s[str(tmp_path / "a")] == ("changed", None)
+    assert s[str(tmp_path / "b")] == ("changed", None)
+    assert (tmp_path / "a").read_text() == "1"
+    assert (tmp_path / "b").read_text() == "2"
+    assert run.ok
