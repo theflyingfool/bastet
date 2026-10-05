@@ -63,6 +63,33 @@ class HostFailed(Exception):
         self.value = value
 
 
+def break_cycles(deps: Mapping[str, str], order: Sequence[str]) -> tuple[dict[str, str], list[list[str]]]:
+    """Drop any edge in `deps` (a host -> the host it waits for) that closes a cycle, including a
+    host that (directly or indirectly) depends on itself. Walking `order` makes this deterministic:
+    for the first host (in `order`) whose own chain of dependencies loops back to it, that
+    dependency is dropped -- the host runs as if it had none. Returns the cleaned map and the list
+    of cycles found, each as the chain of host names from the loop back to itself (e.g. `[a, b, a]`),
+    for callers that want to report them.
+    """
+    out = dict(deps)
+    cycles: list[list[str]] = []
+    for start in order:
+        if start not in out:
+            continue
+        path = [start]
+        node = out.get(start)
+        while node is not None:
+            if node == start:
+                cycles.append(path + [node])
+                del out[start]
+                break
+            if node in path:
+                break  # a cycle elsewhere in the chain; handled when its own host is the start
+            path.append(node)
+            node = out.get(node)
+    return out, cycles
+
+
 def run_parallel(
     hosts: Sequence[str],
     work: Callable[[str, HostLog], T],
@@ -79,6 +106,7 @@ def run_parallel(
     hosts = list(hosts)
     hostset = set(hosts)
     deps = {h: n for h, n in (after or {}).items() if h in hostset and n in hostset}
+    deps, _ = break_cycles(deps, hosts)
     index = {host: i for i, host in enumerate(hosts)}
     _stop_event.clear()
 

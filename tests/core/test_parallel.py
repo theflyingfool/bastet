@@ -5,7 +5,7 @@ import pytest
 import typer
 
 from bastet.core.errors import BastetError
-from bastet.core.parallel import HostFailed, HostLog, Outcome, in_worker, run_parallel, stopping
+from bastet.core.parallel import HostFailed, HostLog, Outcome, break_cycles, in_worker, run_parallel, stopping
 
 
 def test_results_in_input_order_despite_completion_order():
@@ -292,3 +292,56 @@ def test_on_done_exception_other_than_keyboard_interrupt_does_not_hang():
     assert isinstance(captured.get("exc"), RuntimeError)
     assert "result" not in captured
     assert threading.active_count() == before  # no worker threads left behind
+
+
+def test_break_cycles_two_host_loop_drops_the_first_hosts_edge():
+    out, cycles = break_cycles({"a": "b", "b": "a"}, ["a", "b"])
+
+    assert out == {"b": "a"}
+    assert cycles == [["a", "b", "a"]]
+
+
+def test_break_cycles_self_reference_drops_its_own_edge():
+    out, cycles = break_cycles({"a": "a"}, ["a"])
+
+    assert out == {}
+    assert cycles == [["a", "a"]]
+
+
+def test_break_cycles_leaves_acyclic_chains_alone():
+    out, cycles = break_cycles({"guest": "n1"}, ["guest", "n1"])
+
+    assert out == {"guest": "n1"}
+    assert cycles == []
+
+
+def _run_with_timeout(hosts, after, jobs=2, timeout=5):
+    """Run `run_parallel` in a thread with a join timeout, so a regression that reintroduces a
+    hang fails the test instead of hanging pytest forever."""
+    captured: dict = {}
+
+    def work(host, log):
+        return host
+
+    def target():
+        captured["result"] = run_parallel(hosts, work, jobs=jobs, after=after)
+
+    t = threading.Thread(target=target)
+    t.start()
+    t.join(timeout=timeout)
+    assert not t.is_alive(), "run_parallel hung on a dependency cycle"
+    return captured["result"]
+
+
+def test_run_parallel_two_host_cycle_does_not_hang_and_every_host_runs():
+    results = _run_with_timeout(["a", "b"], after={"a": "b", "b": "a"})
+
+    assert {r.host for r in results} == {"a", "b"}
+    assert all(r.status == "done" for r in results)
+
+
+def test_run_parallel_self_reference_does_not_hang_and_every_host_runs():
+    results = _run_with_timeout(["a"], after={"a": "a"})
+
+    assert {r.host for r in results} == {"a"}
+    assert all(r.status == "done" for r in results)

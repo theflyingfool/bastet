@@ -4,6 +4,7 @@ import datetime as dt
 import select
 import sys
 import tempfile
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -29,7 +30,7 @@ from bastet.core import hostkeys
 from bastet.core.errors import BastetError
 from bastet.core.frontmatter import Document
 from bastet.core.links import link_target
-from bastet.core.parallel import HostFailed, HostLog, Outcome, run_parallel, stopping
+from bastet.core.parallel import HostFailed, HostLog, Outcome, break_cycles, run_parallel, stopping
 from bastet.core.remote import SshTarget, close_master, control_path
 from bastet.cli.reboot import RebootPlan, perform_reboot, reboot_decision
 from bastet.engine.packages import Reboot
@@ -218,16 +219,24 @@ def _with_where(exc: BastetError) -> BastetError:
     return BastetError(f"{exc.message}{where}")
 
 
-def _node_of_map(by_name: dict[str, _Ready], subset: set[str], inv) -> dict[str, str]:
-    """guest host -> node host, for guests whose node is also in `subset` (the run in question)."""
+def _node_of_map(by_name: dict[str, _Ready], names: Sequence[str], inv) -> dict[str, str]:
+    """guest host -> node host, for guests whose node is also in `names` (the run in question).
+
+    `names` order matters: a `runs_on` loop (including a host pointing at itself) is broken
+    deterministically by walking it, and reported as a warning naming the hosts in the loop.
+    """
+    subset = set(names)
     out: dict[str, str] = {}
-    for name in subset:
+    for name in names:
         link = link_target(by_name[name].doc.data.get("runs_on"))
         if not link:
             continue
         node_doc = inv.get(link)
         if node_doc is not None and node_doc.name in subset:
             out[name] = node_doc.name
+    out, cycles = break_cycles(out, names)
+    for cycle in cycles:
+        typer.secho(f"runs_on loop: {' → '.join(cycle)}; ignoring it for ordering", fg="yellow")
     return out
 
 
@@ -382,7 +391,7 @@ def _run(names: list[str] | None, *, apply_changes: bool, yes: bool, verbose: bo
 
                 # Phase 5: apply + the lynis audit, in parallel; a guest waits for its node.
                 if run_set_ordered:
-                    node_of = _node_of_map(by_name, set(run_set_ordered), ctx.inventory)
+                    node_of = _node_of_map(by_name, run_set_ordered, ctx.inventory)
                     apply_errored: set[str] = set()
 
                     def apply_work(host: str, log: HostLog):
@@ -467,7 +476,7 @@ def _run(names: list[str] | None, *, apply_changes: bool, yes: bool, verbose: bo
                             plans[h] = result
 
                     if plans:
-                        reboot_node_of = _node_of_map(by_name, set(plans), ctx.inventory)
+                        reboot_node_of = _node_of_map(by_name, list(plans), ctx.inventory)
                         nodes_with_guest = {n for n in reboot_node_of.values() if n in plans}
                         wave1 = [h for h in plans if h not in nodes_with_guest]
                         wave2 = [h for h in plans if h in nodes_with_guest]

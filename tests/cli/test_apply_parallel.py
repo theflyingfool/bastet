@@ -421,3 +421,35 @@ def test_reboot_decision_error_is_one_hosts_red_line_others_still_reboot(runner,
     assert rebooted == ["pve2"]  # pve2's reboot still happens
     assert "pve2: rebooted" in result.output
     assert refreshed == [True]  # phase 7 still runs
+
+
+def test_runs_on_loop_warns_and_does_not_hang(runner, inventory, monkeypatch):
+    """A `runs_on` cycle must not hang apply -- the loop is broken and reported, and every host
+    still runs."""
+    make_host(inventory, "ct-a", runs_on="ct-b")
+    make_host(inventory, "ct-b", runs_on="ct-a")
+    pending = {"ct-a": 1, "ct-b": 1}
+    monkeypatch.setattr(run_mod, "plan_for", plan_stub(pending))
+    monkeypatch.setattr(run_mod, "connect", connect_stub())
+
+    def run_host(runner_, host, batches, *, apply=False, **kw):
+        if not apply:
+            return _check_run(host, pending[host])
+        return _apply_run(host, pending[host])
+
+    monkeypatch.setattr(run_mod, "run_host", run_host)
+
+    captured: dict = {}
+
+    def target():
+        captured["result"] = runner.invoke(app, ["apply", "ct-a", "ct-b", "-y"])
+
+    t = threading.Thread(target=target)
+    t.start()
+    t.join(timeout=10)
+    assert not t.is_alive(), "apply hung on a runs_on cycle"
+
+    result = captured["result"]
+    assert result.exit_code == 0, result.output
+    assert "runs_on loop: ct-a → ct-b → ct-a; ignoring it for ordering" in result.output
+    assert "HOST: ct-a" in result.output and "HOST: ct-b" in result.output
