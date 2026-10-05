@@ -293,6 +293,24 @@ def test_cli_init_sets_up_this_machine_on_a_fresh_run(runner, tmp_path, monkeypa
     assert "set up bastet's passwordless sudo" in result.output
     assert "installed Bastet's key in bastet's authorized_keys" in result.output
 
+
+def test_cli_init_discloses_the_local_account_before_asking_for_sudo(
+    runner, tmp_path, monkeypatch, interactive, _fake_local_machine
+):
+    """Before anything scrolls past (public/recovery keys, the sudo password prompt), the user is
+    told plainly that this creates a root-equivalent local account."""
+    cfg = tmp_path / "c" / "bastet.yml"
+    monkeypatch.setenv("BASTET_CONFIG", str(cfg))
+    result = runner.invoke(app, ["init", "--inventory", str(tmp_path / "Homelab"), "-y"])
+    assert result.exit_code == 0, result.output
+    disclosure_in_summary = "this machine" in result.output and "passwordless sudo" in result.output
+    assert disclosure_in_summary
+    disclosure_before_sudo = result.output.index("Setting up this machine as a Bastet host")
+    created_at = result.output.index("created the local bastet user")
+    assert disclosure_before_sudo < created_at
+    assert "root-equivalent" in result.output
+    assert "only Bastet's SSH key can log in as it" in result.output
+
     install_index = next(
         i for i, c in enumerate(_fake_local_machine.calls)
         if c[:3] == ["sudo", "-n", "install"] and c[-1] == "/etc/sudoers.d/bastet"

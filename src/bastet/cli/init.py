@@ -85,6 +85,10 @@ def _setup_this_machine(ctx: Context, public_key: Path, *, yes: bool) -> None:
     if not _stdout_is_tty():
         typer.echo("Not a terminal: run `bastet init` in a terminal to set up this machine as a Bastet host.")
         return
+    typer.echo(
+        "Setting up this machine as a Bastet host: a local 'bastet' user with passwordless sudo "
+        "(root-equivalent; only Bastet's SSH key can log in as it). sudo will ask for your password."
+    )
     if not _sudo_validate():
         typer.secho("Could not get sudo; this machine was not set up as a Bastet host.", fg="yellow")
         return
@@ -220,6 +224,10 @@ def init(
     typer.echo(f"  login       {options.bootstrap_user} (to set up the bastet user on existing hosts)")
     typer.echo(f"  lab         {options.lab_name}" + (f"  {domains}" if domains else ""))
     typer.echo(f"  stylesheet  {'yes' if options.snippet else 'no'}")
+    typer.echo(
+        "  this machine  a local 'bastet' user with passwordless sudo (root-equivalent; only "
+        "Bastet's SSH key can log in as it)"
+    )
     if not yes and not typer.confirm("Go ahead?", default=True):
         typer.echo("Nothing written.")
         return
