@@ -51,10 +51,11 @@ Generic mechanisms every role is assembled from (roles spec §8). Roles never im
 | ☐ | JSON state | APIs and JSON-speaking CLIs: read, find, compare a subset, create/update/delete; on the host or the controller | Everything |
 | ◐ | commands | A command with a check | Phase hooks (`changed` / `always` / `check:`) |
 | ◐ | reports | Read-only information: lynis, listening ports, service exposure, vulnerable and unaccounted packages | Report options any role can offer, the per-host reports note |
+| ☐ | power control | On, off and status through IPMI, Redfish or Wake-on-LAN | Everything |
 
 **End-of-run phases** (not blocks):
 - ☑ triggers (restart/reload once);
-- ☑ reboot (policy and need detection).
+- ◐ reboot: policy and need detection done; missing `before_reboot`/`after_reboot` hooks and the reboot plan for dependent hosts (roles spec §7.6).
 
 ## Roles
 
@@ -72,7 +73,7 @@ in roles-redesign subplan 6.
 | ☑ | — | files | Files you want on a host | |
 | ☑ | — | ssh | Every sshd option, with the lockout guard | |
 | ☑ | — | harden | fail2ban, arch-audit / debsecan, lynis | |
-| ☐ | 1 | Proxmox node setup | Bridges (VLAN-aware, applied with a rollback timer), storage, API user and token | Later: IOMMU, clustering, maybe backups |
+| ☐ | 1 | Proxmox node setup | Bridges (VLAN-aware, applied with a rollback timer), storage, API user and token; shuts guests down cleanly before a reboot and starts them again after (reboot hooks) | Later: IOMMU, clustering, maybe backups |
 | ☐ | 2 | zfs | Report first, then datasets, scrubs and snapshots (sanoid or timers, undecided), NFS exports, pools gated on blank disks | |
 | ☐ | 3 | Proxmox guests | The node creates LXCs/VMs described by their host notes; first contact and the bastet user; never recreates | Roles spec §11 |
 | ☐ | 4 | qemu_guest_agent | Guest agent in VMs | Pointless until guests are created |

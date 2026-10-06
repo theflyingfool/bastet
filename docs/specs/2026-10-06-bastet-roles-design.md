@@ -288,7 +288,8 @@ All roles' resources run in **building-block phases**:
 packages (repositories first, then installs, holds, updates) → [after_packages]
 → users → files → templates → [after_files] → [before_units]
 → systemd (units, drop-ins, timers, mounts, sysctl, modules, tmpfiles; enable/start) → [after_units]
-→ commands, JSON state → triggers (restart/reload, once each) → reboot (policy)
+→ commands, JSON state → triggers (restart/reload, once each)
+→ [before_reboot] → reboot (policy; the reboot plan, 7.6) → [after_reboot]
 ```
 
 - **The hard-coded role `ORDER` goes away.** On a host, needs/provides only drive what `add role` offers. Across hosts they drive order.
@@ -296,7 +297,8 @@ packages (repositories first, then installs, holds, updates) → [after_packages
 
 ### 7.4 Hooks
 
-- Roles may attach commands to `after_packages`, `after_files`, `before_units` and `after_units`. They're discouraged, but available.
+- Roles may attach commands to `after_packages`, `after_files`, `before_units`, `after_units`, `before_reboot` and `after_reboot`. They're discouraged, but available.
+- **A failed `before_reboot` hook cancels that host's reboot.** The host is left flagged "reboot still needed". Example: the Proxmox node role uses `before_reboot` to record the running guests and shut them down cleanly (reverse start order, each with a timeout, never killed), and `after_reboot` to start those guests again (including ones not set to start at boot) and confirm each is running. A guest that won't stop in time fails the hook, so the node isn't rebooted.
 - **Modes:**
   - **`changed`** (default): runs only when that role changed something in the preceding phase.
   - **`always`:** the author vouches it's idempotent. It's reported as *ran*, not *changed*.
@@ -310,6 +312,22 @@ packages (repositories first, then installs, holds, updates) → [after_packages
 - A guest runs after its node, using the parallel runner's `after`. Independent hosts run in parallel. Real dependencies use needs/provides (main spec §9.3).
 - Roles read other hosts through `inventory.hosts`, read-only.
 - Proxy and DNS-style roles, which configure themselves from the whole lab and run last, are **deferred**.
+
+### 7.6 The reboot plan
+
+Before rebooting a host, Bastet builds a **reboot plan** that covers the hosts depending on it: any host that *needs* something this host *provides*, found through needs/provides (an NFS mount from it, for example). For each dependent:
+
+| The dependent has… | Bastet |
+|---|---|
+| power control (IPMI, Redfish, Wake-on-LAN; 8.4) | shuts it down cleanly (its own guests first, through its hooks), reboots this host and waits for it, then powers the dependent on and waits until it answers over SSH |
+| no remote power-on | doesn't power it off: stops what uses the shared resource and unmounts it before the reboot, then remounts and restarts it after. If that isn't possible (e.g. the share is a guest's root disk), it stops and asks |
+
+**Rules:**
+- **The whole plan is shown and confirmed before anything happens:** "rebooting pve1 also shuts down pve2 and powers it back on through IPMI".
+- **Powering off another host needs that host's own reboot policy to allow it.** Otherwise Bastet asks, even under `-y` with `reboot: auto` on the rebooted host.
+- **Never the controller:** Bastet never powers off or reboots the controller, or the host the controller runs on.
+- **A dependent that doesn't come back** (power-on fails, or no SSH by the timeout) is reported loudly with its last known state. No endless retries.
+- **Chains are followed in order:** dependents of dependents go down first and come back last.
 
 ## 8. Building blocks
 
@@ -325,8 +343,9 @@ Blocks are generic **mechanisms**. Specific things, and friendly menus over a me
 | JSON state | APIs and JSON-speaking CLIs (8.1) |
 | commands | a command with a check; also what hooks are |
 | reports | read-only information roles expose as options (8.3) |
+| power control | on / off / status through IPMI (`ipmitool`), Redfish or Wake-on-LAN; runs `on: host` (a host that can reach the management network) or `on: controller` (8.4) |
 
-Triggers and reboot are end-of-run **phases**, not blocks. Resources mark "restart X" or "needs reboot".
+Triggers and reboot are end-of-run **phases**, not blocks; the reboot phase uses power control for its plan (7.6). Resources mark "restart X" or "needs reboot".
 
 **Not blocks:**
 - **Containers.** A podman role installs through Quadlet, so a container is templates plus systemd. A docker role is files plus a command.
@@ -369,6 +388,13 @@ Triggers and reboot are end-of-run **phases**, not blocks. Resources mark "resta
   - written to `_bastet/reports/<host>.md`, embedded on the host page;
   - never counted as a change;
   - never containing secret values.
+
+### 8.4 Power control
+
+- **Operations:** `on`, `off` (a clean shutdown first, a hard power-off only if a role explicitly asks), `status`.
+- **Methods:** IPMI (`ipmitool`), Redfish, Wake-on-LAN. The method and address come from the machine's `oob:` details (main spec §5.3), and the credential from its `secret:` reference, masked everywhere.
+- **Where it runs:** on a host that can reach the management network (`on: host`, the default), or from the controller.
+- **Used by** the reboot plan (7.6), and later by roles.
 
 ## 9. Install methods and versions
 

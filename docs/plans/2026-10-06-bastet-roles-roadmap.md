@@ -13,7 +13,7 @@ The redesign is one plan made of six subplans, run in order. Each subplan:
 |---|---|---|---|---|
 | 1 | Host-note split | ☐ | — | §2, §2.1, §8.3 (reports note location) |
 | 2 | Role format and library | ☐ | — | §3, §4, §13 (`role check`), §14 |
-| 3 | Execution model | ☐ | 2 | §6, §7 |
+| 3 | Execution model | ☐ | 2 (and 4's power control for the reboot plan) | §6, §7 |
 | 4 | New and expanded blocks | ☐ | 3 | §8, §9, §10 |
 | 5 | Presets, boards, guided `add role` | ☐ | 2, 3 | §5, §5.1 |
 | 6 | Convert the nine existing roles | ☐ | 2, 3, 4 | §3, §8, §9 |
@@ -54,7 +54,8 @@ The redesign is one plan made of six subplans, run in order. Each subplan:
 **Delivers:**
 - One merged desired state per host, from all roles.
 - Building-block phases replace role `ORDER`.
-- Phase hooks with `changed` / `always` / `check:` modes and `changed_exit`.
+- Phase hooks with `changed` / `always` / `check:` modes and `changed_exit`, including `before_reboot` / `after_reboot` (a failed `before_reboot` cancels that host's reboot).
+- The reboot plan: dependents found through needs/provides are shut down and powered on again with power control, or unmounted and remounted, or Bastet asks (spec §7.6).
 - Contributions (`contributes` / `collects`), merged at planning time.
 - Same-host needs/provides by kind.
 - Compatibility checks (`os`, `os_min`, `types`, `requires`), with the gather warning and the per-host check/apply error.
@@ -73,6 +74,7 @@ The redesign is one plan made of six subplans, run in order. Each subplan:
 - Hardening drop-ins generated from `access`, with `hardening` / `hardening_overrides`, and exposure scores in check.
 - JSON state (http or command, find, subset compare with normalising, create/update/delete, write-only fields, async waits, secret auth, pinned TLS, `on: host|controller`).
 - Reports (role report options into `_bastet/reports/<host>.md`).
+- Power control (IPMI, Redfish, Wake-on-LAN; on, off, status), used by the reboot plan.
 - Install methods and versions (`install`, container tag, upstream pin, distro hold).
 - Secrets rules for files (world-readable secret files are an error).
 
