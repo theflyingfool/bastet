@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from bastet.core.attribution import last_setter
 from bastet.core.changes import Change
 from bastet.core.facts import Extracted, propose_type
-from bastet.core.factsnote import facts_change
+from bastet.core.factsnote import PARENT_KEYS, facts_change
 from bastet.core.frontmatter import Document
 from bastet.core.gitrepo import BASTET_NAME, GitRepo
 from bastet.core.hosttypes import HostType
@@ -91,6 +91,10 @@ def plan_facts(
             observed["interfaces"] = [
                 {k: v for k, v in i.items() if k != "addresses"} for i in observed["interfaces"] if isinstance(i, dict)
             ]
+    existing = inv.facts_for(doc.name)
+    for key in PARENT_KEYS:  # never observed by the host's own gather; keep whatever is already there
+        if key not in observed and key in existing:
+            observed[key] = existing[key]
 
     notes: list[Note] = []
     for key, value in observed.items():

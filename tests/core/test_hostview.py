@@ -64,3 +64,50 @@ def test_host_data_unknown_type_uses_unknown_fields():
 def test_stale_fact_keys_no_warning_for_declared_keys():
     d = doc("---\nbastet: host\ntype: proxmox-node\nip: 10.0.10.11\nlocation: \"[[Rack]]\"\n---\n")
     assert stale_fact_keys(d, TYPES) == []
+
+
+def test_host_data_vmid_fallback_to_stale_host_note():
+    """vmid is a PARENT_KEYS fact: a guest never observed its own vmid, but a value left on an old
+    host note (from before the facts note existed) still works for matching, same as ssh_host_key."""
+    inv = inv_with_facts({"os": "Debian 13"})
+    d = doc('---\nbastet: host\ntype: lxc\nruns_on: "[[pve1]]"\nip: 10.0.20.9\nvmid: 104\n---\n')
+    data = host_data(inv, d, TYPES)
+    assert data["vmid"] == 104
+    assert "vmid" in stale_fact_keys(d, TYPES)
+
+
+def test_host_data_vmid_from_facts_note_wins_over_stale_host_note():
+    inv = inv_with_facts({"vmid": 104})
+    d = doc('---\nbastet: host\ntype: lxc\nruns_on: "[[pve1]]"\nip: 10.0.20.9\nvmid: 999\n---\n')
+    data = host_data(inv, d, TYPES)
+    assert data["vmid"] == 104
+
+
+def test_host_data_links_declared_wins_for_the_same_port():
+    inv = inv_with_facts({"links": [{"port": "eno1", "to": "[[sw]]", "to_port": "9"}]})
+    d = doc(
+        '---\nbastet: host\ntype: server\nip: 10.0.10.5\n'
+        'links:\n  - port: eno1\n    to: "[[other-switch]]"\n    to_port: "1"\n---\n'
+    )
+    data = host_data(inv, d, TYPES)
+    assert data["links"] == [{"port": "eno1", "to": "[[other-switch]]", "to_port": "1"}]
+
+
+def test_host_data_links_observed_added_for_other_ports():
+    inv = inv_with_facts({"links": [{"port": "eno2", "to": "[[sw]]", "to_port": "9"}]})
+    d = doc(
+        '---\nbastet: host\ntype: server\nip: 10.0.10.5\n'
+        'links:\n  - port: eno1\n    to: "[[other-switch]]"\n    to_port: "1"\n---\n'
+    )
+    data = host_data(inv, d, TYPES)
+    assert data["links"] == [
+        {"port": "eno1", "to": "[[other-switch]]", "to_port": "1"},
+        {"port": "eno2", "to": "[[sw]]", "to_port": "9"},
+    ]
+
+
+def test_host_data_links_observed_only_when_nothing_declared():
+    inv = inv_with_facts({"links": [{"port": "eno1", "to": "[[sw]]", "to_port": "9"}]})
+    d = doc("---\nbastet: host\ntype: server\nip: 10.0.10.5\n---\n")
+    data = host_data(inv, d, TYPES)
+    assert data["links"] == [{"port": "eno1", "to": "[[sw]]", "to_port": "9"}]

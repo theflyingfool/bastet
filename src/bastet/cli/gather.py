@@ -36,6 +36,7 @@ from bastet.core.collect import Snapshot, collect, save_snapshot
 from bastet.core.config import data_dir
 from bastet.core.errors import AuthFailed, BastetError, Unreachable
 from bastet.core.facts import Extracted, extract
+from bastet.core.factsnote import facts_change
 from bastet.core.frontmatter import Document, parse_document, set_keys
 from bastet.core.unifi import device_facts, machine_item, parse_mca, redact
 from bastet.core.gatherplan import Note, plan_facts
@@ -375,6 +376,7 @@ def _gather(
     guest_drift_by_host: dict[str, list[str]] = {}
     run_state = RunState()
     unifi_devices: dict = {}
+    pending_facts: dict[str, Change] = {}  # name (lowercase) -> its pending facts-note Change this run
     with tempfile.TemporaryDirectory(prefix="bastet-") as tmp:
         tmp_path = Path(tmp)
 
@@ -456,6 +458,8 @@ def _gather(
                 update = plan_facts(
                     doc, extracted, host_type, ctx.inventory, hostkey=hostkey, gathered=gathered_at, types=ctx.types
                 )
+                if update.change is not None:
+                    pending_facts[doc.name.lower()] = update.change
                 hw_changes, hw_notes = plan_hardware(inv, doc, view, ctx.repo, take=take_fields, run=run_state) if view else ([], [])
             except BastetError as exc:
                 typer.secho(f"{doc.name}: {exc}", fg="yellow")
@@ -473,16 +477,19 @@ def _gather(
                 notes.append(Note(doc.name, "warn", "root-only facts skipped (no sudo): machine serial, DIMMs, BIOS, drive health, BMC, guests"))
             node_names = {doc.name.lower(), str(extracted.facts.get("hostname", "")).lower()}
             here = [g for g in (view.guests if view else []) if str(g.get("node", "")).lower() in node_names]
-            drift, vmid_changes = guest_drift(inv, doc, here)
+            drift, vmid_changes = guest_drift(inv, doc, here, ctx.types, gathered_at)
             for guest_name, items in drift.items():
                 guest_drift_by_host[guest_name] = items
                 notes.extend(Note(guest_name, "warn", f"drift — {item}") for item in items)
-            changes.extend(vmid_changes)
+            changes.extend(vmid_changes.values())
+            pending_facts.update(vmid_changes)
+            known_vmids = {
+                str(v) for d in inv.of_kind("host") if (v := host_data(ctx.inventory, d, ctx.types).get("vmid")) is not None
+            }
             for guest in view.guests if view else []:
                 if str(guest.get("node", "")).lower() not in node_names:
                     continue
-                known_vmid = str(guest.get("vmid")) in {str(d.data.get("vmid")) for d in inv.of_kind("host")}
-                if guest.get("name") and inv.get(str(guest["name"])) is None and not known_vmid:
+                if guest.get("name") and inv.get(str(guest["name"])) is None and str(guest.get("vmid")) not in known_vmids:
                     found_guests.append((doc.name, guest))
             host_warnings[doc.name] = [n.message for n in notes if n.host == doc.name and n.severity == "warn"]
             host_changes = ([update.change] if update.change else []) + hw_changes
@@ -494,7 +501,7 @@ def _gather(
 
     linked: list[str] = []
     if unifi_devices:
-        by_path = {c.path: c for c in changes}
+        by_path = {c.path: c for c in changes}  # hardware notes: unchanged, still a direct write
         proposals, cable_notes = propose_links(inv, unifi_devices)
         notes.extend(Note(host, "warn", message) for host, message in cable_notes)
         for proposal_host, links in _group(proposals).items():
@@ -502,26 +509,47 @@ def _gather(
                 target = inv.get(proposal_host)
                 if target is None:
                     continue
-                pending = by_path.get(target.path)
-                text = pending.after if pending is not None else target.path.read_text(encoding="utf-8")
-                existing = parse_document(text, target.path).data.get("links")
-                merged, conflicts = merge_links(existing, links)
-                notes.extend(Note(target.name, "warn", f"link {c}; left as written") for c in conflicts)
-                if merged is None:
+                if target.data.get("bastet") == "hardware":
+                    pending = by_path.get(target.path)
+                    text = pending.after if pending is not None else target.path.read_text(encoding="utf-8")
+                    existing = parse_document(text, target.path).data.get("links")
+                    merged, conflicts = merge_links(existing, links)
+                    notes.extend(Note(target.name, "warn", f"link {c}; left as written") for c in conflicts)
+                    if merged is None:
+                        continue
+                    after = set_keys(text, {"links": merged}, target.path)
+                    if pending is not None:
+                        pending.after = after
+                    else:
+                        by_path[target.path] = Change(target.path, text, after)
+                        changes.append(by_path[target.path])
+                        linked.append(target.name)
+                    before = existing if isinstance(existing, list) else []
+                    notes.extend(Note(target.name, "info", f"link {link['port']} → {link['to']} port {link['to_port']}")
+                                 for link in merged[len(before):])
                     continue
-                after = set_keys(text, {"links": merged}, target.path)
+                # A host target: observed links go to its facts note, as-observed (declared `links` on
+                # the host note still wins for the same port -- host_data merges that for readers).
+                _, conflicts = merge_links(target.data.get("links"), links)
+                notes.extend(Note(target.name, "warn", f"link {c}; left as written") for c in conflicts)
+                existing_facts = inv.facts_for(target.name)
+                prior_ports = {str(e.get("port")) for e in (existing_facts.get("links") or []) if isinstance(e, dict)}
+                name_key = target.name.lower()
+                pending = pending_facts.get(name_key)
+                if pending is not None:
+                    pending.after = set_keys(pending.after, {"links": links}, pending.path)
+                else:
+                    change = facts_change(inv.root, target.name, {**existing_facts, "links": links}, gathered_at)
+                    if change is None:
+                        continue
+                    changes.append(change)
+                    pending_facts[name_key] = change
+                    linked.append(target.name)
+                notes.extend(Note(target.name, "info", f"link {link['port']} → {link['to']} port {link['to_port']}")
+                             for link in links if str(link["port"]) not in prior_ports)
             except Exception as exc:  # one host's links must not lose the rest of the run
                 typer.secho(f"{proposal_host}: links not updated: {exc.__class__.__name__}: {exc}", fg="yellow")
                 continue
-            if pending is not None:
-                pending.after = after
-            else:
-                by_path[target.path] = Change(target.path, text, after)
-                changes.append(by_path[target.path])
-                linked.append(target.name)
-            before = existing if isinstance(existing, list) else []
-            notes.extend(Note(target.name, "info", f"link {link['port']} → {link['to']} port {link['to_port']}")
-                         for link in merged[len(before):])
 
     for note in notes:
         mark = "⚠" if note.severity == "warn" else "·"

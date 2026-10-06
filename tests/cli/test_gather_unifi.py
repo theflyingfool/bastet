@@ -56,13 +56,16 @@ def test_gather_unifi_writes_facts_hardware_and_links(runner, unifi_lab, tmp_pat
     assert "10.10.0.0/24 (br0) is on the gateway but not in the lab file's networks" in result.output
     hw = (unifi_lab / "hardware" / "Ubiquiti Gateway Fiber 1C0B8B000001.md").read_text()
     assert "category: gateway" in hw and 'installed_in: "[[uxg]]"' in hw
-    assert 'to: "[[uxg]]"' in (unifi_lab / "hosts" / "ap.md").read_text()
-    nas = (unifi_lab / "hosts" / "nas.md").read_text()
+    assert 'to: "[[uxg]]"' in facts(unifi_lab, "ap")
+    assert "to" not in (unifi_lab / "hosts" / "ap.md").read_text()
+    nas = facts(unifi_lab, "nas")
     assert "port: eno1" in nas and 'to: "[[sw]]"' in nas and 'to_port: "2"' in nas
+    nas_note = (unifi_lab / "hosts" / "nas.md").read_text()
+    assert "links" not in nas_note
     snaps = list((tmp_path / "data" / "bastet" / "snapshots" / "uxg").glob("*.json"))
     assert snaps and "SECRET-AUTHKEY" not in snaps[0].read_text()
     again = runner.invoke(app, ["gather", "uxg", "ap", "sw", "-y"])
-    assert again.exit_code == 0 and (unifi_lab / "hosts" / "nas.md").read_text() == nas
+    assert again.exit_code == 0 and (unifi_lab / "hosts" / "nas.md").read_text() == nas_note
 
 
 def test_device_without_mca_dump_is_an_error(runner, unifi_lab):

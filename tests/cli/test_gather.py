@@ -126,6 +126,69 @@ def test_gather_never_writes_host_notes_only_facts_notes(runner, laptop, monkeyp
     assert "os: Debian GNU/Linux 13 (trixie)" in facts(laptop, "vps1") and "ssh_host_key" in facts(laptop, "vps1")
 
 
+def test_gather_guard_node_with_guest_and_unifi_link(runner, inventory, monkeypatch):
+    """The guard, extended: a Proxmox node observing a guest's vmid, and a UniFi switch proposing a
+    link onto a plain host, both still leave every hosts/*.md byte-identical -- the vmid and the link
+    land in facts notes instead."""
+    from bastet.core.hostkeys import record
+    from gather_fixtures import SERVER
+    from unifi_fixtures import HOST_MAC, SWITCH
+
+    add_host(inventory, "git1", '---\nbastet: host\ntype: lxc\nruns_on: "[[pve1]]"\nip: 10.0.20.21/24\n---\n# git1\n')
+    rec = record(KEYS[0])
+    add_host(inventory, "sw", f"---\nbastet: host\ntype: unifi-switch\nip: 10.10.0.5\nssh_host_key: {rec}\n---\n# sw\n")
+    add_host(
+        inventory, "nas",
+        f"---\nbastet: host\ntype: server\nip: 10.10.0.20\ngather: false\n"
+        f"interfaces:\n  - name: eno1\n    mac: {HOST_MAC}\n"
+        'links:\n  - port: eno1\n    to: "[[other-switch]]"\n    to_port: "9"\n'
+        "---\n# nas\n",
+    )
+    before = {p.name: p.read_text() for p in (inventory / "hosts").glob("*.md")}
+
+    monkeypatch.setattr(gather_mod, "scan_keys", lambda address, recorded=None, port=22: KEYS)
+
+    class DumpRunner:
+        name = "nick@10.10.0.5"
+
+        def run(self, script, *, timeout=120):
+            if "mca-dump" not in script:
+                return CommandResult("", "", 127)
+            return CommandResult(SWITCH, "", 0)
+
+    def ssh_runner(target):
+        if target.address == "10.10.0.5":
+            return DumpRunner()
+        if target.user == "bastet":
+            class Refuse:
+                name = "bastet@x"
+
+                def run(self, script, *, timeout=120):
+                    raise AuthFailed("login refused")
+            return Refuse()
+        return FakeRunner(SERVER, f"{target.user}@{target.address}")
+
+    monkeypatch.setattr(gather_mod, "ssh_runner", ssh_runner)
+    result = runner.invoke(app, ["gather", "pve1", "sw", "-y", "--accept-new-hostkey"])
+    assert result.exit_code == 0, result.output
+
+    after = {p.name: p.read_text() for p in (inventory / "hosts").glob("*.md")}
+    assert after == before
+
+    assert "vmid: 104" in facts(inventory, "git1")
+    assert 'to: "[[sw]]"' in facts(inventory, "nas")  # observed, raw, in the facts note
+
+    # the port conflicts with nas's own declared link -- reported, and the declared entry still wins
+    assert "link eno1: seen on [[sw]] port 2" in result.output and "left as written" in result.output
+    from bastet.core.hosttypes import load_host_types
+    from bastet.core.hostview import host_data
+    from bastet.core.inventory import load_inventory
+
+    inv = load_inventory(inventory, load_host_types())
+    data = host_data(inv, inv.get("nas"), load_host_types())
+    assert data["links"] == [{"port": "eno1", "to": "[[other-switch]]", "to_port": "9"}]
+
+
 def test_host_fact_on_note_is_silently_overwritten_no_attribution(runner, laptop):
     """Host facts have no attribution or --take any more: a hand-set value in the note is simply
     replaced by the observed one in the facts note, with no warning."""
@@ -528,7 +591,8 @@ def test_guest_drift_clears_when_they_agree_and_vmid_added(runner, server):
     git(server, "commit", "-q", "-am", "fix ip")
     result = runner.invoke(app, ["gather", "pve1", "-y", "--accept-new-hostkey"])
     assert "git1: drift" not in result.output
-    assert "vmid: 104" in p.read_text()
+    assert "vmid: 104" in facts(server, "git1")
+    assert "vmid" not in p.read_text()
     summary = (server / "_bastet" / "summary" / "git1 summary.md").read_text()
     assert "[!danger]" not in summary
 
@@ -546,3 +610,26 @@ def test_renamed_guest_matched_by_vmid_is_not_offered_as_new(runner, server):
     add_host(server, "oldname", '---\nbastet: host\ntype: lxc\nruns_on: "[[pve1]]"\nip: 10.0.20.21/24\nvmid: 104\n---\n# oldname\n')
     result = runner.invoke(app, ["gather", "pve1", "--accept-new-hostkey"], input="n\ny\n")
     assert "git1 (lxc 104" not in result.output
+
+
+def test_guest_vmid_preserved_through_its_own_direct_gather(runner, server, monkeypatch):
+    """vmid is never observed by a guest's own gather (only the node sees it) -- a direct gather of
+    the guest itself must keep whatever is already in its facts note."""
+    _git1(server)
+    result = runner.invoke(app, ["gather", "pve1", "-y", "--accept-new-hostkey"])
+    assert result.exit_code == 0, result.output
+    assert "vmid: 104" in facts(server, "git1")
+
+    real_ssh_runner = gather_mod.ssh_runner
+
+    def ssh_runner(target):
+        if target.address == "10.0.20.99":
+            return FakeRunner(dict(LAPTOP, hostname="git1"), f"{target.user}@{target.address}")
+        return real_ssh_runner(target)
+
+    monkeypatch.setattr(gather_mod, "ssh_runner", ssh_runner)
+    result = runner.invoke(app, ["gather", "git1", "-y", "--accept-new-hostkey"])
+    assert result.exit_code == 0, result.output
+    note = facts(server, "git1")
+    assert "vmid: 104" in note and "os: Arch Linux" in note
+    assert "vmid" not in (server / "hosts" / "git1.md").read_text()

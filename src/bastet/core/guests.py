@@ -1,11 +1,15 @@
 """Compare what a Proxmox node says about its guests with the guests' files.
 
 The files are the source of truth: a difference is drift. It is reported, never adopted here.
-Only observed facts that the file lacks (the VMID) are filled in.
+Only observed facts that the file lacks (the VMID) are filled in -- into the guest's facts note,
+since a guest's own gather never observes its own vmid (that's the node's doing).
 """
 
 from bastet.core.changes import Change
-from bastet.core.frontmatter import Document, set_keys
+from bastet.core.factsnote import facts_change
+from bastet.core.frontmatter import Document
+from bastet.core.hosttypes import HostType
+from bastet.core.hostview import host_data
 from bastet.core.inventory import Inventory
 from bastet.core.links import link_target
 
@@ -14,12 +18,18 @@ def _bare(ip: str) -> str:
     return str(ip).split("/", 1)[0].strip()
 
 
-def guest_drift(inv: Inventory, node: Document, guests: list[dict]) -> tuple[dict[str, list[str]], list[Change]]:
+def guest_drift(
+    inv: Inventory, node: Document, guests: list[dict], types: dict[str, HostType], gathered: str
+) -> tuple[dict[str, list[str]], dict[str, Change]]:
     """For guests of `node` that are in the inventory: drift messages per guest (empty list = in agreement),
-    plus changes that add a missing `vmid`."""
-    by_vmid = {str(d.data.get("vmid")): d for d in inv.of_kind("host") if d.data.get("vmid") is not None}
+    plus a facts-note Change per guest newly matched by vmid, keyed by guest name (lowercase)."""
+    by_vmid: dict[str, Document] = {}
+    for d in inv.of_kind("host"):
+        vmid = host_data(inv, d, types).get("vmid")
+        if vmid is not None:
+            by_vmid[str(vmid)] = d
     drift: dict[str, list[str]] = {}
-    changes: list[Change] = []
+    changes: dict[str, Change] = {}
     for g in guests:
         doc = by_vmid.get(str(g.get("vmid"))) or inv.get(str(g.get("name", "")))
         if doc is None or doc.data.get("bastet") != "host":
@@ -36,7 +46,9 @@ def guest_drift(inv: Inventory, node: Document, guests: list[dict]) -> tuple[dic
         elif conf_ip == "dhcp" and file_ip and file_ip.lower() != "dhcp":
             items.append(f"ip: file says {file_ip}, Proxmox uses DHCP")
         drift[doc.name] = items
-        if doc.data.get("vmid") is None:
-            text = doc.path.read_text(encoding="utf-8")
-            changes.append(Change(doc.path, text, set_keys(text, {"vmid": g["vmid"]}, doc.path)))
+        if host_data(inv, doc, types).get("vmid") is None:
+            merged = {**inv.facts_for(doc.name), "vmid": g["vmid"]}
+            change = facts_change(inv.root, doc.name, merged, gathered)
+            if change is not None:
+                changes[doc.name.lower()] = change
     return drift, changes

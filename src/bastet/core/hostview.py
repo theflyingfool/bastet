@@ -5,6 +5,8 @@ go through `host_data` instead of reading `doc.data` directly, so a stale fact l
 note can never beat a fresh one from the facts note.
 """
 
+from bastet.core.cabling import merge_links
+from bastet.core.factsnote import PARENT_KEYS
 from bastet.core.frontmatter import Document
 from bastet.core.hosttypes import HostType
 from bastet.core.inventory import Inventory
@@ -12,6 +14,10 @@ from bastet.core.inventory import Inventory
 # Structural host-note keys: never fact-nature, whatever the host type says (most aren't declared
 # under a type's `fields:` at all, so this is mostly a safety net).
 IDENTITY_KEYS = ("type", "groups", "runs_on", "location", "connection", "gather", "address", "ip", "state", "hostname")
+# A key recorded only on an old host note, from before the facts note existed (or, for PARENT_KEYS,
+# before a parent ever observed it): still honoured as a fallback, reported by Task 2's stale-fact
+# check, never silently re-trusted as Bastet's own.
+FALLBACK_KEYS = ("ssh_host_key", *PARENT_KEYS)
 
 
 def _fields(doc: Document, types: dict[str, HostType]) -> dict[str, str]:
@@ -26,8 +32,14 @@ def host_data(inv: Inventory, doc: Document, types: dict[str, HostType]) -> dict
         if key not in IDENTITY_KEYS and fields.get(key) == "fact":
             continue
         data[key] = value
-    if "ssh_host_key" not in data and doc.data.get("ssh_host_key"):
-        data["ssh_host_key"] = doc.data["ssh_host_key"]
+    for key in FALLBACK_KEYS:
+        if key not in data and doc.data.get(key) is not None:
+            data[key] = doc.data[key]
+    observed_links = inv.facts_for(doc.name).get("links")
+    if isinstance(observed_links, list):
+        merged, _ = merge_links(doc.data.get("links"), observed_links)
+        if merged is not None:
+            data["links"] = merged
     return data
 
 
