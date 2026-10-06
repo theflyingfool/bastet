@@ -7,7 +7,7 @@ import pytest
 
 import bastet.cli.gather as gather_mod
 from bastet.cli.app import app
-from bastet.core.factsnote import facts_path
+from bastet.core.factsnote import facts_path, render_facts
 from bastet.core.remote import CommandResult
 from conftest import git
 from gather_fixtures import LAPTOP, stdout_for
@@ -36,7 +36,10 @@ def unifi_lab(inventory, monkeypatch):
     (h / "uxg.md").write_text(f"---\nbastet: host\ntype: unifi-gateway\nip: 10.10.0.1\ngather: true\nssh_host_key: {REC}\n---\n# uxg\n")
     (h / "ap.md").write_text(f"---\nbastet: host\ntype: unifi-ap\nip: 10.10.0.3\ngather: true\nssh_host_key: {REC}\n---\n# ap\n")
     (h / "sw.md").write_text(f"---\nbastet: host\ntype: unifi-switch\nip: 10.10.0.5\ngather: true\nssh_host_key: {REC}\n---\n# sw\n")
-    (h / "nas.md").write_text(f"---\nbastet: host\ntype: server\nip: 10.10.0.20\ngather: false\ninterfaces:\n  - name: eno1\n    mac: {HOST_MAC}\n---\n# nas\n")
+    (h / "nas.md").write_text("---\nbastet: host\ntype: server\nip: 10.10.0.20\ngather: false\n---\n# nas\n")
+    facts_path(inventory, "nas").parent.mkdir(parents=True, exist_ok=True)
+    facts_path(inventory, "nas").write_text(
+        render_facts("nas", {"interfaces": [{"name": "eno1", "mac": HOST_MAC}]}, "2026-10-06T10:00:00Z"))
     git(inventory, "add", ".")
     git(inventory, "commit", "-q", "-m", "unifi")
     monkeypatch.setattr(gather_mod, "scan_keys", lambda address, recorded=None, port=22: KEYS)

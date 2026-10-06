@@ -9,7 +9,7 @@ import pytest
 import bastet.cli.gather as gather_mod
 from bastet.cli.app import app
 from bastet.core.errors import AuthFailed, Unreachable
-from bastet.core.factsnote import facts_path
+from bastet.core.factsnote import facts_path, render_facts
 from bastet.core.hostkeys import parse_keyscan
 from bastet.core.remote import CommandResult
 from gather_fixtures import LAPTOP, VPS, stdout_for
@@ -139,11 +139,15 @@ def test_gather_guard_node_with_guest_and_unifi_link(runner, inventory, monkeypa
     add_host(inventory, "sw", f"---\nbastet: host\ntype: unifi-switch\nip: 10.10.0.5\nssh_host_key: {rec}\n---\n# sw\n")
     add_host(
         inventory, "nas",
-        f"---\nbastet: host\ntype: server\nip: 10.10.0.20\ngather: false\n"
-        f"interfaces:\n  - name: eno1\n    mac: {HOST_MAC}\n"
+        "---\nbastet: host\ntype: server\nip: 10.10.0.20\ngather: false\n"
         'links:\n  - port: eno1\n    to: "[[other-switch]]"\n    to_port: "9"\n'
         "---\n# nas\n",
     )
+    facts_path(inventory, "nas").parent.mkdir(parents=True, exist_ok=True)
+    facts_path(inventory, "nas").write_text(
+        render_facts("nas", {"interfaces": [{"name": "eno1", "mac": HOST_MAC}]}, "2026-10-06T10:00:00Z"))
+    git(inventory, "add", str(facts_path(inventory, "nas").relative_to(inventory)))
+    git(inventory, "commit", "-q", "-m", "nas facts")
     before = {p.name: p.read_text() for p in (inventory / "hosts").glob("*.md")}
 
     monkeypatch.setattr(gather_mod, "scan_keys", lambda address, recorded=None, port=22: KEYS)

@@ -5,16 +5,22 @@ from __future__ import annotations
 import ipaddress
 
 from bastet.core.cabling import _owner
+from bastet.core.hosttypes import HostType
 from bastet.core.inventory import Inventory, _bare_ip
 from bastet.core.links import link_target
 from bastet.core.networks import lab_networks, network_of
 from bastet.core.render import _address, _label, _where
 
 
-def _edges(inv: Inventory) -> list[tuple[str, str, str]]:
+def _edges(inv: Inventory, types: dict[str, HostType]) -> list[tuple[str, str, str]]:
+    from bastet.core.hostview import host_data  # lazy: hostview imports cabling
+
+    def _data(doc) -> dict:
+        return host_data(inv, doc, types) if doc.data.get("bastet") == "host" else doc.data
+
     out = []
     for doc in [*inv.of_kind("host"), *inv.of_kind("hardware")]:
-        links = doc.data.get("links")
+        links = _data(doc).get("links")
         for link in links if isinstance(links, list) else []:
             target = link_target(link.get("to")) if isinstance(link, dict) else None
             if not target:
@@ -24,8 +30,8 @@ def _edges(inv: Inventory) -> list[tuple[str, str, str]]:
     return out
 
 
-def cabling_map(inv: Inventory, around: str | None = None) -> str:
-    edges = _edges(inv)
+def cabling_map(inv: Inventory, types: dict[str, HostType], around: str | None = None) -> str:
+    edges = _edges(inv, types)
     if around:
         me = around.lower()
         near = {me} | {b.lower() for a, b, _ in edges if a.lower() == me} | {a.lower() for a, b, _ in edges if b.lower() == me}

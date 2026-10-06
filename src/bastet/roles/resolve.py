@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from bastet.core.errors import BastetError
 from bastet.core.frontmatter import Document
 from bastet.core.hosttypes import HostType
+from bastet.core.hostview import host_data
 from bastet.core.inventory import Inventory
 from bastet.core.links import link_target
 from bastet.core.osinfo import os_id
@@ -37,7 +38,7 @@ def _links(value) -> list[str]:
     return [t for t in (link_target(i) for i in items) if t]
 
 
-def _matches(group: Document, host: Document) -> bool:
+def _matches(inv: Inventory, group: Document, host: Document, types: dict[str, HostType]) -> bool:
     """A group's `match:` rule (os, type): hosts that fit every key belong to it without listing it."""
     if "match" not in group.data:
         return False
@@ -48,7 +49,8 @@ def _matches(group: Document, host: Document) -> bool:
     if unknown:
         raise BastetError(f"match: unknown key {', '.join(sorted(map(str, unknown)))} (known: os, type)",
                           file=group.path, key="match")
-    have = {"os": os_id(host.data), "type": str(host.data.get("type") or "")}
+    data = host_data(inv, host, types)
+    have = {"os": os_id(data), "type": str(data.get("type") or "")}
     for key, wanted in rule.items():
         options = [str(w).lower() if key == "os" else str(w) for w in (wanted if isinstance(wanted, list) else [wanted])]
         if have[key] not in options:
@@ -56,11 +58,11 @@ def _matches(group: Document, host: Document) -> bool:
     return True
 
 
-def group_distances(inv: Inventory, host: Document) -> dict[str, int]:
+def group_distances(inv: Inventory, host: Document, types: dict[str, HostType]) -> dict[str, int]:
     """Groups the host belongs to, directly (1) or through nesting (2, 3…); the nearest path counts."""
     dist: dict[str, int] = {}
     frontier = [(name, 1) for name in _links(host.data.get("groups"))]
-    frontier += [(g.name, 1) for g in inv.of_kind("group") if _matches(g, host)]
+    frontier += [(g.name, 1) for g in inv.of_kind("group") if _matches(inv, g, host, types)]
     while frontier:
         name, d = frontier.pop(0)
         doc = inv.get(name)
@@ -80,7 +82,7 @@ def sources_for(inv: Inventory, host: Document, types: dict[str, HostType]) -> d
     if host_type is not None:
         for role, values in host_type.roles.items():
             out.setdefault(role, []).append(Source(role, f"type {host_type.name}", (1,), dict(values or {})))
-    dist = group_distances(inv, host)
+    dist = group_distances(inv, host, types)
     for doc in inv.role_files:
         target = inv.get(link_target(doc.data.get("applies_to")) or "")
         if target is None:

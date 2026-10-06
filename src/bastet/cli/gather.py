@@ -506,7 +506,7 @@ def _gather(
     linked: list[str] = []
     if unifi_devices:
         by_path = {c.path: c for c in changes}  # hardware notes: unchanged, still a direct write
-        proposals, cable_notes = propose_links(inv, unifi_devices)
+        proposals, cable_notes = propose_links(inv, ctx.types, unifi_devices)
         notes.extend(Note(host, "warn", message) for host, message in cable_notes)
         for proposal_host, links in _group(proposals).items():
             try:

@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from bastet.core.hosttypes import HostType
 from bastet.core.inventory import Inventory
 from bastet.core.links import link_target, make_link
 from bastet.core.unifi import Device
@@ -31,12 +32,14 @@ def _norm(mac: object) -> str:
 BMC_PORT = "bmc"
 
 
-def _host_macs(inv: Inventory) -> dict[str, tuple[str, str, str]]:
+def _host_macs(inv: Inventory, types: dict[str, HostType]) -> dict[str, tuple[str, str, str]]:
     """MAC -> (note the link goes on, machine, interface) for cabled hosts (not guests, not UniFi devices).
 
     Physical interfaces only. A BMC is its own cable end, port "bmc", linked on its machine's hardware note
     (it belongs to the board, not the OS); it still counts as the same machine as the host's NICs.
     """
+    from bastet.core.hostview import host_data  # lazy: hostview imports cabling
+
     out: dict[str, tuple[str, str, str]] = {}
     hosts = {d.name.lower(): d for d in inv.of_kind("host")}
     cabled = {k: d for k, d in hosts.items()
@@ -47,7 +50,7 @@ def _host_macs(inv: Inventory) -> dict[str, tuple[str, str, str]]:
             out.setdefault(_norm(mac), (note or host, host, str(iface)))
 
     for doc in cabled.values():
-        for i in doc.data.get("interfaces") or []:
+        for i in host_data(inv, doc, types).get("interfaces") or []:
             if isinstance(i, dict):
                 add(i.get("mac"), doc.name, i.get("name"))
     for hw in inv.of_kind("hardware"):
@@ -64,21 +67,27 @@ def _host_macs(inv: Inventory) -> dict[str, tuple[str, str, str]]:
     return out
 
 
-def _unifi_macs(inv: Inventory, devices: dict[str, tuple[str, Device]]) -> dict[str, str]:
+def _unifi_macs(inv: Inventory, types: dict[str, HostType], devices: dict[str, tuple[str, Device]]) -> dict[str, str]:
     """MAC -> UniFi host name: this run's devices plus every UniFi host note's recorded `mac`."""
+    from bastet.core.hostview import host_data  # lazy: hostview imports cabling
+
     out = {}
     for doc in inv.of_kind("host"):
-        if str(doc.data.get("type", "")).startswith("unifi-") and doc.data.get("mac"):
-            out[_norm(doc.data["mac"])] = doc.name
+        if str(doc.data.get("type", "")).startswith("unifi-"):
+            mac = host_data(inv, doc, types).get("mac")
+            if mac:
+                out[_norm(mac)] = doc.name
     for name, (_, d) in devices.items():
         for m in d.interface_macs | {d.mac}:
             out[_norm(m)] = name
     return out
 
 
-def propose_links(inv: Inventory, devices: dict[str, tuple[str, Device]]) -> tuple[list[LinkProposal], list[tuple[str, str]]]:
+def propose_links(
+    inv: Inventory, types: dict[str, HostType], devices: dict[str, tuple[str, Device]]
+) -> tuple[list[LinkProposal], list[tuple[str, str]]]:
     """Proposals, plus notes (host, message) for evidence too ambiguous to write."""
-    by_mac = _unifi_macs(inv, devices)
+    by_mac = _unifi_macs(inv, types, devices)
     trunk: dict[str, set[str]] = {name: set() for name in devices}
     proposals: list[LinkProposal] = []
     notes: list[tuple[str, str]] = []
@@ -99,7 +108,7 @@ def propose_links(inv: Inventory, devices: dict[str, tuple[str, Device]]) -> tup
                 proposals.append(LinkProposal(name, {"port": n.local, "to": make_link(other), "to_port": back}))
             else:
                 proposals.append(LinkProposal(other, {"port": back, "to": make_link(name), "to_port": n.local}))
-    host_macs = _host_macs(inv)
+    host_macs = _host_macs(inv, types)
     found: dict[tuple[str, str], list[tuple[str, str]]] = {}
     for name, (_, d) in devices.items():
         for p in d.ports:
@@ -187,11 +196,16 @@ def _port_key(port: str) -> tuple:
     return (0, int(port), "") if port.isdigit() else (1, 0, port)
 
 
-def port_rows(inv: Inventory, name: str) -> list[PortRow]:
+def port_rows(inv: Inventory, types: dict[str, HostType], name: str) -> list[PortRow]:
+    from bastet.core.hostview import host_data  # lazy: hostview imports cabling
+
+    def _data(doc) -> dict:
+        return host_data(inv, doc, types) if doc.data.get("bastet") == "host" else doc.data
+
     me = name.lower()
     rows: dict[tuple[str, str, str], PortRow] = {}  # several links can share a port (a BMC sharing a NIC)
     for doc in [*inv.of_kind("host"), *inv.of_kind("hardware")]:
-        links = doc.data.get("links")
+        links = _data(doc).get("links")
         for link in links if isinstance(links, list) else []:
             if not isinstance(link, dict) or link.get("port") is None:
                 continue
@@ -204,7 +218,7 @@ def port_rows(inv: Inventory, name: str) -> list[PortRow]:
                 continue
             rows.setdefault((row.port, row.peer.lower(), row.peer_port), row)
     me_doc = inv.get(name)
-    ports = me_doc.data.get("ports") if me_doc else None
+    ports = _data(me_doc).get("ports") if me_doc else None
     linked = {r.port for r in rows.values()}
     for p in ports if isinstance(ports, list) else []:
         if isinstance(p, dict) and p.get("port") is not None and str(p["port"]) not in linked:

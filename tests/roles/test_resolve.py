@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from bastet.core.factsnote import render_facts
 from bastet.core.hosttypes import load_host_types
 from bastet.core.inventory import load_inventory
 from bastet.engine.run import ConflictError
@@ -10,6 +11,12 @@ from bastet.roles.resolve import group_distances, resolve
 
 TYPES = load_host_types()
 ROLES = load_roles()
+
+
+def write_facts(root: Path, host: str, facts: dict) -> None:
+    path = root / "_bastet" / "facts" / f"{host} facts.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(render_facts(host, facts, "2026-10-06T10:00:00Z"))
 
 FILES = {
     "Homelab.md": "---\nbastet: lab\n---\n# Homelab\n",
@@ -44,7 +51,7 @@ def test_role_files_share_names_without_clashing(tmp_path):
 
 def test_group_distances(tmp_path):
     inv = lab(tmp_path)
-    assert group_distances(inv, inv.get("hp-13")) == {"laptops": 1, "workstations": 2}
+    assert group_distances(inv, inv.get("hp-13"), TYPES) == {"laptops": 1, "workstations": 2}
 
 
 def test_precedence_and_lists_add_up(tmp_path):
@@ -110,8 +117,10 @@ def test_host_types_have_baseline_roles():
 def test_os_group_by_match(tmp_path):
     (tmp_path / "Homelab.md").write_text("---\nbastet: lab\n---\n# L\n")
     (tmp_path / "hosts").mkdir()
-    (tmp_path / "hosts" / "a.md").write_text("---\nbastet: host\ntype: laptop\nos: Arch Linux\n---\n# a\n")
-    (tmp_path / "hosts" / "d.md").write_text("---\nbastet: host\ntype: laptop\nos: Debian GNU/Linux 13 (trixie)\n---\n# d\n")
+    (tmp_path / "hosts" / "a.md").write_text("---\nbastet: host\ntype: laptop\n---\n# a\n")
+    (tmp_path / "hosts" / "d.md").write_text("---\nbastet: host\ntype: laptop\n---\n# d\n")
+    write_facts(tmp_path, "a", {"os": "Arch Linux"})
+    write_facts(tmp_path, "d", {"os": "Debian GNU/Linux 13 (trixie)"})
     (tmp_path / "_bastet" / "groups").mkdir(parents=True)
     (tmp_path / "_bastet" / "groups" / "arch.md").write_text("---\nbastet: group\nmatch:\n  os: arch\n---\n# arch\n")
     (tmp_path / "_roles" / "groups").mkdir(parents=True)
@@ -128,7 +137,8 @@ def test_os_group_by_match(tmp_path):
 def _match_lab(tmp_path, rule):
     (tmp_path / "Homelab.md").write_text("---\nbastet: lab\n---\n# L\n")
     (tmp_path / "hosts").mkdir()
-    (tmp_path / "hosts" / "a.md").write_text("---\nbastet: host\ntype: laptop\nos: Debian GNU/Linux 13 (trixie)\n---\n# a\n")
+    (tmp_path / "hosts" / "a.md").write_text("---\nbastet: host\ntype: laptop\n---\n# a\n")
+    write_facts(tmp_path, "a", {"os": "Debian GNU/Linux 13 (trixie)"})
     (tmp_path / "groups").mkdir()
     (tmp_path / "groups" / "g.md").write_text(f"---\nbastet: group\nmatch: {rule}\n---\n# g\n")
     types = load_host_types()
@@ -141,12 +151,12 @@ def test_match_must_be_a_rule(tmp_path, rule):
     from bastet.core.errors import BastetError
     inv, host = _match_lab(tmp_path, rule)
     with pytest.raises(BastetError, match="match"):
-        group_distances(inv, host)
+        group_distances(inv, host, TYPES)
 
 
 def test_match_os_is_case_insensitive(tmp_path):
     inv, host = _match_lab(tmp_path, "{os: Debian}")
-    assert "g" in group_distances(inv, host)
+    assert "g" in group_distances(inv, host, TYPES)
 
 
 def test_non_numeric_group_priority(tmp_path):

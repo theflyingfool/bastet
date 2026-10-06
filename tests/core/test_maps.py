@@ -24,9 +24,9 @@ def lab(tmp_path: Path):
 
 def test_cabling_map_edges_and_around(tmp_path):
     inv = lab(tmp_path)
-    full = cabling_map(inv)
+    full = cabling_map(inv, TYPES)
     assert full.startswith("```mermaid") and full.count("---") >= 3 and "9 ↔ 4 · 10G" in full
-    near = cabling_map(inv, around="gw")
+    near = cabling_map(inv, TYPES, around="gw")
     assert "gw" in near and "sw" in near and "far" not in near
 
 
@@ -39,7 +39,7 @@ def test_networks_map_groups_hosts(tmp_path):
 def test_empty_maps(tmp_path):
     (tmp_path / "Homelab.md").write_text("---\nbastet: lab\n---\n# L\n")
     inv = load_inventory(tmp_path, TYPES)
-    assert cabling_map(inv) == "" and networks_map(inv) == ""
+    assert cabling_map(inv, TYPES) == "" and networks_map(inv) == ""
 
 
 def test_networks_map_mixed_ip_versions(tmp_path):

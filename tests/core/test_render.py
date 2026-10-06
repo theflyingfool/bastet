@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from bastet.core.changes import write_changes
+from bastet.core.factsnote import facts_path, render_facts
 from bastet.core.frontmatter import parse_document
 from bastet.core.gitrepo import GitRepo
 from bastet.core.hosttypes import load_host_types
@@ -18,15 +19,10 @@ FILES = {
     "Homelab.md": "---\nbastet: lab\nname: Homelab\ndomains:\n  public: example.com\n---\n# Homelab\n",
     "locations/Closet.md": "---\nbastet: location\n---\n# Closet\n",
     "locations/Linode.md": "---\nbastet: location\n---\n# Linode\n",
-    "hosts/pve1.md": (
-        "---\nbastet: host\ntype: proxmox-node\nip: 10.0.10.11\nlocation: \"[[Closet]]\"\nos: Debian GNU/Linux 13 (trixie)\n"
-        "kernel: 6.14.8-2-pve\ncpu: Intel(R) Xeon(R) E-2236 CPU @ 3.40GHz\ncpu_cores: 6\ncpu_threads: 12\nram: 64 GB\n"
-        "storage: 9 TB\ngateway: 10.0.10.1\nchassis: server\n---\n# pve1\n"
-    ),
-    "hosts/git1.md": "---\nbastet: host\ntype: lxc\nruns_on: \"[[pve1]]\"\nip: 10.0.20.21\nos: Debian 13\n---\n# git1\n",
+    "hosts/pve1.md": "---\nbastet: host\ntype: proxmox-node\nip: 10.0.10.11\nlocation: \"[[Closet]]\"\n---\n# pve1\n",
+    "hosts/git1.md": "---\nbastet: host\ntype: lxc\nruns_on: \"[[pve1]]\"\nip: 10.0.20.21\n---\n# git1\n",
     "hosts/vps1.md": (
-        "---\nbastet: host\ntype: vps\nprovider: linode\nip: 203.0.113.10\nlocation: \"[[Linode]]\"\nos: Arch Linux\n"
-        "ram: 1 GB\nvirtualization: kvm\nchassis: vm\n---\n# vps1\n"
+        "---\nbastet: host\ntype: vps\nprovider: linode\nip: 203.0.113.10\nlocation: \"[[Linode]]\"\n---\n# vps1\n"
     ),
     "hardware/Supermicro SYS-5019C-MR S123456X.md": (
         "---\nbastet: hardware\ncategory: server\nmake: Supermicro\nmodel: SYS-5019C-MR\nserial: S123456X\nstatus: in-service\n"
@@ -44,6 +40,29 @@ FILES = {
     ),
 }
 
+FACTS = {
+    "pve1": {
+        "os": "Debian GNU/Linux 13 (trixie)", "kernel": "6.14.8-2-pve", "cpu": "Intel(R) Xeon(R) E-2236 CPU @ 3.40GHz",
+        "cpu_cores": 6, "cpu_threads": 12, "ram": "64 GB", "storage": "9 TB", "gateway": "10.0.10.1", "chassis": "server",
+    },
+    "git1": {"os": "Debian 13"},
+    "vps1": {"os": "Arch Linux", "ram": "1 GB", "virtualization": "kvm", "chassis": "vm"},
+}
+
+
+def write_facts(root: Path, host: str, facts: dict) -> None:
+    facts_path(root, host).parent.mkdir(parents=True, exist_ok=True)
+    facts_path(root, host).write_text(render_facts(host, facts, "2026-10-06T10:00:00Z"))
+
+
+def add_facts(root: Path, host: str, extra: dict) -> None:
+    """Merge `extra` into a host's existing facts note (for tests exercising one more fact key)."""
+    current = parse_document(facts_path(root, host).read_text(), facts_path(root, host))
+    from bastet.core.factsnote import META_KEYS
+
+    facts = {k: v for k, v in current.data.items() if k not in META_KEYS}
+    write_facts(root, host, {**facts, **extra})
+
 
 @pytest.fixture
 def repo(tmp_path) -> GitRepo:
@@ -51,10 +70,14 @@ def repo(tmp_path) -> GitRepo:
         p = tmp_path / rel
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(text)
+    fact_paths = []
+    for host, facts in FACTS.items():
+        write_facts(tmp_path, host, facts)
+        fact_paths.append(facts_path(tmp_path, host))
     r = GitRepo(tmp_path)
     r.init()
     subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
-    r.commit([tmp_path / rel for rel in FILES], "gather: pve1", as_bastet=True)
+    r.commit([tmp_path / rel for rel in FILES] + fact_paths, "gather: pve1", as_bastet=True)
     return r
 
 
@@ -180,8 +203,7 @@ def test_new_category_summaries_and_cards(repo):
     (repo.root / "hardware" / "psu.md").write_text('---\nbastet: hardware\ncategory: psu\nmodel: PWS-504P-1R\nmax_power: 500 W\nstatus: in-service\ninstalled_in: "[[pve1]]"\n---\n')
     (repo.root / "hardware" / "dimm.md").write_text('---\nbastet: hardware\ncategory: memory\nmodel: M391A4G43MB1-CTD\nsize: 32 GB\ntype: DDR4\nslot: DIMMA1\nstatus: in-service\ninstalled_in: "[[pve1]]"\n---\n')
     (repo.root / "hardware" / "stick.md").write_text('---\nbastet: hardware\ncategory: usb\nmodel: ConBee II\nusb_id: 1cf1:0030\nstatus: in-service\ninstalled_in: "[[pve1]]"\n---\n')
-    h = repo.root / "hosts" / "pve1.md"
-    h.write_text(h.read_text().replace("chassis: server\n", "chassis: server\nbridges:\n  - name: vmbr0\n    ports:\n      - eno1\n"))
+    add_facts(repo.root, "pve1", {"bridges": [{"name": "vmbr0", "ports": ["eno1"]}]})
     m = repo.root / "hardware" / "Supermicro SYS-5019C-MR S123456X.md"
     m.write_text(m.read_text().replace("oob_address:", "boot: uefi\ntpm: TPM 2.0\nsecure_boot: disabled\noob_address:"))
     i = inv(repo)
@@ -224,7 +246,7 @@ def test_maps_are_generated(repo):
 def test_broken_host_file_keeps_its_summary(repo):
     write_changes(generated_changes(inv(repo), TYPES, repo))
     git1 = repo.root / "hosts" / "git1.md"
-    git1.write_text(git1.read_text().replace("os: Debian 13\n", "os: Debian 13\nnotes: [unclosed\n"))
+    git1.write_text(git1.read_text().replace("ip: 10.0.20.21\n", "ip: 10.0.20.21\nnotes: [unclosed\n"))
     assert [c for c in generated_changes(inv(repo), TYPES, repo) if c.after is None] == []
 
 

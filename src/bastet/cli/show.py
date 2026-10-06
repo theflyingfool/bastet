@@ -4,6 +4,8 @@ import typer
 
 from bastet.cli.common import handles_errors, load_context
 from bastet.core.errors import BastetError
+from bastet.core.hosttypes import HostType
+from bastet.core.hostview import host_data
 from bastet.core.inventory import Inventory
 from bastet.core.yamlstyle import dump_frontmatter
 
@@ -13,11 +15,12 @@ def _table(rows: list[list[str]]) -> list[str]:
     return ["  " + "  ".join(c.ljust(w) for c, w in zip(r, widths)).rstrip() for r in rows]
 
 
-def _show_all(inv: Inventory) -> None:
+def _show_all(inv: Inventory, types: dict[str, HostType]) -> None:
     hosts = inv.of_kind("host")
     typer.echo(f"Hosts ({len(hosts)})")
     if hosts:
-        rows = [[d.name, str(d.data.get("type", "?")), str(d.data.get("ip", "")), str(d.data.get("os", ""))] for d in hosts]
+        rows = [[d.name, str(d.data.get("type", "?")), str(d.data.get("ip", "")), str(host_data(inv, d, types).get("os", ""))]
+                for d in hosts]
         for line in _table(rows):
             typer.echo(line)
     hardware = inv.of_kind("hardware")
@@ -52,7 +55,7 @@ def show(name: str | None = typer.Argument(None, help="Show one host, hardware i
     if name:
         _show_one(inv, name)
     else:
-        _show_all(inv)
+        _show_all(inv, ctx.types)
     if inv.problems:
         typer.echo("\nProblems")
         for problem in inv.problems:

@@ -14,6 +14,7 @@ from bastet.core.frontmatter import Document, parse_document
 from bastet.core.gitrepo import BASTET_NAME, GitRepo
 from bastet.core.hardware import MACHINE_CATEGORIES
 from bastet.core.hosttypes import HostType
+from bastet.core.hostview import host_data
 from bastet.core.hwparse import short_cpu
 from bastet.core.inventory import Inventory, markdown_files
 from bastet.core.links import link_target, make_link
@@ -112,7 +113,7 @@ def _roles(inv: Inventory, doc: Document, types: dict[str, HostType]) -> tuple[l
 def host_summary(
     inv: Inventory, doc: Document, types: dict[str, HostType], warnings: list[str], drift: list[str] | None = None
 ) -> str:
-    d = doc.data
+    d = host_data(inv, doc, types)
     host_type = types.get(str(d.get("type")))
     cards: list[list[str]] = []
     if d.get("os"):
@@ -167,7 +168,7 @@ def host_summary(
         body += "\n> [!warning] Needs attention\n" + "".join(f"> - {_cell(w)}\n" for w in warnings)
     from bastet.core.cabling import port_rows  # lazy: cabling imports unifi
 
-    rows = port_rows(inv, doc.name)
+    rows = port_rows(inv, types, doc.name)
     if any(r.peer for r in rows):
         body += "\n## Ports\n\n| Port | Connected to | Speed | VLANs | Note |\n|---|---|---|---|---|\n"
         for r in rows:
@@ -335,11 +336,13 @@ def dashboard(
         for name in sorted(flagged):
             for w in flagged[name]:
                 out.append(f"| #warn | [[{name}]] | {_cell(w)} |\n")
-    out.append(_hosts_table(inv, hosts))
+    out.append(_hosts_table(inv, types, hosts))
     out.append(_hardware_tables(hardware))
     from bastet.core.maps import cabling_map, networks_map  # lazy: maps builds on render
 
-    shown = [f"![[{MAPS_DIR}/{t}]]" for t, f in (("Cabling", cabling_map), ("Networks", networks_map)) if f(inv)]
+    shown = [f"![[{MAPS_DIR}/{t}]]" for t, f in (
+        ("Cabling", lambda: cabling_map(inv, types)), ("Networks", lambda: networks_map(inv)),
+    ) if f()]
     out.append("\n## Maps\n\n" + "".join(f"{m}\n\n" for m in shown)
                + f"Also: [[{MAPS_DIR}/Where|what runs where]] (locations, nodes and guests)\n"
                + "\nRoles: [[_bastet/Roles|every role Bastet ships]]\n")
@@ -363,14 +366,15 @@ def dashboard(
     return _note({}, "".join(out))
 
 
-def _hosts_table(inv: Inventory, hosts: list[Document]) -> str:
+def _hosts_table(inv: Inventory, types: dict[str, HostType], hosts: list[Document]) -> str:
     if not hosts:
         return ""
     rows = ["\n## Hosts\n\n| Host | Type | OS | Address | Where |\n|---|---|---|---|---|\n"]
     for h in hosts:
         parent, loc = link_target(h.data.get("runs_on")), link_target(h.data.get("location"))
         where = f"on [[{parent}]]" if parent else f"[[{loc}]]" if loc else "—"
-        rows.append(f"| [[{h.name}]] | {_cell(h.data.get('type') or '?')} | {_cell(h.data.get('os') or '')} | "
+        os_name = host_data(inv, h, types).get("os")
+        rows.append(f"| [[{h.name}]] | {_cell(h.data.get('type') or '?')} | {_cell(os_name or '')} | "
                     f"{_cell(_address(h) or '')} | {where} |\n")
     return "".join(rows)
 
@@ -494,7 +498,7 @@ def generated_changes(
         want(summary_path(root, doc.name), hardware_summary(inv, doc))
     from bastet.core.osinfo import os_id
 
-    for ident in sorted({i for d in inv.of_kind("host") if (i := os_id(d.data))}):
+    for ident in sorted({i for d in inv.of_kind("host") if (i := os_id(host_data(inv, d, types)))}):
         existing = inv.get(ident)
         path = root / GROUPS_DIR / f"{ident}.md"
         if existing is not None and existing.path != path:
@@ -537,7 +541,7 @@ def generated_changes(
     want(root / GUIDE_PATH, guide())
     from bastet.core.maps import cabling_map, networks_map, where_map  # lazy: maps builds on render
 
-    for title, text, what in (("Cabling", cabling_map(inv), "cables, from `links:`"),
+    for title, text, what in (("Cabling", cabling_map(inv, types), "cables, from `links:`"),
                               ("Networks", networks_map(inv), "networks, from the lab file and host addresses"),
                               ("Where", where_map(inv), "hosts' locations and what runs on what")):
         path = root / MAPS_DIR / f"{title}.md"

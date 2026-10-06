@@ -1,3 +1,4 @@
+import datetime as dt
 import getpass
 import subprocess
 import sys
@@ -8,10 +9,12 @@ import typer
 
 from bastet.cli.common import Context, handles_errors, load_context, refresh_generated
 from bastet.core import hostkeys
-from bastet.core.changes import Change, render_diff
+from bastet.core.changes import Change, render_diff, write_changes
 from bastet.core.config import config_path, data_dir, inventory_dir, load_config
 from bastet.core.errors import BastetError
+from bastet.core.factsnote import facts_change
 from bastet.core.frontmatter import set_keys
+from bastet.core.hostview import host_data
 from bastet.core.initialize import (
     InitOptions, ProcResult, existing_recipients, generate_recovery_key, initialize, local_user_setup,
     real_runner, sshd_inactive_unit, sshd_ready,
@@ -41,6 +44,10 @@ def _sudo_validate() -> bool:
         return False
 
 
+def _now() -> str:
+    return dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def _confirm_local_hostkey(ctx: Context, *, yes: bool) -> None:
     hosts = [d for d in ctx.inventory.of_kind("host") if d.data.get("connection") == "local"]
     if not hosts:
@@ -53,7 +60,7 @@ def _confirm_local_hostkey(ctx: Context, *, yes: bool) -> None:
         return
     offered = hostkeys.record(hostkeys.preferred(keys))
     for doc in hosts:
-        recorded = doc.data.get("ssh_host_key")
+        recorded = host_data(ctx.inventory, doc, ctx.types).get("ssh_host_key")
         status = hostkeys.check(recorded, keys)
         if status == "match":
             typer.echo(f"{doc.name}: host key already set up")
@@ -71,10 +78,16 @@ def _confirm_local_hostkey(ctx: Context, *, yes: bool) -> None:
         if not typer.confirm("Trust this key?", default=False):
             typer.echo(f"{doc.name}: host key not recorded")
             continue
-        text = doc.path.read_text(encoding="utf-8")
-        doc.path.write_text(set_keys(text, {"ssh_host_key": offered}, doc.path), encoding="utf-8")
-        if ctx.repo.is_repo():
-            ctx.repo.commit([doc.path], f"bastet init: pin {doc.name}'s host key")
+        # The pin lives in the facts note, never the host note -- it isn't a gather, so the note's
+        # own `gathered:` is kept as-is when there is one.
+        existing_facts = ctx.inventory.facts_for(doc.name)
+        facts_doc = ctx.inventory.facts.get(doc.name.lower())
+        gathered = str(facts_doc.data.get("gathered")) if facts_doc is not None and facts_doc.data.get("gathered") else _now()
+        change = facts_change(ctx.root, doc.name, {**existing_facts, "ssh_host_key": offered}, gathered)
+        if change is not None:
+            write_changes([change])
+            if ctx.repo.is_repo():
+                ctx.repo.commit([change.path], f"init: pin {doc.name}'s host key")
         typer.echo(f"{doc.name}: host key recorded")
 
 

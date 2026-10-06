@@ -526,7 +526,10 @@ def test_cli_init_confirmed_fingerprint_is_recorded(runner, tmp_path, monkeypatc
     )
     assert result.exit_code == 0, result.output
     assert "host key recorded" in result.output
-    assert f"ssh_host_key: ssh-ed25519 {FAKE_HOST_KEYS[0].fingerprint}" in (inv / "hosts" / "laptop1.md").read_text()
+    assert "ssh_host_key" not in (inv / "hosts" / "laptop1.md").read_text()
+    from bastet.core.factsnote import facts_path
+
+    assert f"ssh_host_key: ssh-ed25519 {FAKE_HOST_KEYS[0].fingerprint}" in facts_path(inv, "laptop1").read_text()
 
     second = runner.invoke(app, ["init", "-y"])
     assert second.exit_code == 0, second.output

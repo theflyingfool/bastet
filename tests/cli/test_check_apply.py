@@ -468,3 +468,55 @@ def test_connect_local_host_ignores_its_lan_ip(secret_keys, inventory, monkeypat
     _, target = run_mod.connect(ctx, doc, inventory, yes=True)
     assert target.address == "127.0.0.1"
     assert str(inventory.parent) in str(target.control_path)
+
+
+def test_connect_facts_note_key_wins_over_stale_host_note(secret_keys, inventory, monkeypatch):
+    """A key recorded on an old host note (from before facts notes existed) must lose to a fresher
+    one in the facts note, not merely fall back to it."""
+    import base64
+
+    from bastet.cli.common import load_context
+    from bastet.core.factsnote import facts_path, render_facts
+    from bastet.core.hostkeys import parse_keyscan
+
+    fresh_blob = base64.b64encode(b"fresh-host-key").decode()
+    fresh_keys = parse_keyscan(f"h ssh-ed25519 {fresh_blob}\n")
+    (inventory / "hosts" / "laptop1.md").write_text(
+        "---\nbastet: host\ntype: laptop\nconnection: local\nssh_host_key: ssh-ed25519 stale-fingerprint\n---\n# laptop1\n"
+    )
+    facts_path(inventory, "laptop1").parent.mkdir(parents=True, exist_ok=True)
+    facts_path(inventory, "laptop1").write_text(
+        render_facts("laptop1", {"ssh_host_key": f"ssh-ed25519 {fresh_keys[0].fingerprint}"}, "2026-10-06T10:00:00Z"))
+    git(inventory, "add", ".")
+    git(inventory, "commit", "-q", "-m", "laptop1")
+
+    monkeypatch.setattr(run_mod, "scan_keys", lambda address, recorded=None, port=22: fresh_keys)
+
+    ctx = load_context()
+    doc = ctx.inventory.get("laptop1")
+    _, target = run_mod.connect(ctx, doc, inventory, yes=True)
+    assert target.known_hosts.read_text() == f"127.0.0.1 ssh-ed25519 {fresh_blob}\n"
+
+
+def test_host_info_reads_os_and_cpu_from_facts_not_stale_host_note(inventory):
+    """Microcode selection and the Debian-like check both read the host view: a wrong `os`/`cpu`
+    left on the host note from before the facts note existed must not win."""
+    from bastet.cli.common import load_context
+    from bastet.core.factsnote import facts_path, render_facts
+
+    pve1 = inventory / "hosts" / "pve1.md"
+    pve1.write_text(
+        "---\nbastet: host\ntype: proxmox-node\nip: 10.0.10.11\nos: Arch Linux\ncpu: made up\n---\n# pve1\n"
+    )
+    facts_path(inventory, "pve1").parent.mkdir(parents=True, exist_ok=True)
+    facts_path(inventory, "pve1").write_text(render_facts(
+        "pve1", {"os": "Debian GNU/Linux 13 (trixie)", "cpu": "AMD EPYC 7713 64-Core Processor"}, "2026-10-06T10:00:00Z"))
+    git(inventory, "add", ".")
+    git(inventory, "commit", "-q", "-m", "pve1 facts")
+
+    ctx = load_context()
+    doc = ctx.inventory.get("pve1")
+    host = run_mod.host_info(ctx, doc)
+    assert host.debian_like is True
+    assert host.os_id == "debian"
+    assert host.data["cpu"] == "AMD EPYC 7713 64-Core Processor"

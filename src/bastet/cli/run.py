@@ -29,6 +29,7 @@ from bastet.cli.gather import _resolve_address, _scan_pinned, scan_keys, ssh_run
 from bastet.core import hostkeys
 from bastet.core.errors import BastetError
 from bastet.core.frontmatter import Document
+from bastet.core.hostview import host_data
 from bastet.core.links import link_target
 from bastet.core.parallel import HostFailed, HostLog, Outcome, break_cycles, run_parallel, stopping
 from bastet.core.remote import SshTarget, close_master, control_path
@@ -51,7 +52,7 @@ from bastet.roles.resolve import Applied, resolve
 def host_info(ctx: Context, doc: Document, updates: bool = False) -> HostInfo:
     lab = ctx.inventory.lab
     host_type = ctx.types.get(str(doc.data.get("type")))
-    return HostInfo(name=doc.name, type=str(doc.data.get("type", "")), data=dict(doc.data), root=ctx.root,
+    return HostInfo(name=doc.name, type=str(doc.data.get("type", "")), data=host_data(ctx.inventory, doc, ctx.types), root=ctx.root,
                     lab=dict(lab.data) if lab else {}, apply_updates=updates,
                     physical=bool(host_type and host_type.physical))
 
@@ -68,7 +69,7 @@ def connect(ctx: Context, doc: Document, tmp: Path, *, yes: bool):
     address = _resolve_address(doc)
     if not address:
         raise BastetError("no address to connect to; set `address:` or a fixed `ip:`", file=doc.path)
-    recorded = doc.data.get("ssh_host_key")
+    recorded = host_data(ctx.inventory, doc, ctx.types).get("ssh_host_key")
     if not recorded:
         raise BastetError("no confirmed host key yet; run `bastet gather` on this host first", file=doc.path)
     keys, port = _scan_pinned(doc, str(address), str(recorded), ssh_ports(ctx, doc), scan_keys)
