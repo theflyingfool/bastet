@@ -186,20 +186,27 @@ def load_context(*, allow_plaintext: bool = False) -> Context:
                    upstream_secrets=upstream_secrets)
 
 
+def problem_line(root: Path, problem) -> tuple[str, str]:
+    """A problem's one-line text (file, line, message) and its colour -- shared by `print_problems`
+    and `show`'s per-host hint."""
+    error = problem.error
+    where = ""
+    if error.file is not None:
+        try:
+            rel = error.file.relative_to(root)
+        except ValueError:
+            rel = error.file
+        where = f"{rel}:{error.line}: " if error.line is not None else f"{rel}: "
+    fg = "red" if problem.severity == "error" else "yellow"
+    return f"{where}{error.message}", fg
+
+
 def print_problems(ctx: Context) -> None:
     """Print every inventory problem once: errors in red, warnings in yellow, each with its file
     (relative to the inventory root) and line."""
     for problem in ctx.inventory.problems:
-        error = problem.error
-        where = ""
-        if error.file is not None:
-            try:
-                rel = error.file.relative_to(ctx.root)
-            except ValueError:
-                rel = error.file
-            where = f"{rel}:{error.line}: " if error.line is not None else f"{rel}: "
-        fg = "red" if problem.severity == "error" else "yellow"
-        typer.secho(f"{where}{error.message}", fg=fg)
+        text, fg = problem_line(ctx.root, problem)
+        typer.secho(text, fg=fg)
 
 
 def find_named_host(ctx: Context, name: str) -> Document:

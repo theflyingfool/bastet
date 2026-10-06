@@ -52,6 +52,37 @@ def test_show_lists_os_from_facts(runner, inventory):
     assert "Debian 13" in result.output and "Debian 12" not in result.output
 
 
+def test_show_one_includes_gathered_facts(runner, inventory):
+    from bastet.core.factsnote import facts_path, render_facts
+
+    facts_path(inventory, "pve1").parent.mkdir(parents=True, exist_ok=True)
+    facts_path(inventory, "pve1").write_text(render_facts("pve1", {"os": "Debian GNU/Linux 13 (trixie)"}, "2026-10-06T10:00:00Z"))
+    result = runner.invoke(app, ["show", "pve1"])
+    assert result.exit_code == 0, result.output
+    assert "Gathered facts (_bastet/facts/pve1 facts.md):" in result.output
+    header = result.output.index("Gathered facts")
+    assert "os: Debian GNU/Linux 13 (trixie)" in result.output[header:]
+
+
+def test_show_one_not_gathered_yet(runner, inventory):
+    result = runner.invoke(app, ["show", "pve1"])
+    assert result.exit_code == 0, result.output
+    assert "Gathered facts (_bastet/facts/pve1 facts.md): not gathered yet" in result.output
+
+
+def test_show_one_hints_stale_fact_keys(runner, inventory):
+    from bastet.core.factsnote import facts_path, render_facts
+
+    (inventory / "hosts" / "pve1.md").write_text(
+        "---\nbastet: host\ntype: proxmox-node\nip: 10.0.10.11\nos: Debian 12\n---\n# pve1\n"
+    )
+    facts_path(inventory, "pve1").parent.mkdir(parents=True, exist_ok=True)
+    facts_path(inventory, "pve1").write_text(render_facts("pve1", {"os": "Debian 13"}, "2026-10-06T10:00:00Z"))
+    result = runner.invoke(app, ["show", "pve1"])
+    assert result.exit_code == 0, result.output
+    assert "os are gathered facts" in result.output and "_bastet/facts/pve1 facts.md" in result.output
+
+
 def test_show_one_with_links(runner, inventory):
     (inventory / "hardware").mkdir()
     (inventory / "hardware" / "d1.md").write_text(

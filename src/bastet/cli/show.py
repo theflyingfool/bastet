@@ -1,9 +1,11 @@
 from collections import Counter
+from pathlib import Path
 
 import typer
 
-from bastet.cli.common import handles_errors, load_context
+from bastet.cli.common import handles_errors, load_context, problem_line
 from bastet.core.errors import BastetError
+from bastet.core.factsnote import facts_path
 from bastet.core.hosttypes import HostType
 from bastet.core.hostview import host_data
 from bastet.core.inventory import Inventory
@@ -33,7 +35,7 @@ def _show_all(inv: Inventory, types: dict[str, HostType]) -> None:
             typer.echo(f"{label}: " + ", ".join(d.name for d in docs))
 
 
-def _show_one(inv: Inventory, name: str) -> None:
+def _show_one(inv: Inventory, root: Path, name: str) -> None:
     doc = inv.get(name)
     if doc is None:
         raise BastetError(f"no object named '{name}' in the inventory")
@@ -45,6 +47,20 @@ def _show_one(inv: Inventory, name: str) -> None:
         typer.echo("Linked from:")
         for other, key in links:
             typer.echo(f"  {other.name} ({key})")
+    if doc.data.get("bastet") == "host":
+        path = facts_path(inv.root, doc.name)
+        rel = path.relative_to(inv.root)
+        facts_doc = inv.facts.get(doc.name.lower())
+        if facts_doc is None:
+            typer.echo(f"\nGathered facts ({rel}): not gathered yet")
+        else:
+            typer.echo(f"\nGathered facts ({rel}):")
+            for line in dump_frontmatter(inv.facts_for(doc.name)).splitlines():
+                typer.echo(f"  {line}")
+        for problem in inv.problems:
+            if problem.error.file == doc.path:
+                text, fg = problem_line(root, problem)
+                typer.secho(text, fg=fg)
 
 
 @handles_errors
@@ -53,7 +69,7 @@ def show(name: str | None = typer.Argument(None, help="Show one host, hardware i
     ctx = load_context()
     inv = ctx.inventory
     if name:
-        _show_one(inv, name)
+        _show_one(inv, ctx.root, name)
     else:
         _show_all(inv, ctx.types)
     if inv.problems:
