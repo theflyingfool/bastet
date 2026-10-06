@@ -119,7 +119,11 @@ def test_broken_yaml_is_a_warning_not_an_error(tmp_path):
 
 def test_facts_note_indexed_by_host_without_colliding(tmp_path):
     put(tmp_path, "hosts/pve1.md", host("pve1"))
-    put(tmp_path, "_bastet/facts/pve1.md", '---\nbastet: facts\nhost: "[[pve1]]"\ngathered: now\nos: Debian 13\n---\n')
+    put(
+        tmp_path,
+        "_bastet/facts/pve1 facts.md",
+        '---\nbastet: facts\nhost: "[[pve1]]"\ngathered: now\nos: Debian 13\n---\n',
+    )
     inv = load_inventory(tmp_path, TYPES)
     assert inv.problems == []
     assert inv.get("pve1").path == tmp_path / "hosts" / "pve1.md"
@@ -127,8 +131,24 @@ def test_facts_note_indexed_by_host_without_colliding(tmp_path):
     assert sorted(inv.objects) == ["pve1"]
 
 
+def test_facts_note_name_differs_from_host_note_no_duplicate(tmp_path):
+    """The facts note's own file is `<host> facts.md`, not `<host>.md`, so `[[vps1]]` stays unambiguous
+    and Bastet's own duplicate-name check never sees two objects named `vps1`."""
+    put(tmp_path, "hosts/vps1.md", "---\nbastet: host\ntype: vps\nip: 203.0.113.10\nprovider: linode\n---\n")
+    put(
+        tmp_path,
+        "_bastet/facts/vps1 facts.md",
+        '---\nbastet: facts\nhost: "[[vps1]]"\ngathered: now\nos: Debian 13\n---\n',
+    )
+    inv = load_inventory(tmp_path, TYPES)
+    assert inv.errors == []
+    assert not any("duplicate" in p.error.message for p in inv.problems)
+    assert inv.get("vps1").path == tmp_path / "hosts" / "vps1.md"
+    assert inv.facts_for("vps1") == {"os": "Debian 13"}
+
+
 def test_facts_note_for_unknown_host_is_a_warning(tmp_path):
-    put(tmp_path, "_bastet/facts/ghost.md", '---\nbastet: facts\nhost: "[[ghost]]"\ngathered: now\n---\n')
+    put(tmp_path, "_bastet/facts/ghost facts.md", '---\nbastet: facts\nhost: "[[ghost]]"\ngathered: now\n---\n')
     inv = load_inventory(tmp_path, TYPES)
     [w] = inv.problems
     assert w.severity == "warning"
@@ -146,7 +166,7 @@ def test_stale_fact_keys_warning(tmp_path):
     [w] = inv.problems
     assert w.severity == "warning"
     assert w.error.message == (
-        "os, kernel, cpu are gathered facts; they now live in _bastet/facts/pve1.md (remove them from this note)"
+        "os, kernel, cpu are gathered facts; they now live in _bastet/facts/pve1 facts.md (remove them from this note)"
     )
     assert w.error.line == 5  # the 'os:' line
 

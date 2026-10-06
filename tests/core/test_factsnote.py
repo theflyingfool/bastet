@@ -9,12 +9,12 @@ FACTS = {"os": "Debian 13", "kernel": "6.9", "cpu": "Ryzen", "vmid": 101}
 
 
 def test_facts_path():
-    assert facts_path(Path("/root"), "pve1") == Path("/root") / FACTS_DIR / "pve1.md"
+    assert facts_path(Path("/root"), "pve1") == Path("/root") / FACTS_DIR / "pve1 facts.md"
 
 
 def test_render_facts_round_trip():
     text = render_facts(HOST, FACTS, "2026-10-06T10:00:00Z")
-    doc = parse_document(text, Path("/v") / FACTS_DIR / "pve1.md")
+    doc = parse_document(text, Path("/v") / FACTS_DIR / "pve1 facts.md")
     assert doc.data["bastet"] == "facts"
     assert doc.data["host"] == "[[pve1]]"
     assert doc.data["gathered"] == "2026-10-06T10:00:00Z"

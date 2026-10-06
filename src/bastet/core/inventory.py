@@ -101,7 +101,7 @@ def _check_stale_facts(inv: Inventory, doc: Document, types: dict[str, HostType]
         return
     message = (
         f"{', '.join(stale)} are gathered facts; they now live in "
-        f"{FACTS_DIR}/{doc.name}.md (remove them from this note)"
+        f"{FACTS_DIR}/{doc.name} facts.md (remove them from this note)"
     )
     line = doc.key_lines.get(stale[0])
     inv.problems.append(Problem("warning", BastetError(message, file=doc.path, line=line)))

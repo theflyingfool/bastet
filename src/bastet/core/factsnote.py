@@ -1,4 +1,4 @@
-"""The facts note: one per host at `_bastet/facts/<host>.md`, written by gather, read by everyone else.
+"""The facts note: one per host at `_bastet/facts/<host> facts.md`, written by gather, read by everyone else.
 
 Unlike host notes, this one is wholly Bastet's: it is rewritten on every gather, and nothing in it is
 meant to be hand-edited. `host_data` (bastet.core.hostview) is how the rest of Bastet reads it together
@@ -23,7 +23,7 @@ FACT_ORDER = (
 
 
 def facts_path(root: Path, host: str) -> Path:
-    return root / FACTS_DIR / f"{host}.md"
+    return root / FACTS_DIR / f"{host} facts.md"
 
 
 def _ordered_keys(facts: dict) -> list[str]:

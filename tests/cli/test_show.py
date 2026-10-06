@@ -35,7 +35,7 @@ def test_show_stale_fact_keys_warning(runner, inventory):
     result = runner.invoke(app, ["show"])
     assert result.exit_code == 0, result.output
     assert "os are gathered facts" in result.output
-    assert "_bastet/facts/pve1.md" in result.output
+    assert "_bastet/facts/pve1 facts.md" in result.output
 
 
 def test_show_one_with_links(runner, inventory):

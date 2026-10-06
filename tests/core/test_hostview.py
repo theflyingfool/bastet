@@ -18,7 +18,7 @@ def inv_with_facts(facts: dict | None) -> Inventory:
     inv = Inventory(root=Path("/v"))
     if facts is not None:
         text = render_facts("pve1", facts, "2026-10-06T10:00:00Z")
-        inv.facts["pve1"] = parse_document(text, Path("/v/_bastet/facts/pve1.md"))
+        inv.facts["pve1"] = parse_document(text, Path("/v/_bastet/facts/pve1 facts.md"))
     return inv
 
 
