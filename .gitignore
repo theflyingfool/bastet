@@ -8,3 +8,4 @@ dist/
 # local working dirs: plan ledgers and reference copies (never published)
 .superpowers/
 refs/
+.privacy-patterns

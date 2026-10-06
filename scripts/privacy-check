@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Refuse real lab details (domains, addresses, host names, emails) in tracked files.
+#
+# The patterns live in .privacy-patterns at the repo root: one extended regex per line, `#` comments.
+# That file is git-ignored on purpose, so the list of what's private is never published itself.
+#
+#   scripts/privacy-check                 scan every tracked file
+#   scripts/privacy-check --staged        scan only lines being added in the staged diff (the pre-commit hook)
+#   scripts/privacy-check --install-hook  install the pre-commit hook (keeps an existing hook, runs it first)
+set -euo pipefail
+
+root=$(git rev-parse --show-toplevel)
+patterns="$root/.privacy-patterns"
+
+if [[ "${1:-}" == "--install-hook" ]]; then
+    hook="$(git rev-parse --git-path hooks)/pre-commit"
+    if [[ -e "$hook" ]] && ! grep -q "privacy-check" "$hook"; then
+        mv "$hook" "$hook.local"
+        echo "kept your existing hook as $hook.local; it runs first"
+    fi
+    cat > "$hook" <<'EOF'
+#!/usr/bin/env bash
+set -e
+here="$(dirname "$0")"
+[[ -x "$here/pre-commit.local" ]] && "$here/pre-commit.local"
+exec "$(git rev-parse --show-toplevel)/scripts/privacy-check" --staged
+EOF
+    chmod +x "$hook"
+    echo "installed $hook"
+    exit 0
+fi
+
+if [[ ! -s "$patterns" ]]; then
+    echo "privacy-check: no $patterns (one regex per line); nothing checked" >&2
+    exit 0
+fi
+
+regex=$(grep -vE '^\s*(#|$)' "$patterns" | paste -sd '|')
+[[ -z "$regex" ]] && exit 0
+
+if [[ "${1:-}" == "--staged" ]]; then
+    hits=$(git diff --cached -U0 --no-color -- . ':(exclude).privacy-patterns' \
+        | awk '/^\+\+\+ b\//{f=substr($0,7)} /^\+[^+]/{print f": "substr($0,2)}' \
+        | grep -iE -- "$regex" || true)
+else
+    hits=$(git ls-files -z | grep -zv '^\.privacy-patterns$' | xargs -0 grep -inIE -- "$regex" 2>/dev/null || true)
+fi
+
+if [[ -n "$hits" ]]; then
+    echo "privacy-check: real lab details found (patterns from .privacy-patterns):" >&2
+    echo "$hits" | sed 's/^/  /' >&2
+    echo "Replace them with placeholders. If one is a false positive, narrow the pattern." >&2
+    exit 1
+fi

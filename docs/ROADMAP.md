@@ -32,10 +32,40 @@ built in the order of the roles table below.
 | — | Secrets part 1: age-encrypted secret notes, unlock/lock, upstream-change gate | ☑ |
 | — | Parallel hosts: gather/check/apply in parallel, apply asks once | ☑ |
 | 3 | **Roles redesign:** Markdown roles, building-block execution, presets, host-note split | ◐ in progress |
+| 3b | **Run logs:** an ordered record of every run, readable in Obsidian, with its own verbosity (below) | ☐ |
 | 4 | Infrastructure roles: Proxmox node setup, ZFS, guest creation, firewall, container runtime | ☐ |
 | 5 | Secrets part 2: rotation and rekey (once real secret-using roles exist) | ☐ |
 | 6 | App roles, then proxy and DNS roles that configure themselves from the whole lab | ☐ |
 | 7 | Orchestrator LXC and web UI; run logs and resilience | ☐ |
+
+## Run logs (milestone 3b)
+
+Needed before the Proxmox and ZFS roles, to see what a run did, in the order it did it.
+
+- **Structured output:**
+  - **One event stream:** every command emits events, not pre-formatted strings, and they're rendered three ways: the terminal (Rich, width-aware), the run note (Markdown) and the JSONL.
+  - **A small shared output layer replaces raw `echo`:** tables that fit the terminal width, per-host headers, consistent status marks, coloured diffs, key/value lists.
+  - **Not a terminal** (piped, or in tests): plain text, no colour, no boxes.
+  - The parallel runner's host blocks hold events too.
+  - Helpers are tested at several widths.
+
+- **Raw event log** on the controller: `~/.local/share/bastet/runs/<run-id>.jsonl`. Every step as it happens: phase, host, resource, read/compare result, command, exit code, timing, triggers, hooks, reboot-plan steps. Everything goes through the secret masker.
+- **A run note in the vault:** `_bastet/runs/<date time> <command>.md`.
+  - **Top:** command, who ran it, hosts, changed/failed/skipped/stopped counts, duration.
+  - **Then per host:** a timeline grouped by phase, in execution order.
+  - **Frontmatter stays flat** (`command`, `started`, `hosts`, `changed`, `failed`, `status`) so Bases can list it.
+- **Obsidian views:**
+  - a Runs Base on `Homelab.md`, newest first, each row linking to its run note;
+  - a per-host runs Base on each host page.
+- **Log verbosity,** separate from the terminal's `-v`: `--log-level 1–4`, or `log_level:` in `bastet.yml`.
+  - **1 (default):** changes and failures, with why.
+  - **2:** every item checked, with before/after values.
+  - **3:** every command, with exit code and timing.
+  - **4:** full command output, masked; truncated per step in the note, complete in the JSONL.
+- **To decide when it's planned: what goes into git.** The suggestion:
+  - commit run notes for `apply` and `gather`;
+  - one rolling "last check" note per host for `check`;
+  - keep the JSONL only on the controller, with a retention setting.
 
 ## Building blocks
 
@@ -103,3 +133,17 @@ in roles-redesign subplan 6.
 - **Container (contract) tests** run only when asked: `BASTET_CONTRACT=1`.
 - **Commits:** stage files by name; never `git commit -a`.
 - **Docs and placeholders:** nothing with real lab details (domains, addresses, keys, host names) goes into tracked files. Use placeholders; reference material stays in `refs/`.
+
+### Example data
+
+Everything in tracked files (docs, role examples, tests, fixtures) uses these, never real lab details:
+
+| Kind | Use | Never |
+|---|---|---|
+| Addresses | `10.1.0.0/24` (lan), `10.1.20.0/24` (servers), `10.1.30.0/24` (trusted)…; hosts like `10.1.0.15` | real addresses |
+| Host names | `pve1`, `pve2` (nodes), `media01`, `git1`, `nas1`, `vps1`, `laptop1`, `gw1`, `sw1`, `ap1` | real host names |
+| Users | `admin`, `alice` | real user names |
+| Domain | `example.com`, `lab.example.com` | the real domain |
+
+`scripts/privacy-check` enforces the "never" column, using patterns from the git-ignored `.privacy-patterns`.
+
