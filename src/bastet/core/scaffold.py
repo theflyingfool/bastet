@@ -101,7 +101,11 @@ def new_host(
     data.setdefault("hostname", name)
     data.setdefault("gather", types[type_name].gather)
     path = inv.root / "hosts" / f"{name}.md"
-    body = f"# {name}\n\n{summary_embed(name)}\n" + (HARDWARE_SECTION if types[type_name].physical else "")
+    body = (
+        f"# {name}\n\n{summary_embed(name)}\n"
+        + (HARDWARE_SECTION if types[type_name].physical else "")
+        + f"\n## Reports\n\n![[{name} reports]]\n"
+    )
     return HostDraft(Change(path, None, new_document(data, body)), suggested)
 
 

@@ -157,6 +157,13 @@ def test_guide_generated_and_linked(repo):
     assert "[[Bastet guide]]" in changes[repo.root / DASHBOARD_PATH].after
 
 
+def test_guide_explains_the_notes_facts_split(repo):
+    changes = {c.path: c for c in generated_changes(inv(repo), TYPES, repo)}
+    guide = changes[repo.root / "_bastet" / "Bastet guide.md"].after
+    assert "your notes hold what you decide" in guide.lower() and "_bastet/facts/" in guide
+    assert "what bastet saw" in guide.lower()
+
+
 def test_mermaid_ids_safe_and_distinct(repo):
     from bastet.core.maps import where_map
     for name in ("end", "web-1", "web.1"):
@@ -299,14 +306,19 @@ def test_where_map_runs_top_down(repo):
 
 
 def test_summary_links_security_note_and_deleted_hosts_lose_theirs(repo):
-    sec = repo.root / "_bastet" / "security"
+    sec = repo.root / "_bastet" / "reports"
     sec.mkdir(parents=True)
-    (sec / "pve1 security.md").write_text('---\nsecurity_of: "[[pve1]]"\nchecked: 2026-10-02 10:00\n---\n## Lynis\n')
-    (sec / "gone security.md").write_text('---\nsecurity_of: "[[gone]]"\nchecked: x\n---\n')
+    (sec / "pve1 reports.md").write_text('---\nsecurity_of: "[[pve1]]"\nchecked: 2026-10-02 10:00\n---\n## Lynis\n')
+    (sec / "gone reports.md").write_text('---\nsecurity_of: "[[gone]]"\nchecked: x\n---\n')
     text = host_summary(inv(repo), inv(repo).get("pve1"), TYPES, [])
-    assert "[[pve1 security|security report]]" in text and "2026-10-02 10:00" in text
+    assert "[[pve1 reports|security report]]" in text and "2026-10-02 10:00" in text
     removed = [c.path.name for c in generated_changes(inv(repo), TYPES, repo) if c.after is None]
-    assert "gone security.md" in removed and "pve1 security.md" not in removed
+    assert "gone reports.md" in removed and "pve1 reports.md" not in removed
+
+
+def test_summary_ends_with_facts_link(repo):
+    text = host_summary(inv(repo), inv(repo).get("pve1"), TYPES, [])
+    assert text.rstrip("\n").endswith("Facts: [[pve1 facts|gathered facts]]")
 
 
 def test_roles_index_generated_and_linked(repo):

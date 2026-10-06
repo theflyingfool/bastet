@@ -253,7 +253,7 @@ def test_check_writes_security_note(runner, box, inventory, monkeypatch):
         'service_exposure: false\nlistening_ports: false\nsysctl_defaults: false\n---\n')
     result = runner.invoke(app, ["check", "box"])
     assert result.exit_code == 0, result.output
-    note = inventory / "_bastet" / "security" / "box security.md"
+    note = inventory / "_bastet" / "reports" / "box reports.md"
     assert note.exists() and "## AppArmor\n\nnot enabled" in note.read_text()
     assert "refresh: security note box" in git(inventory, "log", "--format=%s")
 

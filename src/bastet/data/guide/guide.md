@@ -25,6 +25,9 @@ This page is generated from the Bastet version you run, so it always matches it.
 
 ## Facts, desired values and yours
 
+Your notes hold what you decide; `_bastet/facts/` holds what Bastet saw, one note per host, rewritten
+on every gather.
+
 - **Facts** (OS, CPU, RAM, drives, serials…) come from gather. If you set one by hand and the machine
   disagrees, Bastet keeps your value and tells you who set it; `bastet gather --take <field>` accepts
   the observed one.

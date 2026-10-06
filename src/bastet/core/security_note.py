@@ -1,4 +1,4 @@
-"""One security note per host (_bastet/security/<host> security.md), written by check and apply from the reports."""
+"""One security note per host (_bastet/reports/<host> reports.md), written by check and apply from the reports."""
 
 from __future__ import annotations
 
@@ -8,11 +8,11 @@ from bastet.core.links import make_link
 from bastet.core.yamlstyle import dump_frontmatter
 from bastet.engine.security import REPORTS
 
-SECURITY_DIR = "_bastet/security"
+SECURITY_DIR = "_bastet/reports"
 
 
 def security_path(root: Path, host: str) -> Path:
-    return root / SECURITY_DIR / f"{host} security.md"
+    return root / SECURITY_DIR / f"{host} reports.md"
 
 
 def security_items(items) -> list:

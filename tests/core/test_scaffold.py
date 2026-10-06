@@ -37,9 +37,18 @@ def test_new_vps(tmp_path):
     assert draft.change.before is None
     assert draft.change.after == (
         "---\nbastet: host\ncssclasses:\n  - bastet-host\ntype: vps\n"
-        "provider: linode\nip: 203.0.113.10\nhostname: edge1\ngather: true\n---\n# edge1\n\n![[edge1 summary]]\n"
+        "provider: linode\nip: 203.0.113.10\nhostname: edge1\ngather: true\n---\n# edge1\n\n"
+        "![[edge1 summary]]\n\n## Reports\n\n![[edge1 reports]]\n"
     )
     assert draft.suggested_ip is None
+
+
+def test_new_physical_host_gets_hardware_and_reports_sections(tmp_path):
+    inv = inv_with(tmp_path, {})
+    draft = new_host(inv, TYPES, "pve2", "proxmox-node", ip="10.0.10.12")
+    assert draft.change.after.endswith(
+        "# pve2\n\n![[pve2 summary]]\n\n## Hardware\n\n![[hardware-here.base]]\n\n## Reports\n\n![[pve2 reports]]\n"
+    )
 
 
 def test_new_lxc_with_suggested_address(tmp_path):

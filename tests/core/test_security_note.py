@@ -1,10 +1,16 @@
-from bastet.core.security_note import security_note
+from pathlib import Path
+
+from bastet.core.security_note import security_note, security_path
 from bastet.engine.run import Item
 from bastet.engine.security import AppArmorStatus, ListeningPorts, LynisReport, ServiceExposure, VulnerablePackages
 
 
 def item(resource, current=None, status="compliant", error=None):
     return Item(resource, ["harden"], [], status=status, current=current or {}, error=error)
+
+
+def test_security_path_is_under_reports():
+    assert security_path(Path("/vault"), "pve1") == Path("/vault/_bastet/reports/pve1 reports.md")
 
 
 def test_security_note_sections_in_order():
