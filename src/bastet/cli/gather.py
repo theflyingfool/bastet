@@ -296,7 +296,7 @@ def _guest_command(node: str, guest: dict) -> str:
     return f"bastet add host {shlex.quote(str(guest['name']))} --type {kind} --on {shlex.quote(node)}"
 
 
-def _offer_guests(ctx: Context, found: list[tuple[str, dict]], yes: bool) -> list:
+def _offer_guests(ctx: Context, found: list[tuple[str, dict]], yes: bool, gathered: str) -> list:
     """List guests found on Proxmox nodes that aren't in the inventory; with confirmation, draft host files for all."""
     typer.echo(f"\n{len(found)} guest{'s' if len(found) != 1 else ''} aren't in the inventory:")
     for node, g in found:
@@ -316,12 +316,16 @@ def _offer_guests(ctx: Context, found: list[tuple[str, dict]], yes: bool) -> lis
         names.add(name.lower())
         ip, address = (g["ip"], None) if g.get("ip_source") == "config" else ("dhcp", g.get("ip"))
         try:
-            draft = new_host(ctx.inventory, ctx.types, name, kind, on=node, ip=ip, address=address,
-                             extra={"vmid": g["vmid"]})
+            draft = new_host(ctx.inventory, ctx.types, name, kind, on=node, ip=ip, address=address)
         except BastetError as exc:
             typer.secho(f"  skipped {name}: {exc}", fg="yellow")
             continue
         drafts.append(draft.change)
+        # vmid is a fact (Task 2 flags it if it's on the host note), not something to set here: it goes
+        # straight to the new guest's facts note, in the same commit.
+        vmid_change = facts_change(ctx.inventory.root, name, {"vmid": g["vmid"]}, gathered)
+        if vmid_change is not None:
+            drafts.append(vmid_change)
         if not address and ip == "dhcp":
             typer.secho(f"  {name}: no address known; set address: (a DNS name or IP) before gathering it", fg="yellow")
     return drafts
@@ -554,7 +558,7 @@ def _gather(
     for note in notes:
         mark = "⚠" if note.severity == "warn" else "·"
         typer.secho(f"{mark} {note.host}: {note.message}", fg="yellow" if note.severity == "warn" else None)
-    added = _offer_guests(ctx, found_guests, yes) if found_guests else []
+    added = _offer_guests(ctx, found_guests, yes, gathered_at) if found_guests else []
     changes.extend(added)
     if changes:
         message = f"gather: {', '.join(gathered)}" if gathered else "gather"

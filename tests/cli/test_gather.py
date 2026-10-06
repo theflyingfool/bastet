@@ -477,7 +477,14 @@ def test_found_guests_added_when_confirmed(runner, server):
     assert result.exit_code == 0, result.output
     assert "Add all 4" in result.output and "bastet add host git1 --type lxc --on pve1" in result.output
     git1 = (server / "hosts" / "git1.md").read_text()
-    assert "type: lxc" in git1 and 'runs_on: "[[pve1]]"' in git1 and "ip: 10.0.20.21/24" in git1 and "vmid: 104" in git1
+    assert "type: lxc" in git1 and 'runs_on: "[[pve1]]"' in git1 and "ip: 10.0.20.21/24" in git1
+    assert "vmid" not in git1
+    assert "vmid: 104" in facts(server, "git1")
+    from bastet.core.hosttypes import load_host_types
+    from bastet.core.inventory import load_inventory
+
+    reloaded = load_inventory(server, load_host_types())
+    assert not [p for p in reloaded.problems if "git1" in str(p.error.file) and "vmid" in p.error.message]
     media = (server / "hosts" / "media.md").read_text()
     assert "type: vm" in media and "ip: dhcp" in media and "address: 10.0.20.25" in media
     ghost = (server / "hosts" / "ghost.md").read_text()
