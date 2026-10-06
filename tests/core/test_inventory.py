@@ -117,6 +117,32 @@ def test_broken_yaml_is_a_warning_not_an_error(tmp_path):
     assert inv.get("pve1") is not None
 
 
+def test_facts_note_indexed_by_host_without_colliding(tmp_path):
+    put(tmp_path, "hosts/pve1.md", host("pve1"))
+    put(tmp_path, "_bastet/facts/pve1.md", '---\nbastet: facts\nhost: "[[pve1]]"\ngathered: now\nos: Debian 13\n---\n')
+    inv = load_inventory(tmp_path, TYPES)
+    assert inv.problems == []
+    assert inv.get("pve1").path == tmp_path / "hosts" / "pve1.md"
+    assert inv.facts_for("pve1") == {"os": "Debian 13"}
+    assert sorted(inv.objects) == ["pve1"]
+
+
+def test_facts_note_for_unknown_host_is_a_warning(tmp_path):
+    put(tmp_path, "_bastet/facts/ghost.md", '---\nbastet: facts\nhost: "[[ghost]]"\ngathered: now\n---\n')
+    inv = load_inventory(tmp_path, TYPES)
+    [w] = inv.problems
+    assert w.severity == "warning"
+    assert "no host named ghost" in w.error.message
+    assert inv.facts_for("ghost") == {}
+
+
+def test_facts_note_with_no_facts_is_empty(tmp_path):
+    put(tmp_path, "hosts/pve1.md", host("pve1"))
+    assert load_inventory(tmp_path, TYPES).facts_for("pve1") == {}
+
+
+
+
 def test_connection_must_be_local_or_ssh(tmp_path):
     put(tmp_path, "a.md", "---\nbastet: host\ntype: laptop\nconnection: local\n---\n")
     put(tmp_path, "b.md", "---\nbastet: host\ntype: laptop\nconnection: telnet\n---\n")

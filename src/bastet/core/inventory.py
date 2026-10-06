@@ -4,11 +4,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from bastet.core.errors import BastetError
+from bastet.core.factsnote import META_KEYS
 from bastet.core.frontmatter import Document, parse_document
 from bastet.core.hosttypes import HostType
 from bastet.core.links import link_target
 
-KINDS = ("lab", "host", "hardware", "group", "location", "role", "secret")
+KINDS = ("lab", "host", "hardware", "group", "location", "role", "secret", "facts")
 SKIP_DIRS = {".git", ".obsidian", ".trash", ".bastet"}
 LINK_FIELDS = {
     "host": ("runs_on", "location", "groups"),
@@ -34,9 +35,17 @@ class Inventory:
     problems: list[Problem] = field(default_factory=list)
     role_files: list[Document] = field(default_factory=list)
     secrets: list[Document] = field(default_factory=list)
+    facts: dict[str, Document] = field(default_factory=dict)
 
     def get(self, name: str) -> Document | None:
         return self.objects.get(name.lower())
+
+    def facts_for(self, name: str) -> dict:
+        """The host's gathered facts (from its facts note), or {} when it has none."""
+        doc = self.facts.get(name.lower())
+        if doc is None:
+            return {}
+        return {k: v for k, v in doc.data.items() if k not in META_KEYS}
 
     def of_kind(self, kind: str) -> list[Document]:
         docs = [d for d in self.objects.values() if d.data.get("bastet") == kind]
@@ -128,6 +137,7 @@ def _generated(root: Path, path: Path) -> bool:
 
 def load_inventory(root: Path, types: dict[str, HostType]) -> Inventory:
     inv = Inventory(root=root)
+    facts_docs: list[Document] = []
     for path in markdown_files(root):
         try:
             doc = parse_document(path.read_text(encoding="utf-8"), path)
@@ -149,6 +159,9 @@ def load_inventory(root: Path, types: dict[str, HostType]) -> Inventory:
             continue
         if kind == "secret":
             inv.secrets.append(doc)
+            continue
+        if kind == "facts":
+            facts_docs.append(doc)
             continue
         existing = inv.objects.get(doc.name.lower())
         if existing is not None:
@@ -190,6 +203,13 @@ def load_inventory(root: Path, types: dict[str, HostType]) -> Inventory:
             _add(inv, "warning", 'a role file needs `applies_to: "[[host, group or lab]]"`', doc, "applies_to")
         elif inv.get(target) is None or inv.get(target).data.get("bastet") not in ("host", "group", "lab"):
             _add(inv, "warning", f"applies_to [[{target}]], which isn't a host, group or the lab", doc, "applies_to")
+    for doc in facts_docs:
+        target = link_target(doc.data.get("host"))
+        host_doc = inv.get(target) if target else None
+        if host_doc is None or host_doc.data.get("bastet") != "host":
+            _add(inv, "warning", f"no host named {target or doc.data.get('host')}", doc)
+        else:
+            inv.facts[host_doc.name.lower()] = doc
     from bastet.core.networks import check_networks  # networks builds on inventory
 
     check_networks(inv)
