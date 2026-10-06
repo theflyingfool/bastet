@@ -125,7 +125,7 @@ else `~/.config/bastet/bastet.yml`.
 | `bastet init` | Config, Bastet's SSH key, the inventory repository and `Homelab.md` |
 | `bastet add host [NAME] [--type …]` | Writes a minimal host file; asks for anything you leave out (`-y` to never ask) |
 | `bastet add hardware [NAME] [--category …]` | Writes a hardware file; asks for anything you leave out |
-| `bastet gather [HOST…] [-j JOBS]` | Collects facts and writes them into host files after a diff; `--take FIELD` accepts a value you'd set by hand |
+| `bastet gather [HOST…] [-j JOBS]` | Collects facts and writes them into each host's facts note (`_bastet/facts/<host> facts.md`) after a diff; `--take FIELD` is for hardware notes only — host facts are always taken |
 | `bastet refresh` | Regenerates page summaries and the dashboard (`_bastet/`) from your files; `add` and `gather` do this too |
 | `bastet show [NAME]` | Read-only: lists the inventory and its problems, or shows one object and what links to it |
 | `bastet help [COMMAND…]` | The same as `--help`, for Bastet or one command (e.g. `bastet help secret set`); bare `bastet` prints it too |
@@ -139,6 +139,10 @@ else `~/.config/bastet/bastet.yml`.
 | `bastet secret unlock [HOST ROLE OPTION]` | Plain text in place, for one secret or all; locks itself after a countdown (or run `secret lock`). |
 | `bastet secret lock` | Encrypts every plain-text secret note and commits what changed. |
 | `bastet secret audit` | Secret hygiene: every finding, grouped by kind. Never shows a value; writes the dashboard's audit section. |
+
+Gathered facts (OS, CPU, RAM, drives, serials…) live in `_bastet/facts/`, one note per host, rewritten on every
+gather; your own host notes hold only what you decide. A fact key found on an old host note is ignored and
+reported as a problem telling you to remove it.
 
 ## Secrets
 

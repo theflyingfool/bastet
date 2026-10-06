@@ -11,7 +11,7 @@ The redesign is one plan made of six subplans, run in order. Each subplan:
 
 | # | Subplan | Status | Depends on | Spec |
 |---|---|---|---|---|
-| 1 | Host-note split | ☐ | — | §2, §2.1, §8.3 (reports note location) |
+| 1 | Host-note split | ◐ | — | §2, §2.1, §8.3 (reports note location) |
 | 2 | Role format and library | ☐ | — | §3, §4, §13 (`role check`), §14 |
 | 3 | Execution model | ☐ | 2 (and 4's power control for the reboot plan) | §6, §7 |
 | 4 | New and expanded blocks | ☐ | 3 | §8, §9, §10 |
