@@ -4,3 +4,7 @@ __pycache__/
 .pytest_cache/
 dist/
 *.egg-info/
+
+# local working dirs: plan ledgers and reference copies (never published)
+.superpowers/
+refs/
