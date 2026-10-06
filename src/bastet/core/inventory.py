@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from bastet.core.errors import BastetError
-from bastet.core.factsnote import META_KEYS
+from bastet.core.factsnote import FACTS_DIR, META_KEYS
 from bastet.core.frontmatter import Document, parse_document
 from bastet.core.hosttypes import HostType
 from bastet.core.links import link_target
@@ -93,7 +93,22 @@ def _bare_ip(value: object) -> str | None:
     return text
 
 
+def _check_stale_facts(inv: Inventory, doc: Document, types: dict[str, HostType]) -> None:
+    from bastet.core.hostview import stale_fact_keys  # hostview builds on inventory
+
+    stale = stale_fact_keys(doc, types)
+    if not stale:
+        return
+    message = (
+        f"{', '.join(stale)} are gathered facts; they now live in "
+        f"{FACTS_DIR}/{doc.name}.md (remove them from this note)"
+    )
+    line = doc.key_lines.get(stale[0])
+    inv.problems.append(Problem("warning", BastetError(message, file=doc.path, line=line)))
+
+
 def _check_host(inv: Inventory, doc: Document, types: dict[str, HostType], ips: dict[str, Document]) -> None:
+    _check_stale_facts(inv, doc, types)
     type_name = doc.data.get("type")
     if type_name is None:
         _add(inv, "error", "missing 'type'", doc, "bastet")

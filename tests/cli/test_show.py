@@ -28,6 +28,16 @@ def test_show_problems_exit_1(runner, inventory):
     assert "hosts/bad.md" in result.output and "unknown host type 'vpz'" in result.output
 
 
+def test_show_stale_fact_keys_warning(runner, inventory):
+    (inventory / "hosts" / "pve1.md").write_text(
+        "---\nbastet: host\ntype: proxmox-node\nip: 10.0.10.11\nos: Debian 12\n---\n# pve1\n"
+    )
+    result = runner.invoke(app, ["show"])
+    assert result.exit_code == 0, result.output
+    assert "os are gathered facts" in result.output
+    assert "_bastet/facts/pve1.md" in result.output
+
+
 def test_show_one_with_links(runner, inventory):
     (inventory / "hardware").mkdir()
     (inventory / "hardware" / "d1.md").write_text(

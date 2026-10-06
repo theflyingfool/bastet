@@ -136,6 +136,38 @@ def test_facts_note_for_unknown_host_is_a_warning(tmp_path):
     assert inv.facts_for("ghost") == {}
 
 
+def test_stale_fact_keys_warning(tmp_path):
+    put(
+        tmp_path,
+        "hosts/pve1.md",
+        "---\nbastet: host\ntype: server\nip: 10.0.10.5\nos: Debian 12\nkernel: 6.9\ncpu: Ryzen\n---\n",
+    )
+    inv = load_inventory(tmp_path, TYPES)
+    [w] = inv.problems
+    assert w.severity == "warning"
+    assert w.error.message == (
+        "os, kernel, cpu are gathered facts; they now live in _bastet/facts/pve1.md (remove them from this note)"
+    )
+    assert w.error.line == 5  # the 'os:' line
+
+
+def test_stale_fact_keys_no_warning_for_declared_keys(tmp_path):
+    put(tmp_path, "locations/Rack.md", "---\nbastet: location\n---\n")
+    put(tmp_path, "hosts/pve1.md", host("pve1", 'location: "[[Rack]]"\n'))
+    inv = load_inventory(tmp_path, TYPES)
+    assert inv.problems == []
+
+
+def test_stale_fact_keys_one_line_per_host(tmp_path):
+    put(tmp_path, "hosts/a.md", "---\nbastet: host\ntype: server\nip: 10.0.10.5\nos: Debian 12\nkernel: 6.9\n---\n")
+    put(tmp_path, "hosts/b.md", "---\nbastet: host\ntype: server\nip: 10.0.10.6\ncpu: Ryzen\n---\n")
+    inv = load_inventory(tmp_path, TYPES)
+    stale_warnings = [p for p in inv.problems if "are gathered facts" in p.error.message]
+    assert len(stale_warnings) == 2
+    assert any("os, kernel are gathered facts" in p.error.message for p in stale_warnings)
+    assert any("cpu are gathered facts" in p.error.message for p in stale_warnings)
+
+
 def test_facts_note_with_no_facts_is_empty(tmp_path):
     put(tmp_path, "hosts/pve1.md", host("pve1"))
     assert load_inventory(tmp_path, TYPES).facts_for("pve1") == {}
