@@ -67,7 +67,7 @@ def test_stale_fact_keys_no_warning_for_declared_keys():
 
 
 def test_host_data_vmid_fallback_to_stale_host_note():
-    """vmid is a PARENT_KEYS fact: a guest never observed its own vmid, but a value left on an old
+    """vmid is an OBSERVED_BY_OTHERS fact: a guest never observed its own vmid, but a value left on an old
     host note (from before the facts note existed) still works for matching, same as ssh_host_key."""
     inv = inv_with_facts({"os": "Debian 13"})
     d = doc('---\nbastet: host\ntype: lxc\nruns_on: "[[pve1]]"\nip: 10.0.20.9\nvmid: 104\n---\n')

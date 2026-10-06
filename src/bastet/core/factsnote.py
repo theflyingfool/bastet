@@ -15,10 +15,10 @@ from bastet.core.views import summary_embed
 
 FACTS_DIR = "_bastet/facts"
 META_KEYS = ("bastet", "host", "gathered", "cssclasses")
-# Keys a host's *own* gather never observes about itself -- they come from somewhere else (a Proxmox
-# node observing its guests' vmid) -- so a direct gather must keep whatever is already there instead
-# of dropping it.
-PARENT_KEYS = ("vmid",)
+# Keys a host's *own* gather never produces -- they're observed by something else (a Proxmox node
+# seeing a guest's vmid; a UniFi device seeing a host's cabling) -- so a direct gather of the host
+# itself must keep whatever is already there instead of wiping it.
+OBSERVED_BY_OTHERS = ("vmid", "links")
 # The order `extract()` (bastet.core.facts) inserts keys in; anything else sorts alphabetically after.
 FACT_ORDER = (
     "hostname", "os", "kernel", "arch", "virtualization", "chassis", "cpu", "cpu_cores", "cpu_threads",

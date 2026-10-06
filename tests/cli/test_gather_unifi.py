@@ -1,4 +1,6 @@
 import base64
+import json
+import re
 from pathlib import Path
 
 import pytest
@@ -8,6 +10,7 @@ from bastet.cli.app import app
 from bastet.core.factsnote import facts_path
 from bastet.core.remote import CommandResult
 from conftest import git
+from gather_fixtures import LAPTOP, stdout_for
 from unifi_fixtures import AP, GATEWAY, HOST_MAC, SWITCH
 
 from bastet.core.hostkeys import parse_keyscan, record  # noqa: E402
@@ -83,6 +86,59 @@ def test_link_conflict_is_a_warning_and_the_file_wins(runner, unifi_lab):
     assert "⚠ nas: link eno1: seen on [[sw]] port 2" in result.output
     text = nas.read_text()
     assert 'to_port: "9"' in text and "just a note" in text and "[[sw]]" not in text
+
+
+def test_links_survive_a_direct_gather_of_the_host(runner, unifi_lab, monkeypatch):
+    """`links` in a facts note comes from something else's gather (a UniFi device seeing the host's
+    cabling), never the host's own -- a direct gather of the host itself must keep it."""
+    result = runner.invoke(app, ["gather", "sw", "-y"])
+    assert result.exit_code == 0, result.output
+    assert 'to: "[[sw]]"' in facts(unifi_lab, "nas")
+
+    class NasRunner:
+        name = "x"
+
+        def run(self, script, *, timeout=120):
+            match = re.search(r"'(@@BASTET[^']*@@)'", script)
+            if match is None:
+                return CommandResult("", "", 0)
+            return CommandResult(stdout_for(dict(LAPTOP, hostname="nas"), match.group(1)), "", 0)
+
+    monkeypatch.setattr(gather_mod, "ssh_runner", lambda target: NasRunner())
+    result = runner.invoke(app, ["gather", "nas", "-y", "--accept-new-hostkey"])
+    assert result.exit_code == 0, result.output
+    note = facts(unifi_lab, "nas")
+    assert 'to: "[[sw]]"' in note and "os: Arch Linux" in note
+    assert "links" not in (unifi_lab / "hosts" / "nas.md").read_text()
+
+
+def test_unifi_gather_replaces_links_not_merges_them(runner, unifi_lab, monkeypatch):
+    """The UniFi path always writes what it currently sees for a host's `links` -- it doesn't keep
+    yesterday's entry once the cabling has moved, unlike the keep-if-not-observed rule a host's own
+    gather uses for OBSERVED_BY_OTHERS keys."""
+    result = runner.invoke(app, ["gather", "sw", "-y"])
+    assert result.exit_code == 0, result.output
+    assert 'to_port: "2"' in facts(unifi_lab, "nas")
+
+    switch_data = json.loads(SWITCH)
+    switch_data["port_table"][0]["mac_table"] = []
+    switch_data["port_table"][1]["mac_table"] = [{"mac": HOST_MAC}]
+    moved = json.dumps(switch_data)
+
+    class MovedRunner:
+        def __init__(self, address):
+            self.address, self.name = address, f"nick@{address}"
+
+        def run(self, script, *, timeout=120):
+            if "mca-dump" not in script:
+                return CommandResult("", "", 127)
+            return CommandResult(moved, "", 0)
+
+    monkeypatch.setattr(gather_mod, "ssh_runner", lambda target: MovedRunner(target.address))
+    result = runner.invoke(app, ["gather", "sw", "-y"])
+    assert result.exit_code == 0, result.output
+    after = facts(unifi_lab, "nas")
+    assert 'to_port: "8"' in after and 'to_port: "2"' not in after
 
 
 def test_no_lab_networks_means_no_gateway_network_warnings(runner, unifi_lab):

@@ -6,7 +6,7 @@ note can never beat a fresh one from the facts note.
 """
 
 from bastet.core.cabling import merge_links
-from bastet.core.factsnote import PARENT_KEYS
+from bastet.core.factsnote import OBSERVED_BY_OTHERS
 from bastet.core.frontmatter import Document
 from bastet.core.hosttypes import HostType
 from bastet.core.inventory import Inventory
@@ -14,10 +14,11 @@ from bastet.core.inventory import Inventory
 # Structural host-note keys: never fact-nature, whatever the host type says (most aren't declared
 # under a type's `fields:` at all, so this is mostly a safety net).
 IDENTITY_KEYS = ("type", "groups", "runs_on", "location", "connection", "gather", "address", "ip", "state", "hostname")
-# A key recorded only on an old host note, from before the facts note existed (or, for PARENT_KEYS,
-# before a parent ever observed it): still honoured as a fallback, reported by Task 2's stale-fact
-# check, never silently re-trusted as Bastet's own.
-FALLBACK_KEYS = ("ssh_host_key", *PARENT_KEYS)
+# A key recorded only on an old host note, from before the facts note existed (or, for the
+# OBSERVED_BY_OTHERS keys, from before something else ever observed it): still honoured as a fallback
+# for matching, never silently re-trusted as Bastet's own. `links` has its own per-port merge below,
+# so including it here is a no-op, not a second mechanism.
+FALLBACK_KEYS = ("ssh_host_key", *OBSERVED_BY_OTHERS)
 
 
 def _fields(doc: Document, types: dict[str, HostType]) -> dict[str, str]:
