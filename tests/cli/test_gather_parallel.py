@@ -21,6 +21,13 @@ def git(root: Path, *args: str) -> str:
     return subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, check=True).stdout
 
 
+def facts(root: Path, name: str) -> str:
+    from bastet.core.factsnote import facts_path
+
+    path = facts_path(root, name)
+    return path.read_text() if path.exists() else ""
+
+
 def add_host(root: Path, name: str, text: str) -> None:
     (root / "hosts" / f"{name}.md").write_text(text)
     git(root, "add", f"hosts/{name}.md")
@@ -66,7 +73,7 @@ def test_collect_runs_at_once_with_dash_j_3(runner, three_hosts, monkeypatch):
     result = runner.invoke(app, ["gather", "h1", "h2", "h3", "-y", "-j", "3"])
     assert result.exit_code == 0, result.output
     for name in ("h1", "h2", "h3"):
-        assert "os: Arch Linux" in (three_hosts / "hosts" / f"{name}.md").read_text()
+        assert "os: Arch Linux" in facts(three_hosts, name)
 
 
 def test_collect_runs_serially_with_dash_j_1(runner, three_hosts, monkeypatch):
@@ -80,6 +87,7 @@ def test_collect_runs_serially_with_dash_j_1(runner, three_hosts, monkeypatch):
     assert result.exit_code == 0, result.output
     assert result.output.count("unexpected error") == 3
     for name in ("h1", "h2", "h3"):
+        assert facts(three_hosts, name) == ""
         assert "os:" not in (three_hosts / "hosts" / f"{name}.md").read_text()
 
 
@@ -181,9 +189,9 @@ def test_one_host_unexpected_error_does_not_stop_others(runner, three_hosts, mon
     result = runner.invoke(app, ["gather", "h1", "h2", "h3", "-y"])
     assert result.exit_code == 0, result.output
     assert "unexpected error: ValueError: disk on fire" in result.output
-    assert "os:" not in (three_hosts / "hosts" / "h1.md").read_text()
-    assert "os: Arch Linux" in (three_hosts / "hosts" / "h2.md").read_text()
-    assert "os: Arch Linux" in (three_hosts / "hosts" / "h3.md").read_text()
+    assert facts(three_hosts, "h1") == ""
+    assert "os: Arch Linux" in facts(three_hosts, "h2")
+    assert "os: Arch Linux" in facts(three_hosts, "h3")
 
 
 def _seed(root: Path, suffix: str, monkeypatch, tmp_path) -> None:
@@ -257,6 +265,7 @@ def test_dash_j_1_and_dash_j_3_give_identical_results(runner, tmp_path, monkeypa
             return CommandResult(stdout_for(self.outputs, match.group(1)), "", 0)
 
     monkeypatch.setattr(gather_mod, "scan_keys", lambda address, recorded=None, port=22: KEYS)
+    monkeypatch.setattr(gather_mod, "_now", lambda: "2026-10-06T00:00:00Z")  # the facts note's `gathered:` stamp
 
     root_a = tmp_path / "A"
     _seed(root_a, "a", monkeypatch, tmp_path)

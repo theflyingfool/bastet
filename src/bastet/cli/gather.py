@@ -23,6 +23,7 @@ from bastet.cli.common import (
     write_with_confirmation,
 )
 from bastet.core.guests import guest_drift
+from bastet.core.hostview import host_data
 from bastet.core.render import lab_embed_changes
 from bastet.core.scaffold import new_host
 from bastet.core.tools import install_script, needed_tools
@@ -37,18 +38,30 @@ from bastet.core.errors import AuthFailed, BastetError, Unreachable
 from bastet.core.facts import Extracted, extract
 from bastet.core.frontmatter import Document, parse_document, set_keys
 from bastet.core.unifi import device_facts, machine_item, parse_mca, redact
-from bastet.core.gatherplan import Note, plan_update
+from bastet.core.gatherplan import Note, plan_facts
 from bastet.core.hardware import HardwareView, RunState, observe_hardware, plan_hardware
 from bastet.core.parallel import HostLog, Outcome, run_parallel
 from bastet.core.remote import SshRunner, SshTarget, run_interactive
 from bastet.core.secrets.redact import ACTIVE
 from bastet.core.shell import ProbeResult
 
+# Fields that are "fact" nature on some host type but never appear on a hardware note (so a key that
+# is also a hardware field, e.g. firmware, still works with --take there and stays silent here).
+HARDWARE_FACT_KEYS = {
+    "model", "serial", "size", "firmware", "slot", "socket", "speed", "state", "health",
+    "rotation", "make", "part", "bytes", "max_power", "max_speed", "busid", "pci",
+    "removable", "ports", "oob_address", "wearout", "bay",
+}
+
 LOCAL_ADDRESS = "127.0.0.1"
 
 
 def ssh_runner(target: SshTarget) -> SshRunner:
     return SshRunner(target)
+
+
+def _now() -> str:
+    return dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def scan_keys(address: str, recorded: str | None = None, port: int = 22) -> list[hostkeys.HostKey]:
@@ -95,7 +108,15 @@ def _pin(ctx: Context, doc: Document, tmp: Path, *, yes: bool, accept: bool,
     address = _resolve_address(doc)
     if not address:
         raise BastetError("no address to connect to; set `address:` (e.g. laptop.local) or a fixed `ip:`", file=doc.path)
-    recorded = doc.data.get("ssh_host_key")
+    facts_doc = ctx.inventory.facts.get(doc.name.lower())
+    if facts_doc is not None and "ssh_host_key" in facts_doc.data:
+        recorded = facts_doc.data["ssh_host_key"]
+        key_file, key_line = facts_doc.path, facts_doc.key_lines.get("ssh_host_key")
+    else:
+        # A key recorded only on the (old) host note, from before the facts note existed: still
+        # honoured as a fallback, but reported there -- never silently re-trusted as Bastet's own.
+        recorded = doc.data.get("ssh_host_key")
+        key_file, key_line = doc.path, doc.key_lines.get("ssh_host_key")
     keys, port = _scan_pinned(doc, str(address), str(recorded) if recorded else None, ports, scan_keys)
     best = hostkeys.preferred(keys)
     offered = hostkeys.record(best)
@@ -104,7 +125,7 @@ def _pin(ctx: Context, doc: Document, tmp: Path, *, yes: bool, accept: bool,
         raise BastetError(
             f"host key changed: file has {recorded}, host offers {offered}. "
             "If the host was reinstalled, rerun with --accept-new-hostkey",
-            file=doc.path, line=doc.key_lines.get("ssh_host_key"), key="ssh_host_key",
+            file=key_file, line=key_line, key="ssh_host_key",
         )
     if status == "new" and not accept:
         if yes:
@@ -343,7 +364,12 @@ def _gather(
         typer.echo("No hosts yet. Add one with `bastet add host`.")
         return
 
+    host_fact_keys = {k for t in ctx.types.values() for k, n in t.fields.items() if n == "fact"} - HARDWARE_FACT_KEYS
+    for key in dict.fromkeys(take):  # de-duplicated, in order
+        if key in host_fact_keys:
+            typer.echo(f"--take {key}: host facts are always taken now; nothing to do")
     take_fields = set(take) | ({"ssh_host_key"} if accept_new_hostkey else set())
+    gathered_at = _now()
     changes, notes, gathered = [], [], []
     host_warnings: dict[str, list[str]] = {}
     found_guests: list[tuple[str, dict]] = []
@@ -409,7 +435,7 @@ def _gather(
                 if host_type.name.startswith("unifi-"):
                     raw = collected[doc.name]
                     device = parse_mca(raw)
-                    taken = dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+                    taken = gathered_at
                     snapshot = Snapshot(doc.name, "ssh", taken,
                                         {"mca_dump": ProbeResult(0, json.dumps(redact(json.loads(raw)), indent=1))})
                     save_snapshot(snapshot, data_dir())
@@ -422,14 +448,14 @@ def _gather(
                     snapshot = collected[doc.name]
                     save_snapshot(snapshot, data_dir())
                     extracted = extract(snapshot.results)
-                    tools = sorted(set(doc.data.get("bastet_tools") or []) | set(installed[doc.name]))
+                    tools = sorted(set(host_data(ctx.inventory, doc, ctx.types).get("bastet_tools") or []) | set(installed[doc.name]))
                     if tools:
                         extracted.facts["bastet_tools"] = tools
                     view = observe_hardware(doc.name, snapshot.results, extracted) if host_type.physical else None
                     if view is not None and view.pools:
                         extracted.facts["pools"] = view.pools
-                update = plan_update(
-                    doc, extracted, host_type, ctx.repo, take=take_fields, hostkey=hostkey, types=ctx.types
+                update = plan_facts(
+                    doc, extracted, host_type, ctx.inventory, hostkey=hostkey, gathered=gathered_at, types=ctx.types
                 )
                 hw_changes, hw_notes = plan_hardware(inv, doc, view, ctx.repo, take=take_fields, run=run_state) if view else ([], [])
             except BastetError as exc:

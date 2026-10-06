@@ -1,9 +1,11 @@
 import base64
+from pathlib import Path
 
 import pytest
 
 import bastet.cli.gather as gather_mod
 from bastet.cli.app import app
+from bastet.core.factsnote import facts_path
 from bastet.core.remote import CommandResult
 from conftest import git
 from unifi_fixtures import AP, GATEWAY, HOST_MAC, SWITCH
@@ -39,10 +41,15 @@ def unifi_lab(inventory, monkeypatch):
     return inventory
 
 
+def facts(root: Path, name: str) -> str:
+    path = facts_path(root, name)
+    return path.read_text() if path.exists() else ""
+
+
 def test_gather_unifi_writes_facts_hardware_and_links(runner, unifi_lab, tmp_path):
     result = runner.invoke(app, ["gather", "uxg", "ap", "sw", "-y"])
     assert result.exit_code == 0, result.output
-    uxg = (unifi_lab / "hosts" / "uxg.md").read_text()
+    uxg = facts(unifi_lab, "uxg")
     assert "firmware: 6.0.10" in uxg and "mac: 02:00:00:00:00:01" in uxg and "media: SFP+" in uxg
     assert "SECRET" not in uxg
     assert "interface: br0" in uxg and "198.51.100" not in uxg
@@ -61,7 +68,7 @@ def test_gather_unifi_writes_facts_hardware_and_links(runner, unifi_lab, tmp_pat
 def test_device_without_mca_dump_is_an_error(runner, unifi_lab):
     (unifi_lab / "hosts" / "odd.md").write_text(f"---\nbastet: host\ntype: unifi-switch\nip: 10.10.0.9\ngather: true\nssh_host_key: {REC}\n---\n# odd\n")
     result = runner.invoke(app, ["gather", "odd", "uxg", "-y"])
-    assert "odd: mca-dump" in result.output and "firmware: 6.0.10" in (unifi_lab / "hosts" / "uxg.md").read_text()
+    assert "odd: mca-dump" in result.output and "firmware: 6.0.10" in facts(unifi_lab, "uxg")
 
 
 def test_link_conflict_is_a_warning_and_the_file_wins(runner, unifi_lab):

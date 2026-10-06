@@ -4,13 +4,13 @@ from dataclasses import dataclass, field
 from bastet.core.attribution import last_setter
 from bastet.core.changes import Change
 from bastet.core.facts import Extracted, propose_type
-from bastet.core.frontmatter import Document, set_keys
+from bastet.core.factsnote import facts_change
+from bastet.core.frontmatter import Document
 from bastet.core.gitrepo import BASTET_NAME, GitRepo
-from bastet.core.hosttypes import HostType, load_host_types
+from bastet.core.hosttypes import HostType
+from bastet.core.inventory import Inventory
 from bastet.core.units import same_value
-from bastet.core.views import HARDWARE_SECTION, ensure_page_embed, has_hardware_section, summary_embed
-
-HARDWARE_KEYS = {"ram", "cpu", "cpu_cores", "cpu_threads", "storage"}
+from bastet.core.views import summary_embed
 
 
 @dataclass
@@ -65,17 +65,23 @@ def merge_facts(
     return updates, notes
 
 
-def plan_update(
+def plan_facts(
     doc: Document,
     ex: Extracted,
     host_type: HostType,
-    repo: GitRepo,
+    inv: Inventory,
     *,
-    take: set[str],
     hostkey: str | None,
-    types: dict[str, HostType] | None = None,
+    gathered: str,
+    types: dict[str, HostType],
 ) -> HostUpdate:
-    text = doc.path.read_text(encoding="utf-8")
+    """Everything observed goes to the host's facts note; the host note itself is never written.
+
+    A desired or yours field the host note declares differently from what was observed is an info
+    note (drift, for `apply` to reconcile later); a type proposal and a missing summary embed are
+    notes too. Facts have no attribution and no `--take`: the facts note is Bastet's, so it is simply
+    replaced with what was observed.
+    """
     observed = dict(ex.facts)
     if hostkey:
         observed["ssh_host_key"] = hostkey
@@ -85,32 +91,32 @@ def plan_update(
             observed["interfaces"] = [
                 {k: v for k, v in i.items() if k != "addresses"} for i in observed["interfaces"] if isinstance(i, dict)
             ]
-    updates, notes = merge_facts(
-        doc, observed, repo, take=take,
-        nature_of=host_type.fields.get,
-        warn=lambda key: host_type.physical and key in HARDWARE_KEYS,
-    )
-    if "gather" not in doc.data:
-        updates["gather"] = True
-    if "hostname" not in doc.data and ex.facts.get("hostname"):
-        updates = {"hostname": ex.facts["hostname"], **updates}  # first, where it reads naturally
+
+    notes: list[Note] = []
+    for key, value in observed.items():
+        nature = host_type.fields.get(key)
+        if nature not in ("desired", "yours"):
+            continue
+        current = doc.data.get(key)
+        if current is not None and not same_value(key, current, value):
+            notes.append(Note(doc.name, "info", f"{key}: desired {current!r}, host has {value!r} (apply will handle desired fields later)"))
 
     proposal = propose_type(ex)
     current_type = doc.data.get("type")
     if proposal and current_type == "unknown":
-        known = (types or load_host_types()).get(proposal)
-        merged = {**doc.data, **updates}
-        missing = [f for f in (known.minimal if known else []) if merged.get(f) in (None, "")]
-        if missing:
-            notes.append(Note(doc.name, "info", f"this host looks like a {proposal}; set type: {proposal} and add {', '.join(missing)}"))
-        else:
-            updates["type"] = proposal
+        known = types.get(proposal)
+        missing = [f for f in (known.minimal if known else []) if doc.data.get(f) in (None, "")]
+        suffix = f" and add {', '.join(missing)}" if missing else ""
+        notes.append(Note(doc.name, "info", f"this host looks like a {proposal}; set type: {proposal}{suffix}"))
     elif proposal and current_type and proposal != current_type:
         notes.append(Note(doc.name, "info", f"type is {current_type!r} but this host looks like a {proposal}"))
 
-    new_text = set_keys(text, updates, doc.path) if updates else text
-    new_text = ensure_page_embed(new_text, summary_embed(doc.name))
-    if host_type.physical and not has_hardware_section(doc.body):
-        new_text = new_text.rstrip("\n") + "\n" + HARDWARE_SECTION
-    change = Change(doc.path, text, new_text) if new_text != text else None
+    if summary_embed(doc.name) not in doc.body:
+        rel = doc.path.relative_to(inv.root).as_posix()
+        notes.append(Note(
+            doc.name, "info",
+            f"{rel} has no summary embed; add {summary_embed(doc.name)} (bastet add host does this for new hosts)",
+        ))
+
+    change = facts_change(inv.root, doc.name, observed, gathered)
     return HostUpdate(change, notes)

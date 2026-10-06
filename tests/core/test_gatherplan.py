@@ -5,10 +5,12 @@ import pytest
 
 from bastet.core.shell import parse_sections
 from bastet.core.facts import extract
+from bastet.core.factsnote import facts_path
 from bastet.core.frontmatter import parse_document
-from bastet.core.gatherplan import plan_update
+from bastet.core.gatherplan import plan_facts
 from bastet.core.gitrepo import GitRepo
 from bastet.core.hosttypes import load_host_types
+from bastet.core.inventory import load_inventory
 from gather_fixtures import LAPTOP, VPS, stdout_for
 
 TYPES = load_host_types()
@@ -31,101 +33,114 @@ def host(repo: GitRepo, text: str, *, as_bastet: bool = False) -> Path:
     return p
 
 
-def plan(p: Path, outputs, repo, type_name, take=(), hostkey=None):
-    doc = parse_document(p.read_text(), p)
+def plan(root: Path, outputs, type_name: str, *, hostkey=None, gathered="2026-10-06T10:00:00Z"):
+    inv = load_inventory(root, TYPES)
+    doc = inv.get("h")
     ex = extract(parse_sections(stdout_for(outputs)))
-    return plan_update(doc, ex, TYPES[type_name], repo, take=set(take), hostkey=hostkey)
+    return plan_facts(doc, ex, TYPES[type_name], inv, hostkey=hostkey, gathered=gathered, types=TYPES)
 
 
-def test_new_facts_added_and_section_appended(repo):
-    p = host(repo, "---\nbastet: host\ntype: laptop\nconnection: local\n---\n# h\nmy notes\n")
-    up = plan(p, LAPTOP, repo, "laptop")
-    after = up.change.after
-    assert "connection: local\nhostname: hp-13\n" in after
-    assert "ram: 16 GB" in after and "interfaces:\n  - name: wlan0\n" in after
-    assert after.endswith("my notes\n\n## Hardware\n\n![[hardware-here.base]]\n")
-    assert up.notes == []
+def write_facts(up) -> None:
+    up.change.path.parent.mkdir(parents=True, exist_ok=True)
+    up.change.path.write_text(up.change.after)
+
+
+def test_facts_written_never_the_host_note(repo):
+    host(repo, "---\nbastet: host\ntype: laptop\nconnection: local\n---\n# h\nmy notes\n")
+    up = plan(repo.root, LAPTOP, "laptop")
+    assert up.change is not None
+    assert up.change.path == facts_path(repo.root, "h")
+    assert "ram: 16 GB" in up.change.after and "hostname: hp-13" in up.change.after
+    assert "bastet: facts" in up.change.after
+    assert [n.message for n in up.notes] == [
+        "hosts/h.md has no summary embed; add ![[h summary]] (bastet add host does this for new hosts)"
+    ]
 
 
 def test_no_change_when_up_to_date(repo):
-    p = host(repo, "---\nbastet: host\ntype: laptop\n---\n# h\n")
-    first = plan(p, LAPTOP, repo, "laptop")
-    p.write_text(first.change.after)
-    repo.commit([p], "gather", as_bastet=True)
-    assert plan(p, LAPTOP, repo, "laptop").change is None
+    host(repo, "---\nbastet: host\ntype: laptop\nconnection: local\n---\n# h\n![[h summary]]\n")
+    first = plan(repo.root, LAPTOP, "laptop")
+    write_facts(first)
+    assert plan(repo.root, LAPTOP, "laptop", gathered="2026-10-06T11:00:00Z").change is None
 
 
-def test_hand_set_physical_value_kept_with_warning(repo):
-    p = host(repo, "---\nbastet: host\ntype: laptop\nram: 32 GB\n---\n# h\n")
-    up = plan(p, LAPTOP, repo, "laptop")
-    assert "ram: 32 GB" in up.change.after
-    [n] = [n for n in up.notes if "ram" in n.message]
-    assert n.severity == "warn" and "Tester" in n.message and "--take ram" in n.message
+def test_hostkey_recorded_in_facts_note(repo):
+    host(repo, "---\nbastet: host\ntype: vps\nprovider: linode\nip: 203.0.113.10\n---\n# v\n")
+    up = plan(repo.root, VPS, "vps", hostkey="ssh-ed25519 SHA256:abc")
+    assert "ssh_host_key: ssh-ed25519 SHA256:abc" in up.change.after
 
 
-def test_take_overrides(repo):
-    p = host(repo, "---\nbastet: host\ntype: laptop\nram: 32 GB\n---\n# h\n")
-    up = plan(p, LAPTOP, repo, "laptop", take={"ram"})
-    assert "ram: 16 GB" in up.change.after
-
-
-def test_bastet_set_value_is_updated(repo):
-    p = host(repo, "---\nbastet: host\ntype: laptop\nram: 8 GB\n---\n# h\n\n## Hardware\n\n![[hardware-here.base]]\n", as_bastet=True)
-    up = plan(p, LAPTOP, repo, "laptop")
-    assert "ram: 16 GB" in up.change.after and not [n for n in up.notes if "ram" in n.message]
-
-
-def test_virtual_host_mismatch_is_info(repo):
-    p = host(repo, "---\nbastet: host\ntype: vps\nprovider: linode\nip: 203.0.113.10\nos: Debian 12\n---\n# v\n")
-    up = plan(p, VPS, repo, "vps")
-    [n] = [n for n in up.notes if "os" in n.message]
-    assert n.severity == "info"
-
-
-def test_desired_field_reported_not_written(repo):
-    p = host(repo, '---\nbastet: host\ntype: lxc\nruns_on: "[[pve1]]"\nip: 10.0.20.21\nram: 2 GB\n---\n# c\n')
-    up = plan(p, VPS, repo, "lxc")
-    assert "ram: 2 GB" in up.change.after
-    assert any("ram" in n.message and "desired" in n.message for n in up.notes)
-
-
-def test_unknown_type_gets_proposal_others_get_note(repo):
-    p = host(repo, "---\nbastet: host\ntype: unknown\nprovider: linode\nip: 203.0.113.10\n---\n# u\n")
-    assert "type: vps" in plan(p, VPS, repo, "unknown").change.after
-    p2 = host(repo, "---\nbastet: host\ntype: server\nip: 203.0.113.10\n---\n# s\n")
-    up = plan(p2, VPS, repo, "server")
-    assert "type: server" in up.change.after and any("looks like a vps" in n.message for n in up.notes)
-
-
-def test_hostkey_recorded(repo):
-    p = host(repo, "---\nbastet: host\ntype: vps\nprovider: linode\nip: 203.0.113.10\n---\n# v\n")
-    up = plan(p, VPS, repo, "vps", hostkey="ssh-ed25519 SHA256:abc")
-    assert 'ssh_host_key: ssh-ed25519 SHA256:abc' in up.change.after
+def test_matching_hand_pinned_key_gives_no_note(repo):
+    host(
+        repo,
+        "---\nbastet: host\ntype: vps\nprovider: linode\nip: 203.0.113.10\n"
+        "ssh_host_key: ecdsa-sha2-nistp256 SHA256:x\n---\n# v\n![[h summary]]\n",
+    )
+    up = plan(repo.root, VPS, "vps", hostkey="ecdsa-sha2-nistp256 SHA256:x")
+    assert not [n for n in up.notes if "ssh_host_key" in n.message]
 
 
 def test_dhcp_host_keeps_no_addresses_or_gateway(repo):
-    p = host(repo, "---\nbastet: host\ntype: laptop\nip: dhcp\nconnection: local\n---\n# h\n")
-    after = plan(p, LAPTOP, repo, "laptop").change.after
+    host(repo, "---\nbastet: host\ntype: laptop\nip: dhcp\nconnection: local\n---\n# h\n")
+    after = plan(repo.root, LAPTOP, "laptop").change.after
     assert "10.0.10.50" not in after and "gateway" not in after
     assert "  - name: wlan0\n    mac: aa:bb:cc:dd:ee:10\n" in after
 
 
-def test_unknown_type_not_switched_when_required_fields_missing(repo):
-    p = host(repo, "---\nbastet: host\ntype: unknown\naddress: v.example.com\n---\n# u\n")
-    up = plan(p, VPS, repo, "unknown")
-    assert "type: unknown" in up.change.after
+def test_desired_field_drift_is_an_info_note_and_observed_value_is_kept(repo):
+    host(repo, '---\nbastet: host\ntype: lxc\nruns_on: "[[pve1]]"\nip: 10.0.20.21\nram: 2 GB\n---\n# c\n![[h summary]]\n')
+    up = plan(repo.root, VPS, "lxc")
+    assert any("ram" in n.message and "desired" in n.message and n.severity == "info" for n in up.notes)
+    assert "ram: 4 GB" in up.change.after  # the observed value, not the declared one
+
+
+def test_yours_field_drift_is_an_info_note(repo):
+    host(repo, "---\nbastet: host\ntype: laptop\nconnection: local\nhostname: custom\n---\n# h\n![[h summary]]\n")
+    up = plan(repo.root, LAPTOP, "laptop")
+    assert any("hostname" in n.message and "desired" in n.message for n in up.notes)
+    assert "hostname: hp-13" in up.change.after
+
+
+def test_fact_nature_mismatch_on_host_note_gives_no_gather_note(repo):
+    """A stale fact left on the host note is Task 2's problem to report, not gather's."""
+    host(repo, "---\nbastet: host\ntype: vps\nprovider: linode\nip: 203.0.113.10\nos: Debian 12\n---\n# v\n![[h summary]]\n")
+    up = plan(repo.root, VPS, "vps")
+    assert not [n for n in up.notes if "os" in n.message]
+    assert "os: Debian GNU/Linux 13 (trixie)" in up.change.after
+
+
+def test_unknown_type_gets_a_note_only_never_a_write(repo):
+    host(repo, "---\nbastet: host\ntype: unknown\nprovider: linode\nip: 203.0.113.10\n---\n# u\n![[h summary]]\n")
+    up = plan(repo.root, VPS, "unknown")
+    assert any(n.message == "this host looks like a vps; set type: vps" for n in up.notes)
+    assert "type: vps" not in up.change.after
+
+
+def test_type_mismatch_still_gets_an_info_note(repo):
+    host(repo, "---\nbastet: host\ntype: server\nip: 203.0.113.10\n---\n# s\n![[h summary]]\n")
+    up = plan(repo.root, VPS, "server")
+    assert any("looks like a vps" in n.message for n in up.notes)
+
+
+def test_unknown_type_note_lists_missing_minimal_fields(repo):
+    host(repo, "---\nbastet: host\ntype: unknown\naddress: v.example.com\n---\n# u\n![[h summary]]\n")
+    up = plan(repo.root, VPS, "unknown")
     assert any("looks like a vps" in n.message and "provider" in n.message for n in up.notes)
 
 
-def test_matching_hand_pinned_key_gives_no_note(repo):
-    p = host(repo, "---\nbastet: host\ntype: vps\nprovider: linode\nip: 203.0.113.10\nssh_host_key: ecdsa-sha2-nistp256 SHA256:x\n---\n# v\n")
-    up = plan(p, VPS, repo, "vps", hostkey="ecdsa-sha2-nistp256 SHA256:x")
-    assert not [n for n in up.notes if "ssh_host_key" in n.message]
+def test_missing_summary_embed_note(repo):
+    host(repo, "---\nbastet: host\ntype: laptop\nconnection: local\n---\n# h\nno embed here\n")
+    up = plan(repo.root, LAPTOP, "laptop")
+    assert any(
+        n.message == "hosts/h.md has no summary embed; add ![[h summary]] (bastet add host does this for new hosts)"
+        for n in up.notes
+    )
 
 
-def test_virtual_hosts_get_no_hardware_section(repo):
-    p = host(repo, "---\nbastet: host\ntype: vps\nprovider: linode\nip: 203.0.113.10\n---\n# v\n")
-    assert "hardware-here.base" not in plan(p, VPS, repo, "vps").change.after
+def test_summary_embed_present_gives_no_note(repo):
+    host(repo, "---\nbastet: host\ntype: laptop\nconnection: local\n---\n# h\n![[h summary]]\n")
+    up = plan(repo.root, LAPTOP, "laptop")
+    assert not [n for n in up.notes if "summary embed" in n.message]
 
 
 def test_merge_facts_direct(repo):
@@ -138,35 +153,3 @@ def test_merge_facts_direct(repo):
     assert updates == {"firmware": "1.0"}
     [n] = notes
     assert n.severity == "warn" and "model" in n.message
-
-
-def test_summary_inserted_under_title_for_any_host(repo):
-    p = host(repo, "---\nbastet: host\ntype: vps\nprovider: linode\nip: 203.0.113.10\n---\n# v\nnotes\n")
-    after = plan(p, VPS, repo, "vps").change.after
-    assert "# v\n\n![[h summary]]\n\nnotes\n" in after
-
-
-def test_gather_switch_added_once(repo):
-    p = host(repo, "---\nbastet: host\ntype: laptop\n---\n# h\n")
-    first = plan(p, LAPTOP, repo, "laptop").change.after
-    assert first.count("gather: true") == 1
-    p.write_text(first)
-    repo.commit([p], "gather", as_bastet=True)
-    assert plan(p, LAPTOP, repo, "laptop").change is None
-
-
-def test_gather_switch_left_alone_when_set(repo):
-    p = host(repo, "---\nbastet: host\ntype: laptop\ngather: false\n---\n# h\n")
-    assert "gather: false" in plan(p, LAPTOP, repo, "laptop").change.after
-
-
-def test_hostname_filled_once_then_left_alone(repo):
-    p = host(repo, "---\nbastet: host\ntype: laptop\n---\n# h\n")
-    first = plan(p, LAPTOP, repo, "laptop").change.after
-    assert "hostname: hp-13" in first
-    renamed = first.replace("hostname: hp-13", "hostname: spectre")
-    p.write_text(renamed)
-    repo.commit([p], "rename", as_bastet=False)
-    update = plan(p, LAPTOP, repo, "laptop")
-    assert update.change is None or "hostname: spectre" in update.change.after
-    assert not [n for n in update.notes if "hostname" in n.message]
