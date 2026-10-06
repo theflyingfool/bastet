@@ -35,8 +35,8 @@ Everything here is v1 unless marked **deferred**.
 | What | Where | Written by |
 |---|---|---|
 | Host identity (type, address, groups, `runs_on`, location, `connection`, `gather`, guest settings) and your notes | `hosts/<host>.md` | you |
-| Gathered facts | `_bastet/facts/<host>.md` (`host: "[[<host>]]"`) | Bastet only |
-| Per-host reports from roles | `_bastet/reports/<host>.md` | Bastet only |
+| Gathered facts | `_bastet/facts/<host> facts.md` (`host: "[[<host>]]"`) | Bastet only |
+| Per-host reports from roles | `_bastet/reports/<host> reports.md` | Bastet only |
 | Role files (which roles apply where, with which preset and values) | `_roles/{lab,groups/<g>,hosts/<h>}/<role>.md` | you, or `add role` |
 | Your presets | `_roles/presets/<role>/<name>.md` | you |
 | Role definitions the lab uses (the copies that run) | `_roles/library/<role>/` | `add role` and `role update` |
@@ -385,7 +385,7 @@ Triggers and reboot are end-of-run **phases**, not blocks; the reboot phase uses
 - **Reports are read-only:**
   - off by default unless cheap;
   - shown in check;
-  - written to `_bastet/reports/<host>.md`, embedded on the host page;
+  - written to `_bastet/reports/<host> reports.md`, embedded on the host page;
   - never counted as a change;
   - never containing secret values.
 

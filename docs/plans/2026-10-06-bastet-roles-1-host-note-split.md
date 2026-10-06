@@ -3,11 +3,11 @@
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:**
-- Gathered facts move out of `hosts/<host>.md` into `_bastet/facts/<host>.md`, a note only Bastet writes.
+- Gathered facts move out of `hosts/<host>.md` into `_bastet/facts/<host> facts.md`, a note only Bastet writes.
 - No automatic command writes a host note again.
 - Fact keys left on old host notes are ignored and reported.
 - Everything that reads facts goes through one host view.
-- The security note moves to `_bastet/reports/<host>.md`.
+- The security note moves to `_bastet/reports/<host> reports.md`.
 
 **Architecture:**
 - **A new `bastet.core.factsnote` module** owns the facts note: path, render, parse.
@@ -89,7 +89,7 @@ def stale_fact_keys(doc: Document, types: dict[str, HostType]) -> list[str]
 ```
 
 **Behaviour:**
-- **The facts note is a normal inventory note** of kind `facts`. The inventory indexes it by its `host:` link target. A facts note whose host doesn't exist is an inventory warning ("_bastet/facts/x.md: no host named x").
+- **The facts note is a normal inventory note** of kind `facts`. The inventory indexes it by its `host:` link target. A facts note whose host doesn't exist is an inventory warning ("_bastet/facts/x facts.md: no host named x").
 - **`host_data` starts from `facts_for(doc.name)`,** then overlays every host-note key that isn't fact-nature for that host's type. Identity keys are never fact-nature.
 - **Unknown types** use the `unknown` type's fields.
 - **A host-note key the type calls `fact`** is never overlaid; `stale_fact_keys` lists them.
@@ -112,7 +112,7 @@ def stale_fact_keys(doc: Document, types: dict[str, HostType]) -> list[str]
 
 **Behaviour:**
 - **Each host note with stale fact keys** produces one warning, listed with the existing problems by `print_problems` and `show`'s Problems section:
-  `hosts/x.md: os, kernel, cpu are gathered facts; they now live in _bastet/facts/x.md (remove them from this note)`.
+  `hosts/x.md: os, kernel, cpu are gathered facts; they now live in _bastet/facts/x facts.md (remove them from this note)`.
 - **Warning, not error:** the keys are ignored, so nothing breaks.
 
 **Tests:**
@@ -154,7 +154,7 @@ def plan_facts(doc: Document, ex: Extracted, host_type: HostType, inv: Inventory
 - **One commit** holds the facts notes, hardware changes, links and guests, as today.
 
 **Tests:**
-- **The guard:** after a gather of a fixture inventory with two hosts, every `hosts/*.md` file is byte-identical and `_bastet/facts/<h>.md` exists with the expected keys.
+- **The guard:** after a gather of a fixture inventory with two hosts, every `hosts/*.md` file is byte-identical and `_bastet/facts/<h> facts.md` exists with the expected keys.
 - A second identical gather produces no change.
 - First contact writes the key into the facts note.
 - A changed key without the flag is refused; with the flag it's written to the facts note.
@@ -196,7 +196,7 @@ def plan_facts(doc: Document, ex: Extracted, host_type: HostType, inv: Inventory
 - Tests: `tests/cli/test_check_apply.py`, `tests/cli/test_add.py`, `tests/core/test_scaffold.py`.
 
 **Behaviour:**
-- **The security note moves** to `_bastet/reports/<host>.md`, with the same content and the same "no commit when only the time changed" rule. An old note at `_bastet/security/<host> security.md` is left alone and isn't read.
+- **The security note moves** to `_bastet/reports/<host> reports.md`, with the same content and the same "no commit when only the time changed" rule. An old note at `_bastet/security/<host> security.md` is left alone and isn't read.
 - **New host pages from `add host`** carry the embeds gather used to add, so gather never needs to.
 - **Each generated summary** ends with `Facts: [[_bastet/facts/<host>|gathered facts]]`.
 - **The guide note** explains the split in two sentences: your notes hold what you decide; `_bastet/facts/` holds what Bastet saw.

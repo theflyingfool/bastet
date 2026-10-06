@@ -21,11 +21,11 @@ The redesign is one plan made of six subplans, run in order. Each subplan:
 ## 1. Host-note split
 
 **Delivers:**
-- Gathered facts move to `_bastet/facts/<host>.md`, written only by Bastet.
+- Gathered facts move to `_bastet/facts/<host> facts.md`, written only by Bastet.
 - Automatic commands (gather, refresh, check, apply, init's host-key pin) never write host notes.
 - Fact keys left on a host note are ignored and reported.
 - Everything that reads facts reads them through one host view.
-- The security note moves to `_bastet/reports/<host>.md`.
+- The security note moves to `_bastet/reports/<host> reports.md`.
 
 **Done when:**
 - a full gather leaves every `hosts/*.md` byte-for-byte unchanged;
@@ -73,7 +73,7 @@ The redesign is one plan made of six subplans, run in order. Each subplan:
 - The systemd block expanded: timers, `.mount` units, sysctl.d, modules-load.d, tmpfiles.d.
 - Hardening drop-ins generated from `access`, with `hardening` / `hardening_overrides`, and exposure scores in check.
 - JSON state (http or command, find, subset compare with normalising, create/update/delete, write-only fields, async waits, secret auth, pinned TLS, `on: host|controller`).
-- Reports (role report options into `_bastet/reports/<host>.md`).
+- Reports (role report options into `_bastet/reports/<host> reports.md`).
 - Power control (IPMI, Redfish, Wake-on-LAN; on, off, status), used by the reboot plan.
 - Install methods and versions (`install`, container tag, upstream pin, distro hold).
 - Secrets rules for files (world-readable secret files are an error).
