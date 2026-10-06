@@ -45,8 +45,8 @@ from bastet.core.remote import SshRunner, SshTarget, run_interactive
 from bastet.core.secrets.redact import ACTIVE
 from bastet.core.shell import ProbeResult
 
-# Fields that are "fact" nature on some host type but never appear on a hardware note (so a key that
-# is also a hardware field, e.g. firmware, still works with --take there and stays silent here).
+# Fields that are "fact" nature on some host type and also plausible hardware-note field names (so a
+# key that's ambiguous, e.g. firmware, still works with --take on hardware and stays silent here).
 HARDWARE_FACT_KEYS = {
     "model", "serial", "size", "firmware", "slot", "socket", "speed", "state", "health",
     "rotation", "make", "part", "bytes", "max_power", "max_speed", "busid", "pci",
@@ -108,14 +108,13 @@ def _pin(ctx: Context, doc: Document, tmp: Path, *, yes: bool, accept: bool,
     address = _resolve_address(doc)
     if not address:
         raise BastetError("no address to connect to; set `address:` (e.g. laptop.local) or a fixed `ip:`", file=doc.path)
+    recorded = host_data(ctx.inventory, doc, ctx.types).get("ssh_host_key")
     facts_doc = ctx.inventory.facts.get(doc.name.lower())
     if facts_doc is not None and "ssh_host_key" in facts_doc.data:
-        recorded = facts_doc.data["ssh_host_key"]
         key_file, key_line = facts_doc.path, facts_doc.key_lines.get("ssh_host_key")
     else:
         # A key recorded only on the (old) host note, from before the facts note existed: still
         # honoured as a fallback, but reported there -- never silently re-trusted as Bastet's own.
-        recorded = doc.data.get("ssh_host_key")
         key_file, key_line = doc.path, doc.key_lines.get("ssh_host_key")
     keys, port = _scan_pinned(doc, str(address), str(recorded) if recorded else None, ports, scan_keys)
     best = hostkeys.preferred(keys)

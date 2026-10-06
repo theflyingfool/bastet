@@ -177,6 +177,38 @@ def test_changed_hostkey_stops(runner, vps):
     result = runner.invoke(app, ["gather", "vps1", "-y"])
     assert "host key changed" in result.output and "--accept-new-hostkey" in result.output
     assert p.read_text() == before
+    assert facts(vps, "vps1") == ""
+
+
+def test_changed_key_in_the_facts_note_is_refused_then_accepted(runner, vps, monkeypatch):
+    monkeypatch.setattr(gather_mod, "scan_keys", lambda address, recorded=None, port=22: KEYS)
+    runner.invoke(app, ["gather", "vps1", "-y", "--accept-new-hostkey"])
+    recorded = facts(vps, "vps1")
+    assert f"ssh_host_key: ssh-ed25519 {KEYS[0].fingerprint}" in recorded
+
+    evil = parse_keyscan(f"h ssh-rsa {base64.b64encode(b'new-key').decode()}\n")
+    monkeypatch.setattr(gather_mod, "scan_keys", lambda address, recorded=None, port=22: evil)
+    result = runner.invoke(app, ["gather", "vps1", "-y"])
+    assert "host key changed" in result.output and "--accept-new-hostkey" in result.output
+    assert facts(vps, "vps1") == recorded  # the facts note is untouched by the refusal
+
+    result = runner.invoke(app, ["gather", "vps1", "-y", "--accept-new-hostkey"])
+    assert result.exit_code == 0, result.output
+    assert f"ssh_host_key: ssh-rsa {evil[0].fingerprint}" in facts(vps, "vps1")
+
+
+def test_facts_note_key_wins_over_a_stale_host_note_key(runner, vps, monkeypatch):
+    """A fallback-only use case: once the facts note has the key, a leftover (and now wrong)
+    ssh_host_key on the host note must not cause a false 'changed' refusal."""
+    monkeypatch.setattr(gather_mod, "scan_keys", lambda address, recorded=None, port=22: KEYS)
+    runner.invoke(app, ["gather", "vps1", "-y", "--accept-new-hostkey"])
+    p = vps / "hosts" / "vps1.md"
+    p.write_text(p.read_text().replace("ip: 203.0.113.10\n", "ip: 203.0.113.10\nssh_host_key: ssh-ed25519 SHA256:old\n"))
+    git(vps, "commit", "-q", "-am", "stale key")
+    result = runner.invoke(app, ["gather", "vps1", "-y"])
+    assert result.exit_code == 0, result.output
+    assert "host key changed" not in result.output
+    assert "os:" in facts(vps, "vps1")
 
 
 def test_unreachable_host_does_not_stop_others(runner, laptop, monkeypatch):
