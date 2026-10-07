@@ -28,9 +28,9 @@ This page is generated from the Bastet version you run, so it always matches it.
 Your notes hold what you decide; `_bastet/facts/` holds what Bastet saw, one note per host, rewritten
 on every gather.
 
-- **Facts** (OS, CPU, RAM, drives, serials…) come from gather. If you set one by hand and the machine
-  disagrees, Bastet keeps your value and tells you who set it; `bastet gather --take <field>` accepts
-  the observed one.
+- **Facts** (OS, CPU, RAM, drives, serials…) come from gather and are always written to the facts note;
+  a fact-nature key set by hand on the host note itself is ignored (flagged with `bastet show` so you
+  can remove it) rather than kept, and there's nothing for `bastet gather --take <field>` to accept.
 - **Desired** values (e.g. an LXC's RAM) are what you want; Bastet reports differences (applying them
   comes later).
 - **Your** values (purchase date, location, status, notes) are never touched.

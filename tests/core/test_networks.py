@@ -73,3 +73,18 @@ def test_untagged_only_lab_skips_link_vlan_check(tmp_path):
     inv = make(tmp_path, "---\nbastet: lab\nnetworks:\n  lan: {cidr: 10.10.0.0/24}\n---\n# Lab\n",
                a='ip: 10.10.0.5\nlinks:\n  - {port: eno1, native_vlan: 1}\n')
     assert messages(inv, "error") == []
+
+
+def test_link_vlan_check_reads_observed_links_from_the_facts_note(tmp_path):
+    """A link seen by a switch lives in the host's facts note, not the host note -- the VLAN check must
+    read it through `host_data` like every other reader, not `doc.data` directly."""
+    from bastet.core.factsnote import facts_path, render_facts
+
+    make(tmp_path, LAB, a="ip: 10.10.0.5\n")
+    facts_path(tmp_path, "a").parent.mkdir(parents=True, exist_ok=True)
+    facts_path(tmp_path, "a").write_text(render_facts(
+        "a", {"links": [{"port": "eno1", "to": "[[sw]]", "to_port": "2", "vlan": 30, "seen_by": "sw"}]},
+        "2026-10-06T00:00:00Z",
+    ))
+    inv = load_inventory(tmp_path, TYPES)
+    assert any("VLAN 30" in m for m in messages(inv, "error"))

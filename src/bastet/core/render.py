@@ -14,6 +14,7 @@ from bastet.core.frontmatter import Document, parse_document
 from bastet.core.gitrepo import BASTET_NAME, GitRepo
 from bastet.core.hardware import MACHINE_CATEGORIES
 from bastet.core.hosttypes import HostType
+from bastet.core.factsnote import facts_path
 from bastet.core.hostview import host_data
 from bastet.core.hwparse import short_cpu
 from bastet.core.inventory import Inventory, markdown_files
@@ -185,7 +186,8 @@ def host_summary(
         body += f"\nSecurity: [[{doc.name} reports|security report]]" + (f" (checked {when})" if when else "") + "\n"
     if roles_table:
         body += "\n" + roles_table
-    body += f"\nFacts: [[{doc.name} facts|gathered facts]]\n"
+    if facts_path(inv.root, doc.name).exists():
+        body += f"\nFacts: [[{doc.name} facts|gathered facts]]\n"
     front = {"summary_of": make_link(doc.name), "warnings": list(warnings)}
     if drift:
         front["drift"] = drift

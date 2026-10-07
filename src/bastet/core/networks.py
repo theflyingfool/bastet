@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from bastet.core.errors import BastetError
 from bastet.core.frontmatter import Document
+from bastet.core.hosttypes import HostType
 from bastet.core.inventory import Inventory, Problem, _bare_ip
 
 
@@ -77,7 +78,7 @@ def _vlan_number(value: object) -> int | None:
     return None
 
 
-def check_networks(inv: Inventory) -> None:
+def check_networks(inv: Inventory, types: dict[str, HostType]) -> None:
     lab = inv.lab
     raw = lab.data.get("networks") if lab else None
     if raw is None:
@@ -121,8 +122,10 @@ def check_networks(inv: Inventory) -> None:
     vlans = set(seen_vlan)
     if not vlans:  # an untagged-only lab: nothing to check link VLANs against
         return
+    from bastet.core.hostview import host_data  # lazy: hostview builds on inventory
+
     for doc in [*inv.of_kind("host"), *inv.of_kind("hardware")]:
-        links = doc.data.get("links")
+        links = (host_data(inv, doc, types) if doc.data.get("bastet") == "host" else doc.data).get("links")
         for link in links if isinstance(links, list) else []:
             if not isinstance(link, dict):
                 continue

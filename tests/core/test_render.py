@@ -321,6 +321,17 @@ def test_summary_ends_with_facts_link(repo):
     assert text.rstrip("\n").endswith("Facts: [[pve1 facts|gathered facts]]")
 
 
+def test_summary_has_no_facts_link_for_a_never_gathered_host(repo):
+    """A host added but never gathered has no facts note yet -- an unresolved `Facts:` link would make
+    Obsidian create `<host> facts.md` the moment anyone clicks it, pre-empting the one gather writes."""
+    p = repo.root / "hosts" / "new.md"
+    p.write_text('---\nbastet: host\ntype: server\nip: 10.0.10.50\n---\n# new\n')
+    subprocess.run(["git", "-C", str(repo.root), "add", "."], check=True)
+    repo.commit([p], "add new", as_bastet=True)
+    text = host_summary(inv(repo), inv(repo).get("new"), TYPES, [])
+    assert "Facts:" not in text
+
+
 def test_roles_index_generated_and_linked(repo):
     changes = {c.path.relative_to(repo.root).as_posix(): c for c in generated_changes(inv(repo), TYPES, repo)}
     assert "_bastet/Roles.md" in changes and "| Role | What it does | Used by |" in changes["_bastet/Roles.md"].after
