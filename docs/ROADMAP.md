@@ -18,7 +18,9 @@ work in `docs/plans/`. Update this file whenever a plan lands.
 
 ## Now
 
-**The roles redesign, subplan 1: the host-note split** (`docs/plans/2026-10-06-bastet-roles-1-host-note-split.md`).
+**The roles redesign, subplan 2: role format and library** (not written yet; written against the code as it stands).
+Subplan 1, the host-note split, is merged: gathered facts live in `_bastet/facts/<host> facts.md`, and automatic
+commands never write host notes.
 Its six subplans are tracked in `docs/plans/2026-10-06-bastet-roles-roadmap.md`. After the redesign, roles are
 built in the order of the roles table below.
 
