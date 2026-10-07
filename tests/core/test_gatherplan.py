@@ -94,10 +94,13 @@ def test_desired_field_drift_is_an_info_note_and_observed_value_is_kept(repo):
     assert "ram: 4 GB" in up.change.after  # the observed value, not the declared one
 
 
-def test_yours_field_drift_is_an_info_note(repo):
+def test_yours_field_drift_is_an_info_note_with_its_own_wording(repo):
+    """A `yours` field (e.g. hostname) isn't something apply will ever reconcile, unlike `desired` --
+    so its drift note must not promise that, the way a `desired` field's does."""
     host(repo, "---\nbastet: host\ntype: laptop\nconnection: local\nhostname: custom\n---\n# h\n![[h summary]]\n")
     up = plan(repo.root, LAPTOP, "laptop")
-    assert any("hostname" in n.message and "desired" in n.message for n in up.notes)
+    assert any("hostname" in n.message and "custom" in n.message and "hp-13" in n.message for n in up.notes)
+    assert not any("apply will handle" in n.message for n in up.notes)
     assert "hostname: hp-13" in up.change.after
 
 

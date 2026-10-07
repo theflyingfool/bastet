@@ -22,7 +22,7 @@ DUMPS = {"10.10.0.1": GATEWAY, "10.10.0.3": AP, "10.10.0.5": SWITCH}
 
 class DumpRunner:
     def __init__(self, address):
-        self.address, self.name = address, f"nick@{address}"
+        self.address, self.name = address, f"admin@{address}"
 
     def run(self, script, *, timeout=120):
         if "mca-dump" not in script:
@@ -130,7 +130,7 @@ def test_unifi_gather_replaces_links_not_merges_them(runner, unifi_lab, monkeypa
 
     class MovedRunner:
         def __init__(self, address):
-            self.address, self.name = address, f"nick@{address}"
+            self.address, self.name = address, f"admin@{address}"
 
         def run(self, script, *, timeout=120):
             if "mca-dump" not in script:
@@ -142,6 +142,76 @@ def test_unifi_gather_replaces_links_not_merges_them(runner, unifi_lab, monkeypa
     assert result.exit_code == 0, result.output
     after = facts(unifi_lab, "nas")
     assert 'to_port: "8"' in after and 'to_port: "2"' not in after
+
+
+def _second_switch(unifi_lab, address="10.10.0.6"):
+    """Another UniFi switch, cabled to `nas` on a port of its own -- so `nas` is seen by two devices."""
+    (unifi_lab / "hosts" / "sw2.md").write_text(
+        f"---\nbastet: host\ntype: unifi-switch\nip: {address}\ngather: true\nssh_host_key: {REC}\n---\n# sw2\n"
+    )
+    git(unifi_lab, "add", ".")
+    git(unifi_lab, "commit", "-q", "-m", "second switch")
+    sw2 = json.loads(SWITCH)
+    sw2["mac"] = "02:00:00:00:00:09"
+    sw2["serial"] = "9041B2000009"
+    sw2["port_table"] = [{"port_idx": 5, "name": "Data", "media": "2P5GE", "is_uplink": False, "mac_table": [{"mac": HOST_MAC}]}]
+    sw2["lldp_table"] = []
+    return address, json.dumps(sw2)
+
+
+class _MultiDumpRunner:
+    def __init__(self, address, dumps):
+        self.address, self.name, self.dumps = address, f"admin@{address}", dumps
+
+    def run(self, script, *, timeout=120):
+        if "mca-dump" not in script:
+            return CommandResult("", "", 127)
+        return CommandResult(self.dumps.get(self.address, ""), "", 0 if self.address in self.dumps else 127)
+
+
+def test_links_seen_by_another_device_survive_a_regather_of_just_one(runner, unifi_lab, monkeypatch):
+    """A host cabled to two switches: regathering one of them must not drop what the other saw -- only
+    `bastet gather sw` or `bastet gather sw2` alone touches that device's own entries."""
+    address, dump = _second_switch(unifi_lab)
+    real_dumps = dict(DUMPS, **{address: dump})
+    monkeypatch.setattr(gather_mod, "ssh_runner", lambda target: _MultiDumpRunner(target.address, real_dumps))
+
+    result = runner.invoke(app, ["gather", "sw2", "-y"])
+    assert result.exit_code == 0, result.output
+    assert 'to_port: "5"' in facts(unifi_lab, "nas") and "seen_by: sw2" in facts(unifi_lab, "nas")
+
+    result = runner.invoke(app, ["gather", "sw", "-y"])
+    assert result.exit_code == 0, result.output
+    after = facts(unifi_lab, "nas")
+    assert 'to_port: "2"' in after and "sw" in after  # sw's own, freshly observed
+    assert 'to_port: "5"' in after  # sw2's, untouched by this run
+
+
+def test_unplugged_link_disappears_when_its_device_is_regathered(runner, unifi_lab, monkeypatch):
+    """A host that's no longer cabled to a switch: that switch's own regather must drop the stale
+    entry it used to see, not keep reporting cabling that's gone."""
+    result = runner.invoke(app, ["gather", "sw", "-y"])
+    assert result.exit_code == 0, result.output
+    assert 'to_port: "2"' in facts(unifi_lab, "nas")
+
+    switch_data = json.loads(SWITCH)
+    switch_data["port_table"][0]["mac_table"] = []  # nas unplugged
+    unplugged = json.dumps(switch_data)
+
+    class UnpluggedRunner:
+        def __init__(self, address):
+            self.address, self.name = address, f"admin@{address}"
+
+        def run(self, script, *, timeout=120):
+            if "mca-dump" not in script:
+                return CommandResult("", "", 127)
+            return CommandResult(unplugged, "", 0)
+
+    monkeypatch.setattr(gather_mod, "ssh_runner", lambda target: UnpluggedRunner(target.address))
+    result = runner.invoke(app, ["gather", "sw", "-y"])
+    assert result.exit_code == 0, result.output
+    after = facts(unifi_lab, "nas")
+    assert "links" not in after or '"[[sw]]"' not in after
 
 
 def test_no_lab_networks_means_no_gateway_network_warnings(runner, unifi_lab):

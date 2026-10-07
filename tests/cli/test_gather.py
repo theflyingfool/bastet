@@ -153,7 +153,7 @@ def test_gather_guard_node_with_guest_and_unifi_link(runner, inventory, monkeypa
     monkeypatch.setattr(gather_mod, "scan_keys", lambda address, recorded=None, port=22: KEYS)
 
     class DumpRunner:
-        name = "nick@10.10.0.5"
+        name = "admin@10.10.0.5"
 
         def run(self, script, *, timeout=120):
             if "mca-dump" not in script:
@@ -623,6 +623,31 @@ def test_renamed_guest_matched_by_vmid_is_not_offered_as_new(runner, server):
     assert "git1 (lxc 104" not in result.output
 
 
+def test_recreated_guest_vmid_is_overwritten_not_kept(runner, server):
+    """git1 was recreated under a new vmid (its old one, 104, could now belong to a different guest) --
+    the node still reports it by name, so the stale vmid already in its facts note must be replaced,
+    not kept just because something is already there."""
+    _git1(server, "vmid: 999\n")
+    result = runner.invoke(app, ["gather", "pve1", "-y", "--accept-new-hostkey"])
+    assert result.exit_code == 0, result.output
+    note = facts(server, "git1")
+    assert "vmid: 104" in note and "vmid: 999" not in note
+
+
+def test_guest_matched_by_name_even_when_its_old_vmid_now_belongs_to_another_guest(runner, server, monkeypatch):
+    """git1 was recreated under vmid 110; its old vmid, 104, now belongs to media. Matching by vmid
+    first would wrongly hand git1's update to whichever guest holds 104 -- it must match by name."""
+    _git1(server, "vmid: 104\n")
+    guests = json.dumps([
+        {"id": "lxc/110", "vmid": 110, "name": "git1", "type": "lxc", "node": "pve1", "status": "running"},
+        {"id": "qemu/104", "vmid": 104, "name": "media", "type": "qemu", "node": "pve1", "status": "running"},
+    ])
+    monkeypatch.setattr(gather_mod, "ssh_runner", lambda target: FakeRunner(dict(SERVER, pve_guests=guests), "x"))
+    result = runner.invoke(app, ["gather", "pve1", "-y", "--accept-new-hostkey"])
+    assert result.exit_code == 0, result.output
+    assert "vmid: 110" in facts(server, "git1")
+
+
 def test_guest_vmid_preserved_through_its_own_direct_gather(runner, server, monkeypatch):
     """vmid is never observed by a guest's own gather (only the node sees it) -- a direct gather of
     the guest itself must keep whatever is already in its facts note."""
@@ -644,3 +669,35 @@ def test_guest_vmid_preserved_through_its_own_direct_gather(runner, server, monk
     note = facts(server, "git1")
     assert "vmid: 104" in note and "os: Arch Linux" in note
     assert "vmid" not in (server / "hosts" / "git1.md").read_text()
+
+
+def _gather_node_and_guest(runner, server, monkeypatch, order):
+    """pve1 and its guest git1, gathered together in one run -- the guest's own facts, its accepted
+    host key and the vmid the node observes must all land in the one facts note, in either order."""
+    _git1(server)
+    real = gather_mod.ssh_runner
+
+    def ssh_runner(target):
+        if target.address == "10.0.20.99":
+            return FakeRunner(dict(LAPTOP, hostname="git1"), f"{target.user}@{target.address}")
+        return real(target)
+
+    monkeypatch.setattr(gather_mod, "ssh_runner", ssh_runner)
+    result = runner.invoke(app, ["gather", *order, "-y", "--accept-new-hostkey"])
+    assert result.exit_code == 0, result.output
+    return facts(server, "git1")
+
+
+def test_node_and_guest_same_run_node_first(runner, server, monkeypatch):
+    note = _gather_node_and_guest(runner, server, monkeypatch, ["pve1", "git1"])
+    assert "vmid: 104" in note, "vmid lost"
+    assert "os: Arch Linux" in note, "guest facts lost"
+    assert "ssh_host_key" in note, "guest's accepted host key lost"
+    assert "pools:" not in note  # pve1's own hardware facts, not git1's
+
+
+def test_node_and_guest_same_run_guest_first(runner, server, monkeypatch):
+    note = _gather_node_and_guest(runner, server, monkeypatch, ["git1", "pve1"])
+    assert "vmid: 104" in note, "vmid lost"
+    assert "os: Arch Linux" in note, "guest facts lost"
+    assert "ssh_host_key" in note, "guest's accepted host key lost"

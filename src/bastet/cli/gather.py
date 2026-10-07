@@ -24,6 +24,7 @@ from bastet.cli.common import (
 )
 from bastet.core.guests import guest_drift
 from bastet.core.hostview import host_data
+from bastet.core.links import link_target
 from bastet.core.render import lab_embed_changes
 from bastet.core.scaffold import new_host
 from bastet.core.tools import install_script, needed_tools
@@ -41,6 +42,7 @@ from bastet.core.frontmatter import Document, parse_document, set_keys
 from bastet.core.unifi import device_facts, machine_item, parse_mca, redact
 from bastet.core.gatherplan import Note, plan_facts
 from bastet.core.hardware import HardwareView, RunState, observe_hardware, plan_hardware
+from bastet.core.inventory import Inventory
 from bastet.core.parallel import HostLog, Outcome, run_parallel
 from bastet.core.remote import SshRunner, SshTarget, run_interactive
 from bastet.core.secrets.redact import ACTIVE
@@ -146,6 +148,42 @@ def _group(proposals) -> dict[str, list[dict]]:
     for p in proposals:
         out.setdefault(p.host, []).append(p.link)
     return out
+
+
+# One accumulator per facts note per gather run: every source (a host's own gather, a node observing
+# a guest's vmid, a UniFi device observing a link, the guests offer) merges into the same entry here,
+# keyed by host name (lowercase) -> (the host's own-cased name, its accumulated facts dict). Changes are
+# built from this, once per note, only at the very end -- so order between sources never loses data.
+FactsAcc = dict[str, tuple[str, dict]]
+
+
+def _facts_baseline(inv: Inventory, facts_acc: FactsAcc, name: str) -> dict:
+    """What this run has accumulated for `name`'s facts note so far, or the note as last written."""
+    entry = facts_acc.get(name.lower())
+    return dict(entry[1]) if entry is not None else dict(inv.facts_for(name))
+
+
+def _set_facts(facts_acc: FactsAcc, name: str, facts: dict) -> None:
+    """A host's own gather is authoritative for the whole note (besides what it pulled from the
+    baseline for OBSERVED_BY_OTHERS keys), so this replaces the accumulated dict outright."""
+    facts_acc[name.lower()] = (name, facts)
+
+
+def _merge_facts(facts_acc: FactsAcc, inv: Inventory, name: str, updates: dict) -> None:
+    """A secondary source (a node's vmid, a switch's link) adds a few keys to whatever is accumulated."""
+    merged = _facts_baseline(inv, facts_acc, name)
+    merged.update(updates)
+    _set_facts(facts_acc, name, merged)
+
+
+def _seen_by(link: dict) -> str:
+    seen = link.get("seen_by")
+    return str(seen if seen is not None else link_target(link.get("to")) or "").lower()
+
+
+def _prune_seen_by(links: list, devices: set[str]) -> list:
+    """Drop entries this run's gathered devices used to see but no longer report (unplugged)."""
+    return [e for e in links if isinstance(e, dict) and _seen_by(e) not in devices]
 
 
 @dataclass
@@ -296,7 +334,7 @@ def _guest_command(node: str, guest: dict) -> str:
     return f"bastet add host {shlex.quote(str(guest['name']))} --type {kind} --on {shlex.quote(node)}"
 
 
-def _offer_guests(ctx: Context, found: list[tuple[str, dict]], yes: bool, gathered: str) -> list:
+def _offer_guests(ctx: Context, found: list[tuple[str, dict]], yes: bool, facts_acc: FactsAcc) -> list:
     """List guests found on Proxmox nodes that aren't in the inventory; with confirmation, draft host files for all."""
     typer.echo(f"\n{len(found)} guest{'s' if len(found) != 1 else ''} aren't in the inventory:")
     for node, g in found:
@@ -321,11 +359,9 @@ def _offer_guests(ctx: Context, found: list[tuple[str, dict]], yes: bool, gather
             typer.secho(f"  skipped {name}: {exc}", fg="yellow")
             continue
         drafts.append(draft.change)
-        # vmid is a fact (Task 2 flags it if it's on the host note), not something to set here: it goes
-        # straight to the new guest's facts note, in the same commit.
-        vmid_change = facts_change(ctx.inventory.root, name, {"vmid": g["vmid"]}, gathered)
-        if vmid_change is not None:
-            drafts.append(vmid_change)
+        # vmid is a fact, not something to set on the host note: it goes into the new guest's facts
+        # note, via the same accumulator as every other facts-note source this run.
+        _merge_facts(facts_acc, ctx.inventory, name, {"vmid": g["vmid"]})
         if not address and ip == "dhcp":
             typer.secho(f"  {name}: no address known; set address: (a DNS name or IP) before gathering it", fg="yellow")
     return drafts
@@ -380,7 +416,7 @@ def _gather(
     guest_drift_by_host: dict[str, list[str]] = {}
     run_state = RunState()
     unifi_devices: dict = {}
-    pending_facts: dict[str, Change] = {}  # name (lowercase) -> its pending facts-note Change this run
+    facts_acc: FactsAcc = {}  # one accumulator per facts note this run; see FactsAcc
     with tempfile.TemporaryDirectory(prefix="bastet-") as tmp:
         tmp_path = Path(tmp)
 
@@ -460,10 +496,10 @@ def _gather(
                     if view is not None and view.pools:
                         extracted.facts["pools"] = view.pools
                 update = plan_facts(
-                    doc, extracted, host_type, ctx.inventory, hostkey=hostkey, gathered=gathered_at, types=ctx.types
+                    doc, extracted, host_type, ctx.inventory, hostkey=hostkey, gathered=gathered_at, types=ctx.types,
+                    existing=_facts_baseline(ctx.inventory, facts_acc, doc.name),
                 )
-                if update.change is not None:
-                    pending_facts[doc.name.lower()] = update.change
+                _set_facts(facts_acc, doc.name, update.facts)
                 hw_changes, hw_notes = plan_hardware(inv, doc, view, ctx.repo, take=take_fields, run=run_state) if view else ([], [])
             except BastetError as exc:
                 typer.secho(f"{doc.name}: {exc}", fg="yellow")
@@ -481,12 +517,14 @@ def _gather(
                 notes.append(Note(doc.name, "warn", "root-only facts skipped (no sudo): machine serial, DIMMs, BIOS, drive health, BMC, guests"))
             node_names = {doc.name.lower(), str(extracted.facts.get("hostname", "")).lower()}
             here = [g for g in (view.guests if view else []) if str(g.get("node", "")).lower() in node_names]
-            drift, vmid_changes = guest_drift(inv, doc, here, ctx.types, gathered_at)
+            drift, vmid_updates = guest_drift(
+                inv, doc, here, ctx.types, facts_for=lambda name: _facts_baseline(ctx.inventory, facts_acc, name)
+            )
             for guest_name, items in drift.items():
                 guest_drift_by_host[guest_name] = items
                 notes.extend(Note(guest_name, "warn", f"drift — {item}") for item in items)
-            changes.extend(vmid_changes.values())
-            pending_facts.update(vmid_changes)
+            for guest_name, vmid in vmid_updates.items():
+                _merge_facts(facts_acc, ctx.inventory, guest_name, {"vmid": vmid})
             known_vmids = {
                 str(v) for d in inv.of_kind("host") if (v := host_data(ctx.inventory, d, ctx.types).get("vmid")) is not None
             }
@@ -496,11 +534,10 @@ def _gather(
                 if guest.get("name") and inv.get(str(guest["name"])) is None and str(guest.get("vmid")) not in known_vmids:
                     found_guests.append((doc.name, guest))
             host_warnings[doc.name] = [n.message for n in notes if n.host == doc.name and n.severity == "warn"]
-            host_changes = ([update.change] if update.change else []) + hw_changes
-            if not host_changes:
+            if update.change is None and not hw_changes:
                 typer.echo(f"{doc.name}: up to date")
             else:
-                changes.extend(host_changes)
+                changes.extend(hw_changes)
                 gathered.append(doc.name)
 
     linked: list[str] = []
@@ -508,7 +545,10 @@ def _gather(
         by_path = {c.path: c for c in changes}  # hardware notes: unchanged, still a direct write
         proposals, cable_notes = propose_links(inv, ctx.types, unifi_devices)
         notes.extend(Note(host, "warn", message) for host, message in cable_notes)
-        for proposal_host, links in _group(proposals).items():
+        gathered_device_names = {d.lower() for d in unifi_devices}
+        proposed_hosts = _group(proposals)
+        proposed_host_names = {h.lower() for h in proposed_hosts}
+        for proposal_host, links in proposed_hosts.items():
             try:
                 target = inv.get(proposal_host)
                 if target is None:
@@ -532,34 +572,46 @@ def _gather(
                     notes.extend(Note(target.name, "info", f"link {link['port']} → {link['to']} port {link['to_port']}")
                                  for link in merged[len(before):])
                     continue
-                # A host target: observed links go to its facts note, as-observed (declared `links` on
-                # the host note still wins for the same port -- host_data merges that for readers).
+                # A host target: observed links go to its facts note, tagged with which device saw them,
+                # so regathering that device replaces only its own entries (declared `links` on the host
+                # note still wins for the same port -- host_data merges that for readers).
                 _, conflicts = merge_links(target.data.get("links"), links)
                 notes.extend(Note(target.name, "warn", f"link {c}; left as written") for c in conflicts)
-                existing_facts = inv.facts_for(target.name)
-                prior_ports = {str(e.get("port")) for e in (existing_facts.get("links") or []) if isinstance(e, dict)}
-                name_key = target.name.lower()
-                pending = pending_facts.get(name_key)
-                if pending is not None:
-                    pending.after = set_keys(pending.after, {"links": links}, pending.path)
-                else:
-                    change = facts_change(inv.root, target.name, {**existing_facts, "links": links}, gathered_at)
-                    if change is None:
-                        continue
-                    changes.append(change)
-                    pending_facts[name_key] = change
+                baseline = _facts_baseline(ctx.inventory, facts_acc, target.name)
+                prior_links = baseline.get("links") if isinstance(baseline.get("links"), list) else []
+                prior_ports = {str(e.get("port")) for e in prior_links if isinstance(e, dict)}
+                tagged = [{**link, "seen_by": link_target(link["to"]) or str(link["to"])} for link in links]
+                new_links = _prune_seen_by(prior_links, gathered_device_names) + tagged
+                if new_links != prior_links:
                     linked.append(target.name)
+                _merge_facts(facts_acc, ctx.inventory, target.name, {"links": new_links})
                 notes.extend(Note(target.name, "info", f"link {link['port']} → {link['to']} port {link['to_port']}")
                              for link in links if str(link["port"]) not in prior_ports)
             except Exception as exc:  # one host's links must not lose the rest of the run
                 typer.secho(f"{proposal_host}: links not updated: {exc.__class__.__name__}: {exc}", fg="yellow")
                 continue
 
+        # Unplugged: a host no device proposes a link for any more, but whose facts note still carries
+        # one seen by a device gathered this run. That device's fresh view says nothing is there now.
+        for doc in inv.of_kind("host"):
+            if doc.name.lower() in proposed_host_names or str(doc.data.get("type", "")).startswith("unifi-"):
+                continue
+            baseline = _facts_baseline(ctx.inventory, facts_acc, doc.name)
+            prior_links = baseline.get("links") if isinstance(baseline.get("links"), list) else []
+            kept = _prune_seen_by(prior_links, gathered_device_names)
+            if kept != prior_links:
+                _merge_facts(facts_acc, ctx.inventory, doc.name, {"links": kept})
+                linked.append(doc.name)
+
     for note in notes:
         mark = "⚠" if note.severity == "warn" else "·"
         typer.secho(f"{mark} {note.host}: {note.message}", fg="yellow" if note.severity == "warn" else None)
-    added = _offer_guests(ctx, found_guests, yes, gathered_at) if found_guests else []
+    added = _offer_guests(ctx, found_guests, yes, facts_acc) if found_guests else []
     changes.extend(added)
+    for name, facts in facts_acc.values():  # exactly one Change per facts note, built once everything merged
+        change = facts_change(ctx.inventory.root, name, facts, gathered_at)
+        if change is not None:
+            changes.append(change)
     if changes:
         message = f"gather: {', '.join(gathered)}" if gathered else "gather"
         if linked:

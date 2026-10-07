@@ -24,6 +24,7 @@ class Note:
 class HostUpdate:
     change: Change | None
     notes: list[Note] = field(default_factory=list)
+    facts: dict = field(default_factory=dict)
 
 
 def merge_facts(
@@ -74,6 +75,7 @@ def plan_facts(
     hostkey: str | None,
     gathered: str,
     types: dict[str, HostType],
+    existing: dict | None = None,
 ) -> HostUpdate:
     """Everything observed goes to the host's facts note; the host note itself is never written.
 
@@ -81,6 +83,11 @@ def plan_facts(
     note (drift, for `apply` to reconcile later); a type proposal and a missing summary embed are
     notes too. Facts have no attribution and no `--take`: the facts note is Bastet's, so it is simply
     replaced with what was observed.
+
+    `existing` is what the facts note already holds, for keys the host's own gather never produces
+    (`OBSERVED_BY_OTHERS`). It defaults to `inv.facts_for(doc.name)` (the note as last written), but a
+    caller merging several sources into one facts note in a single run (gather.py) passes its own
+    accumulator instead, so a vmid or link added earlier in the same run isn't lost here.
     """
     observed = dict(ex.facts)
     if hostkey:
@@ -91,10 +98,10 @@ def plan_facts(
             observed["interfaces"] = [
                 {k: v for k, v in i.items() if k != "addresses"} for i in observed["interfaces"] if isinstance(i, dict)
             ]
-    existing = inv.facts_for(doc.name)
+    baseline = inv.facts_for(doc.name) if existing is None else existing
     for key in OBSERVED_BY_OTHERS:  # never produced by the host's own gather; keep whatever is already there
-        if key not in observed and key in existing:
-            observed[key] = existing[key]
+        if key not in observed and key in baseline:
+            observed[key] = baseline[key]
 
     notes: list[Note] = []
     for key, value in observed.items():
@@ -102,7 +109,11 @@ def plan_facts(
         if nature not in ("desired", "yours"):
             continue
         current = doc.data.get(key)
-        if current is not None and not same_value(key, current, value):
+        if current is None or same_value(key, current, value):
+            continue
+        if nature == "yours":
+            notes.append(Note(doc.name, "info", f"{key}: file says {current!r}, host reports {value!r}"))
+        else:
             notes.append(Note(doc.name, "info", f"{key}: desired {current!r}, host has {value!r} (apply will handle desired fields later)"))
 
     proposal = propose_type(ex)
@@ -123,4 +134,4 @@ def plan_facts(
         ))
 
     change = facts_change(inv.root, doc.name, observed, gathered)
-    return HostUpdate(change, notes)
+    return HostUpdate(change, notes, observed)

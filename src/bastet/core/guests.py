@@ -1,12 +1,13 @@
 """Compare what a Proxmox node says about its guests with the guests' files.
 
 The files are the source of truth: a difference is drift. It is reported, never adopted here.
-Only observed facts that the file lacks (the VMID) are filled in -- into the guest's facts note,
-since a guest's own gather never observes its own vmid (that's the node's doing).
+The VMID is the one exception: it's observed by the node, never by the guest's own gather, so it's
+kept current here -- filled in when missing, and overwritten when the node now reports a different one
+(a guest recreated under a new vmid).
 """
 
-from bastet.core.changes import Change
-from bastet.core.factsnote import facts_change
+from collections.abc import Callable
+
 from bastet.core.frontmatter import Document
 from bastet.core.hosttypes import HostType
 from bastet.core.hostview import host_data
@@ -19,19 +20,39 @@ def _bare(ip: str) -> str:
 
 
 def guest_drift(
-    inv: Inventory, node: Document, guests: list[dict], types: dict[str, HostType], gathered: str
-) -> tuple[dict[str, list[str]], dict[str, Change]]:
-    """For guests of `node` that are in the inventory: drift messages per guest (empty list = in agreement),
-    plus a facts-note Change per guest newly matched by vmid, keyed by guest name (lowercase)."""
+    inv: Inventory,
+    node: Document,
+    guests: list[dict],
+    types: dict[str, HostType],
+    *,
+    facts_for: Callable[[str], dict] | None = None,
+) -> tuple[dict[str, list[str]], dict[str, object]]:
+    """For guests of `node` that are in the inventory: drift messages per guest (empty list = in
+    agreement), plus the vmid the node reports for any guest whose facts note doesn't already hold it,
+    keyed by the guest's own name.
+
+    A guest is matched by name first, falling back to its last-known vmid only for the rename case (the
+    file's name hasn't caught up yet). `facts_for` is what the guest's facts note holds -- it defaults to
+    `inv.facts_for`, but a caller merging several sources into one facts note in a single run (gather.py)
+    passes its own accumulator, so a vmid already picked up earlier in the same run still counts.
+    """
+    facts_for = facts_for or inv.facts_for
     by_vmid: dict[str, Document] = {}
     for d in inv.of_kind("host"):
         vmid = host_data(inv, d, types).get("vmid")
         if vmid is not None:
             by_vmid[str(vmid)] = d
+    # Guests that have their own name in this list must not be stolen by another guest's stale vmid
+    # fallback -- e.g. git1 recreated under a new vmid, its old one now reported for a different guest.
+    named_here = {str(g.get("name", "")).lower() for g in guests}
     drift: dict[str, list[str]] = {}
-    changes: dict[str, Change] = {}
+    vmid_updates: dict[str, object] = {}
     for g in guests:
-        doc = by_vmid.get(str(g.get("vmid"))) or inv.get(str(g.get("name", "")))
+        doc = inv.get(str(g.get("name", "")))
+        if doc is None:
+            candidate = by_vmid.get(str(g.get("vmid")))
+            if candidate is not None and candidate.name.lower() not in named_here:
+                doc = candidate
         if doc is None or doc.data.get("bastet") != "host":
             continue
         items: list[str] = []
@@ -46,9 +67,7 @@ def guest_drift(
         elif conf_ip == "dhcp" and file_ip and file_ip.lower() != "dhcp":
             items.append(f"ip: file says {file_ip}, Proxmox uses DHCP")
         drift[doc.name] = items
-        if host_data(inv, doc, types).get("vmid") is None:
-            merged = {**inv.facts_for(doc.name), "vmid": g["vmid"]}
-            change = facts_change(inv.root, doc.name, merged, gathered)
-            if change is not None:
-                changes[doc.name.lower()] = change
-    return drift, changes
+        new_vmid = g.get("vmid")
+        if new_vmid is not None and str(facts_for(doc.name).get("vmid")) != str(new_vmid):
+            vmid_updates[doc.name] = new_vmid
+    return drift, vmid_updates
