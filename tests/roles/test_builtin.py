@@ -14,7 +14,7 @@ from bastet.roles.contract import check_values, load_roles, with_defaults
 from bastet.roles.resolve import Applied
 
 ROLES = load_roles()
-KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleExampleExampleExampleExampleExample nick@laptop"
+KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleExampleExampleExampleExampleExample admin@laptop"
 
 
 def ap(role, values):

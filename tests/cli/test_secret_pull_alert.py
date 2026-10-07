@@ -41,7 +41,7 @@ def remote(inventory, secret_keys, tmp_path) -> Path:
     return bare
 
 
-def _push_secret_change(remote: Path, tmp_path: Path, pub: str, *, author: str = "Nick", email: str = "nick@laptop") -> None:
+def _push_secret_change(remote: Path, tmp_path: Path, pub: str, *, author: str = "Nick", email: str = "admin@laptop") -> None:
     other = tmp_path / "other-clone"
     subprocess.run(["git", "clone", "-q", str(remote), str(other)], check=True)
     git(other, "config", "user.name", author)

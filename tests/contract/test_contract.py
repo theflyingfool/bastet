@@ -55,7 +55,7 @@ from bastet.engine.packages import Package, Repository  # noqa: E402
 from bastet.engine.users import AuthorizedKey, Group, User, sudoer  # noqa: E402
 
 HASH = "$6$bastetsalt$" + "x" * 86
-KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleExampleExampleExampleExampleExample nick@laptop"
+KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleExampleExampleExampleExampleExample admin@laptop"
 
 
 def users_batches():

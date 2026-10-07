@@ -182,12 +182,12 @@ def test_cli_init_adds_recipients_to_homelab(runner, tmp_path, monkeypatch, inte
     monkeypatch.setenv("BASTET_CONFIG", str(cfg))
     home = tmp_path / "fakehome"
     (home / ".ssh").mkdir(parents=True)
-    (home / ".ssh" / "id_ed25519.pub").write_text("ssh-ed25519 AAAAyourkey nick@laptop\n")
+    (home / ".ssh" / "id_ed25519.pub").write_text("ssh-ed25519 AAAAyourkey admin@laptop\n")
     result = runner.invoke(app, ["init", "--inventory", str(tmp_path / "Homelab"), "-y"])
     assert result.exit_code == 0, result.output
     lab = (tmp_path / "Homelab" / "Homelab.md").read_text()
     assert "secrets:" in lab and "recipients:" in lab
-    assert "ssh-ed25519 AAAAyourkey nick@laptop" in lab
+    assert "ssh-ed25519 AAAAyourkey admin@laptop" in lab
     assert "age1" in lab
 
 

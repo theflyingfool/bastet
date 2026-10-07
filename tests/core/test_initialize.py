@@ -153,11 +153,11 @@ def test_generate_recovery_key_returns_private_and_public():
 def test_initialize_writes_recipients_into_new_homelab(tmp_path):
     cfg = tmp_path / "cfg" / "bastet.yml"
     _, recovery_pub = generate_recovery_key()
-    recipients = [recovery_pub, "ssh-ed25519 AAAAyours nick@laptop"]
+    recipients = [recovery_pub, "ssh-ed25519 AAAAyours admin@laptop"]
     r = initialize(cfg, opts(tmp_path, recipients=recipients), keys_dir=tmp_path / "cfg" / "ssh")
     assert r.committed
     lab = (tmp_path / "Homelab" / "Homelab.md").read_text()
-    assert recovery_pub in lab and "ssh-ed25519 AAAAyours nick@laptop" in lab
+    assert recovery_pub in lab and "ssh-ed25519 AAAAyours admin@laptop" in lab
     assert existing_recipients(tmp_path / "Homelab" / "Homelab.md") == recipients
 
 
@@ -200,7 +200,7 @@ def test_init_pushes_to_empty_remote(tmp_path):
 # --- local machine setup (`bastet init` sets up this computer as a Bastet host): a fake system,
 # never the real one, so these tests run no sudo, useradd or visudo for real ---
 
-PUBKEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAfake nick@laptop"
+PUBKEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAfake admin@laptop"
 
 
 class FakeSystem:

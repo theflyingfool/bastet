@@ -10,7 +10,7 @@ from bastet.engine.model import ABSENT
 from bastet.engine.run import Batch, run_host
 from bastet.engine.users import AuthorizedKey, sudoer
 
-KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleExampleExampleExampleExampleExample nick@laptop"
+KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleExampleExampleExampleExampleExample admin@laptop"
 
 
 def key_state(path="/home/nick/.ssh/authorized_keys", kind="file", content="", mode="600"):
@@ -45,7 +45,7 @@ def test_key_for_user_not_created_yet():
 def test_key_identity_and_label():
     k = AuthorizedKey(user="nick", key=KEY)
     assert k.identity == "authkey:nick:AAAAC3NzaC1lZDI1NTE5AAAAIExampleExampleExampleExampleExampleExample"
-    assert k.label == "nick key nick@laptop"
+    assert k.label == "nick key admin@laptop"
     with pytest.raises(ValueError):
         AuthorizedKey(user="nick", key="garbage")
 
@@ -65,15 +65,15 @@ def test_sudoer_rendering():
 
 
 def test_custom_key_path_keeps_directory():
-    k = AuthorizedKey(user="nick", key="ssh-ed25519 AAAAbody nick@laptop", path="/etc/ssh/authorized_keys/nick")
+    k = AuthorizedKey(user="nick", key="ssh-ed25519 AAAAbody admin@laptop", path="/etc/ssh/authorized_keys/nick")
     cur = k.current({"keys": ProbeResult(0, "nouser")})
     script = "\n".join(k.fix(k.compare(cur), cur))
     assert "chmod 700" not in script and "chmod 600" in script
 
 
 def test_key_can_be_revoked():
-    k = AuthorizedKey(user="nick", key="ssh-ed25519 AAAAbody nick@laptop", state="absent")
-    assert k.wanted("ssh-ed25519 AAAAbody nick@laptop\nssh-rsa AAAAother x\n") == "ssh-rsa AAAAother x\n"
+    k = AuthorizedKey(user="nick", key="ssh-ed25519 AAAAbody admin@laptop", state="absent")
+    assert k.wanted("ssh-ed25519 AAAAbody admin@laptop\nssh-rsa AAAAother x\n") == "ssh-rsa AAAAother x\n"
     assert k.wanted("ssh-rsa AAAAother x\n") == "ssh-rsa AAAAother x\n"
 
 
