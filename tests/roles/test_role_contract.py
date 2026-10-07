@@ -26,7 +26,7 @@ def test_shorthand_and_reserved_keys():
     ("files", {"files": {"/etc/x": {"content": "a", "mode": 420}}}, "quote it"),
     ("files", {"files": {"/etc/x": {"contents": "a"}}}, "unknown field contents"),
     ("packages", {"install": "tree"}, "expected a list"),
-    ("users", {"users": {"nick": {"uid": "1000"}}}, "expected a whole number"),
+    ("users", {"users": {"alice": {"uid": "1000"}}}, "expected a whole number"),
 ])
 def test_errors_name_the_option(role, values, message):
     with pytest.raises(BastetError) as e:
@@ -71,8 +71,8 @@ def test_unresolved_secret_reference_passes_any_type_check():
 
 
 def test_secret_reference_survives_check_values_on_a_non_string_option():
-    out = check_values(load_roles()["users"], {"users": {"nick": {"uid": "secret:nick_uid"}}}, "f")
-    assert out["users"]["nick"]["uid"] == "secret:nick_uid"
+    out = check_values(load_roles()["users"], {"users": {"alice": {"uid": "secret:nick_uid"}}}, "f")
+    assert out["users"]["alice"]["uid"] == "secret:nick_uid"
 
 
 @pytest.mark.parametrize("role,values", [

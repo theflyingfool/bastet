@@ -407,7 +407,7 @@ port: [22, 2222]
 
 ```yaml
 match:
-  - criteria: "User nick Address 10.10.0.0/24"
+  - criteria: "User admin Address 10.10.0.0/24"
     settings:
       allow_tcp_forwarding: "yes"
 ```
@@ -519,7 +519,7 @@ match:
 | syslog_facility | string |  | SyslogFacility |
 | include | list of string |  | Include |
 | match | list of object |  | Match blocks: settings for some users or addresses only (written last, then Match all) |
-| match[].criteria | string |  | e.g. User nick Address 10.10.0.0/24 |
+| match[].criteria | string |  | e.g. User admin Address 10.10.0.0/24 |
 | match[].settings | map of any |  | ssh role option names and values |
 
 ## systemd
@@ -585,12 +585,12 @@ Users, groups, SSH keys and sudoers rules.
 
 ```yaml
 users:
-  nick:
+  alice:
     shell: /bin/bash
     groups:
       - wheel
     keys:
-      - ssh-ed25519 AAAAC3Nza...example nick@laptop
+      - ssh-ed25519 AAAAC3Nza...example alice@laptop
     sudo:
       nopasswd: true
 ```
@@ -602,7 +602,7 @@ groups:
   media:
     gid: 2001
     members:
-      - nick
+      - alice
       - jellyfin
 ```
 

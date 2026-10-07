@@ -25,7 +25,7 @@ def test_ssh_args_batch_with_key_and_known_hosts():
 
 
 def test_ssh_args_interactive_has_tty_and_no_batch():
-    args = ssh_args(SshTarget("h", "nick", None, Path("/t/kh")), interactive=True)
+    args = ssh_args(SshTarget("h", "alice", None, Path("/t/kh")), interactive=True)
     assert "-t" in args and "BatchMode=yes" not in " ".join(args) and "-i" not in args
 
 

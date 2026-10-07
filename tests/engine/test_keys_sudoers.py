@@ -13,17 +13,17 @@ from bastet.engine.users import AuthorizedKey, sudoer
 KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleExampleExampleExampleExampleExample admin@laptop"
 
 
-def key_state(path="/home/nick/.ssh/authorized_keys", kind="file", content="", mode="600"):
+def key_state(path="/home/alice/.ssh/authorized_keys", kind="file", content="", mode="600"):
     import base64
     if kind == "absent":
         body = f"{path}\nabsent"
     else:
-        body = f"{path}\nfile\nnick nick {mode} 1000 1000\n{base64.b64encode(content.encode()).decode()}"
+        body = f"{path}\nfile\nnick alice {mode} 1000 1000\n{base64.b64encode(content.encode()).decode()}"
     return {"keys": ProbeResult(0, body)}
 
 
 def test_key_appended_replaced_and_compliant():
-    k = AuthorizedKey(user="nick", key=KEY, options='from="10.0.10.0/24"')
+    k = AuthorizedKey(user="alice", key=KEY, options='from="10.0.10.0/24"')
     line = f'from="10.0.10.0/24" {KEY}'
     assert k.wanted("") == line + "\n"
     assert k.wanted("ssh-rsa AAAAother x\n") == f"ssh-rsa AAAAother x\n{line}\n"
@@ -34,20 +34,20 @@ def test_key_appended_replaced_and_compliant():
 
 
 def test_key_for_user_not_created_yet():
-    k = AuthorizedKey(user="nick", key=KEY)
+    k = AuthorizedKey(user="alice", key=KEY)
     cur = k.current({"keys": ProbeResult(0, "nouser")})
     assert cur["content"] == ABSENT and [c.field for c in k.compare(cur)] == ["key"]
     script = "\n".join(k.fix(k.compare(cur), cur))
-    assert "n=nick" in script and 'getent passwd "$n"' in script and "chmod 700" in script and "chmod 600" in script
+    assert "n=alice" in script and 'getent passwd "$n"' in script and "chmod 700" in script and "chmod 600" in script
     assert 'chown "$n:$g"' in script
 
 
 def test_key_identity_and_label():
-    k = AuthorizedKey(user="nick", key=KEY)
-    assert k.identity == "authkey:nick:AAAAC3NzaC1lZDI1NTE5AAAAIExampleExampleExampleExampleExampleExample"
-    assert k.label == "nick key admin@laptop"
+    k = AuthorizedKey(user="alice", key=KEY)
+    assert k.identity == "authkey:alice:AAAAC3NzaC1lZDI1NTE5AAAAIExampleExampleExampleExampleExampleExample"
+    assert k.label == "alice key admin@laptop"
     with pytest.raises(ValueError):
-        AuthorizedKey(user="nick", key="garbage")
+        AuthorizedKey(user="alice", key="garbage")
 
 
 def test_sudoer_rendering():
@@ -65,14 +65,14 @@ def test_sudoer_rendering():
 
 
 def test_custom_key_path_keeps_directory():
-    k = AuthorizedKey(user="nick", key="ssh-ed25519 AAAAbody admin@laptop", path="/etc/ssh/authorized_keys/nick")
+    k = AuthorizedKey(user="alice", key="ssh-ed25519 AAAAbody admin@laptop", path="/etc/ssh/authorized_keys/alice")
     cur = k.current({"keys": ProbeResult(0, "nouser")})
     script = "\n".join(k.fix(k.compare(cur), cur))
     assert "chmod 700" not in script and "chmod 600" in script
 
 
 def test_key_can_be_revoked():
-    k = AuthorizedKey(user="nick", key="ssh-ed25519 AAAAbody admin@laptop", state="absent")
+    k = AuthorizedKey(user="alice", key="ssh-ed25519 AAAAbody admin@laptop", state="absent")
     assert k.wanted("ssh-ed25519 AAAAbody admin@laptop\nssh-rsa AAAAother x\n") == "ssh-rsa AAAAother x\n"
     assert k.wanted("ssh-rsa AAAAother x\n") == "ssh-rsa AAAAother x\n"
 

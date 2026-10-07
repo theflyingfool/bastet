@@ -50,7 +50,7 @@ EXAMPLES = '''examples:
   - title: Allow a forwarding user only from the LAN
     yaml: |
       match:
-        - criteria: "User nick Address 10.10.0.0/24"
+        - criteria: "User admin Address 10.10.0.0/24"
           settings:
             allow_tcp_forwarding: "yes"
 '''
@@ -78,7 +78,7 @@ def render() -> str:
         "    items:",
         "      type: object",
         "      fields:",
-        '        criteria: {type: string, required: true, description: "e.g. User nick Address 10.10.0.0/24"}',
+        '        criteria: {type: string, required: true, description: "e.g. User admin Address 10.10.0.0/24"}',
         '        settings: {type: map, items: {type: any}, description: "ssh role option names and values"}',
     ]
     return "\n".join(lines) + "\n" + EXAMPLES

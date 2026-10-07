@@ -299,9 +299,9 @@ errors: No known data errors
 # A board whose SMBIOS slot table is useless (root-port addresses, no PhySlot): add-in cards are told apart by
 # their PCI subsystem vendor, which differs from the board's own (ASRock here).
 RACK = dict(SERVER, **{
-    "hostnamectl": json.dumps({"Hostname": "sanrio", "Chassis": "desktop", "HardwareVendor": "ASRockRack",
+    "hostnamectl": json.dumps({"Hostname": "pve3", "Chassis": "desktop", "HardwareVendor": "ASRockRack",
                                "HardwareModel": "1U4LW-X470"}),
-    "hostname": "sanrio",
+    "hostname": "pve3",
     "dmidecode": """Handle 0x0001, DMI type 1, 27 bytes
 System Information
 \tManufacturer: ASRockRack

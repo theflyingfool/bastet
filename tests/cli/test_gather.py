@@ -521,7 +521,7 @@ class InstallingRunner:
 
 
 def _rack_host(inventory):
-    add_host(inventory, "sanrio", "---\nbastet: host\ntype: proxmox-node\nip: 10.0.10.12\n---\n# sanrio\n")
+    add_host(inventory, "pve3", "---\nbastet: host\ntype: proxmox-node\nip: 10.0.10.12\n---\n# pve3\n")
 
 
 def test_missing_tools_installed_when_confirmed_and_recorded(runner, inventory, monkeypatch):
@@ -530,10 +530,10 @@ def test_missing_tools_installed_when_confirmed_and_recorded(runner, inventory, 
     fake = InstallingRunner(dict(RACK, pkg_mgr="apt-get"), dict(RACK, pkg_mgr="apt-get", ipmi=SERVER["ipmi"]))
     monkeypatch.setattr(gather_mod, "scan_keys", lambda address, recorded=None, port=22: KEYS)
     monkeypatch.setattr(gather_mod, "ssh_runner", lambda target: fake)
-    result = runner.invoke(app, ["gather", "sanrio", "--accept-new-hostkey"], input="y\ny\n")
+    result = runner.invoke(app, ["gather", "pve3", "--accept-new-hostkey"], input="y\ny\n")
     assert result.exit_code == 0, result.output
     assert "install ipmitool" in result.output and len(fake.installs) == 1
-    assert "bastet_tools:\n  - ipmitool\n" in facts(inventory, "sanrio")
+    assert "bastet_tools:\n  - ipmitool\n" in facts(inventory, "pve3")
     machine = next((inventory / "hardware").glob("ASRockRack*.md")).read_text()
     assert "oob_address: 10.0.10.9" in machine
 
@@ -544,12 +544,12 @@ def test_tools_not_installed_with_yes_by_default_or_when_host_opts_out(runner, i
     fake = InstallingRunner(dict(RACK, pkg_mgr="apt-get"), dict(RACK, pkg_mgr="apt-get"))
     monkeypatch.setattr(gather_mod, "scan_keys", lambda address, recorded=None, port=22: KEYS)
     monkeypatch.setattr(gather_mod, "ssh_runner", lambda target: fake)
-    runner.invoke(app, ["gather", "sanrio", "-y", "--accept-new-hostkey"])
+    runner.invoke(app, ["gather", "pve3", "-y", "--accept-new-hostkey"])
     assert fake.installs == []
-    p = inventory / "hosts" / "sanrio.md"
+    p = inventory / "hosts" / "pve3.md"
     p.write_text(p.read_text().replace("type: proxmox-node\n", "type: proxmox-node\ninstall_tools: false\n"))
     git(inventory, "commit", "-q", "-am", "no tools here")
-    runner.invoke(app, ["gather", "sanrio"], input="y\n")
+    runner.invoke(app, ["gather", "pve3"], input="y\n")
     assert fake.installs == []
 
 
@@ -562,7 +562,7 @@ def test_config_always_installs_unattended(runner, inventory, monkeypatch, tmp_p
     fake = InstallingRunner(dict(RACK, pkg_mgr="apt-get"), dict(RACK, pkg_mgr="apt-get", ipmi=SERVER["ipmi"]))
     monkeypatch.setattr(gather_mod, "scan_keys", lambda address, recorded=None, port=22: KEYS)
     monkeypatch.setattr(gather_mod, "ssh_runner", lambda target: fake)
-    result = runner.invoke(app, ["gather", "sanrio", "-y", "--accept-new-hostkey"])
+    result = runner.invoke(app, ["gather", "pve3", "-y", "--accept-new-hostkey"])
     assert result.exit_code == 0, result.output
     assert len(fake.installs) == 1
 

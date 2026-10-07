@@ -76,12 +76,12 @@ examples:
   - title: A user with an SSH key and passwordless sudo
     yaml: |
       users:
-        nick:
+        alice:
           shell: /bin/bash
           groups:
             - wheel
           keys:
-            - ssh-ed25519 AAAAC3Nza...example nick@laptop
+            - ssh-ed25519 AAAAC3Nza...example alice@laptop
           sudo:
             nopasswd: true
   - title: A group with exactly these members
@@ -90,5 +90,5 @@ examples:
         media:
           gid: 2001
           members:
-            - nick
+            - alice
             - jellyfin

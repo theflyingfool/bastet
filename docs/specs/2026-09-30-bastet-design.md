@@ -129,7 +129,7 @@ Months later, you edited `pve1.md` to say `ram: 128 GB` after a DIMM swap, but t
 
 ```console
 $ bastet gather pve1
-pve1  ⚠ ram: file says 128 GB (set by Nick, 2027-01-12, commit a1b2c3 "DIMM swap")
+pve1  ⚠ ram: file says 128 GB (set by Alice, 2027-01-12, commit a1b2c3 "DIMM swap")
          observed 96 GB — keeping yours. Physical hardware: check for a failed or unseated DIMM.
 ```
 

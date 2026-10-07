@@ -61,19 +61,19 @@ KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleExampleExampleExampleExampleE
 def users_batches():
     return [Batch("users", [
         Group(name="media", gid=2001),
-        User(name="nick", uid=2000, groups=("media",), shell="/bin/bash", comment="Nick", password_hash=HASH, locked=False),
-        AuthorizedKey(user="nick", key=KEY, options='from="10.0.10.0/24"'),
-        sudoer("nick", user="nick", nopasswd=True),
+        User(name="alice", uid=2000, groups=("media",), shell="/bin/bash", comment="Alice", password_hash=HASH, locked=False),
+        AuthorizedKey(user="alice", key=KEY, options='from="10.0.10.0/24"'),
+        sudoer("alice", user="alice", nopasswd=True),
     ])]
 
 
 def check_users(runner):
-    assert runner.run("getent passwd nick").stdout.startswith("nick:x:2000:")
-    assert "media" in runner.run("id -Gn nick").stdout
-    assert runner.run("sudo -n getent shadow nick").stdout.split(":")[1] == HASH
-    assert runner.run("sudo -n stat -c '%a %U' /home/nick/.ssh /home/nick/.ssh/authorized_keys").stdout.split() == ["700", "nick", "600", "nick"]
-    assert runner.run("sudo -n cat /home/nick/.ssh/authorized_keys").stdout == f'from="10.0.10.0/24" {KEY}\n'
-    assert "NOPASSWD: ALL" in runner.run("sudo -n sudo -l -U nick").stdout
+    assert runner.run("getent passwd alice").stdout.startswith("alice:x:2000:")
+    assert "media" in runner.run("id -Gn alice").stdout
+    assert runner.run("sudo -n getent shadow alice").stdout.split(":")[1] == HASH
+    assert runner.run("sudo -n stat -c '%a %U' /home/alice/.ssh /home/alice/.ssh/authorized_keys").stdout.split() == ["700", "alice", "600", "alice"]
+    assert runner.run("sudo -n cat /home/alice/.ssh/authorized_keys").stdout == f'from="10.0.10.0/24" {KEY}\n'
+    assert "NOPASSWD: ALL" in runner.run("sudo -n sudo -l -U alice").stdout
 
 
 def test_packages_contract(host):
@@ -127,7 +127,7 @@ def test_roles_contract(host):
     batches = batches_for([
         _applied("packages", {"install": ["tree"], "install_recommends": False}),
         _applied("users", {"groups": {"media": {"gid": 2001}},
-                           "users": {"nick": {"uid": 2000, "groups": ["media"], "shell": "/bin/bash",
+                           "users": {"alice": {"uid": 2000, "groups": ["media"], "shell": "/bin/bash",
                                               "keys": [KEY], "sudo": {"nopasswd": True}}}}),
         _applied("files", {"files": {"/etc/systemd/system/bastet-demo.service": {"content": DEMO_UNIT, "mode": "0644"}},
                            "directories": {"/srv/bastet": {"mode": "0750"}}}),
@@ -138,7 +138,7 @@ def test_roles_contract(host):
     converge(host, batches)
     assert host.run("systemctl is-active bastet-demo.service").stdout.strip() == "active"
     assert host.run("command -v tree").returncode == 0
-    assert "NOPASSWD: ALL" in host.run("sudo -n sudo -l -U nick").stdout
+    assert "NOPASSWD: ALL" in host.run("sudo -n sudo -l -U alice").stdout
 
 
 from bastet.engine.packages import Unaccounted, Updates  # noqa: E402

@@ -90,8 +90,8 @@ def test_secret_conflict_hides_values(tmp_path):
         "groups/a.md": "---\nbastet: group\n---\n# a\n",
         "groups/b.md": "---\nbastet: group\n---\n# b\n",
         "hosts/x.md": '---\nbastet: host\ntype: vm\nip: 10.0.10.30\ngroups:\n  - "[[a]]"\n  - "[[b]]"\n---\n# x\n',
-        "_roles/groups/a/users.md": '---\nbastet: role\nrole: users\napplies_to: "[[a]]"\nusers:\n  nick:\n    password_hash: "$6$aaa"\n---\n',
-        "_roles/groups/b/users.md": '---\nbastet: role\nrole: users\napplies_to: "[[b]]"\nusers:\n  nick:\n    password_hash: "$6$bbb"\n---\n',
+        "_roles/groups/a/users.md": '---\nbastet: role\nrole: users\napplies_to: "[[a]]"\nusers:\n  alice:\n    password_hash: "$6$aaa"\n---\n',
+        "_roles/groups/b/users.md": '---\nbastet: role\nrole: users\napplies_to: "[[b]]"\nusers:\n  alice:\n    password_hash: "$6$bbb"\n---\n',
     }
     inv = lab(tmp_path, extra)
     with pytest.raises(ConflictError) as e:

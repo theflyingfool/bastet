@@ -120,22 +120,22 @@ def test_duplicate_serial_in_one_host_kept_once_with_note():
 
 def test_add_in_card_found_by_subsystem_vendor_when_slot_data_is_useless():
     from gather_fixtures import RACK
-    v = view(RACK, host="sanrio")
+    v = view(RACK, host="pve3")
     cards = {o.name: o for o in v.items if o.data["category"] in ("gpu", "hba", "nic")}
-    assert list(cards) == ["sanrio 9207-8e SAS2.1 HBA"]
-    hba = cards["sanrio 9207-8e SAS2.1 HBA"]
-    assert hba.data["category"] == "hba" and hba.key == "pci:sanrio:0000:2b:00" and "slot" not in hba.data
+    assert list(cards) == ["pve3 9207-8e SAS2.1 HBA"]
+    hba = cards["pve3 9207-8e SAS2.1 HBA"]
+    assert hba.data["category"] == "hba" and hba.key == "pci:pve3:0000:2b:00" and "slot" not in hba.data
 
 
 def test_onboard_wired_and_wireless_interfaces_recorded():
     from gather_fixtures import RACK
-    machine = view(RACK, host="sanrio").items[0]
+    machine = view(RACK, host="pve3").items[0]
     assert [i["name"] for i in machine.data["interfaces"]] == ["enp35s0", "enp36s0", "wlp44s0"]
 
 
 def test_bmc_without_ipmitool_gives_a_hint():
     from gather_fixtures import RACK
-    v = view(RACK, host="sanrio")
+    v = view(RACK, host="pve3")
     assert any("ipmitool" in n for n in v.hints)
     assert not any("ipmitool" in n for n in view(SERVER).hints)
 
@@ -219,7 +219,7 @@ def test_fru_output_used_even_when_ipmitool_exits_nonzero():
 
 
 def test_dimms_sharing_one_serial_get_a_file_each():
-    """Some boards (sanrio's ASRock Rack) report one serial for every stick; it isn't a serial then."""
+    """Some boards (pve3's ASRock Rack) report one serial for every stick; it isn't a serial then."""
     dmi = SERVER["dmidecode"].replace("Serial Number: 40A1B2C4", "Serial Number: 40A1B2C3")
     mem = [o for o in view(dict(SERVER, dmidecode=dmi)).items if o.data["category"] == "memory"]
     assert [o.key for o in mem] == ["dimm:pve1:dimma1", "dimm:pve1:dimmb1"]

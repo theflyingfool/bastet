@@ -34,17 +34,17 @@ def test_nothing_set_writes_nothing():
 
 
 def test_kinds_render():
-    text = conf({"password_authentication": False, "port": [2222, 22], "allow_users": ["bastet", "nick"],
+    text = conf({"password_authentication": False, "port": [2222, 22], "allow_users": ["bastet", "admin"],
                  "ciphers": ["chacha20-poly1305@openssh.com", "aes256-gcm@openssh.com"], "permit_root_login": "prohibit-password"})
     assert "PasswordAuthentication no\n" in text and "Port 2222\nPort 22\n" in text
-    assert "AllowUsers bastet nick\n" in text and "Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com\n" in text
+    assert "AllowUsers bastet admin\n" in text and "Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com\n" in text
     assert "PermitRootLogin prohibit-password\n" in text
 
 
 def test_match_blocks_end_with_match_all():
-    text = conf({"match": [{"criteria": "User nick", "settings": {"x11_forwarding": True}}]})
+    text = conf({"match": [{"criteria": "User admin", "settings": {"x11_forwarding": True}}]})
     assert text.rstrip().endswith("Match all")
-    assert "Match User nick\n    X11Forwarding yes\n" in text
+    assert "Match User admin\n    X11Forwarding yes\n" in text
 
 
 def test_drop_in_validated_and_reloads_right_unit():
@@ -59,7 +59,7 @@ def test_drop_in_validated_and_reloads_right_unit():
 @pytest.mark.parametrize("values", [
     {"pubkey_authentication": False},
     {"authentication_methods": "password"},
-    {"allow_users": ["nick"]},
+    {"allow_users": ["admin"]},
     {"allow_groups": ["wheel"]},
     {"deny_users": ["bastet"]},
     {"match": [{"criteria": "Address 10.0.0.0/8", "settings": {"pubkey_authentication": False}}]},
@@ -74,12 +74,12 @@ def test_allow_groups_needs_bastet_whatever_allow_users_says():
     assert out({"allow_groups": ["bastet", "wheel"]})
     assert out({"allow_groups": ["bast*"]})
     with pytest.raises(BastetError, match="lock Bastet out"):
-        out({"allow_groups": ["wheel"], "allow_users": ["bastet", "nick"]})  # sshd checks both lists
+        out({"allow_groups": ["wheel"], "allow_users": ["bastet", "admin"]})  # sshd checks both lists
 
 
 def test_match_setting_names_are_checked():
     with pytest.raises(BastetError, match="nope"):
-        out({"match": [{"criteria": "User nick", "settings": {"nope": "x"}}]})
+        out({"match": [{"criteria": "User admin", "settings": {"nope": "x"}}]})
 
 
 def test_role_yml_matches_the_table():
@@ -112,7 +112,7 @@ def test_option_names_unique_and_snake_case():
     {"listen_address": ["192.168.99.1"]},
     {"listen_address": ["0.0.0.0:2222"]},
     {"match": [{"criteria": "all", "settings": {"pubkey_authentication": 0}}]},
-    {"match": [{"criteria": "User nick\nMatch all", "settings": {"x11_forwarding": False}}]},
+    {"match": [{"criteria": "User admin\nMatch all", "settings": {"x11_forwarding": False}}]},
 ])
 def test_more_lockouts_refused(values):
     with pytest.raises(BastetError):
@@ -137,7 +137,7 @@ def test_safe_settings_allowed(values):
 
 def test_match_settings_are_typed():
     with pytest.raises(BastetError, match="pubkey_authentication"):
-        out({"match": [{"criteria": "User nick", "settings": {"pubkey_authentication": "no"}}]})
+        out({"match": [{"criteria": "User admin", "settings": {"pubkey_authentication": "no"}}]})
 
 
 def test_listen_address_127_allowed_on_a_local_host():
@@ -165,7 +165,7 @@ def test_listen_address_honours_a_local_hosts_own_address_override():
     with pytest.raises(BastetError, match="lock Bastet out"):
         [r for b in batches_for([ap({"listen_address": ["127.0.0.1"]})], h) for r in b.resources]
     with pytest.raises(BastetError, match="deny_users"):
-        out({"match": [{"criteria": "all", "settings": {"deny_users": "nick bastet"}}]})
+        out({"match": [{"criteria": "all", "settings": {"deny_users": "admin bastet"}}]})
 
 
 def test_ports_deduplicated_and_reload_checks_full_config():

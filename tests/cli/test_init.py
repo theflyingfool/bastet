@@ -126,7 +126,7 @@ def test_cli_init_interactive(runner, tmp_path, monkeypatch, interactive):
         str(tmp_path / "Lab"),   # inventory
         "",                      # remote: none
         "new",                   # key
-        "nick",                  # bootstrap user
+        "alice",                  # bootstrap user
         "My Lab",                # lab name
         "example.com",           # public domain
         "-",                     # internal domain: none
@@ -143,7 +143,7 @@ def test_cli_init_interactive(runner, tmp_path, monkeypatch, interactive):
 def test_cli_init_declined_writes_nothing(runner, tmp_path, monkeypatch, interactive):
     cfg = tmp_path / "c" / "bastet.yml"
     monkeypatch.setenv("BASTET_CONFIG", str(cfg))
-    answers = "\n".join([str(tmp_path / "Lab"), "", "new", "nick", "Homelab", "", "-", "y", "", "n"]) + "\n"
+    answers = "\n".join([str(tmp_path / "Lab"), "", "new", "alice", "Homelab", "", "-", "y", "", "n"]) + "\n"
     result = runner.invoke(app, ["init"], input=answers)
     assert result.exit_code == 0
     assert not cfg.exists() and not (tmp_path / "Lab").exists()

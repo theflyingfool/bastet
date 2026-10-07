@@ -18,7 +18,7 @@ FILES = {
     "_roles/hosts/hp-13/systemd.md": '---\nbastet: role\nrole: systemd\napplies_to: "[[hp-13]]"\ntimezone: America/Chicago\n---\n',
     "_roles/groups/laptops/packages.md": '---\nbastet: role\nrole: packages\napplies_to: "[[laptops]]"\ninstall:\n  - git\n  - name: jq\n    version: "1.7"\n---\n',
     "_roles/hosts/hp-13/packages.md": '---\nbastet: role\nrole: packages\napplies_to: "[[hp-13]]"\ninstall:\n  - tree\n---\n',
-    "_roles/hosts/hp-13/users.md": ('---\nbastet: role\nrole: users\napplies_to: "[[hp-13]]"\nusers:\n  nick:\n'
+    "_roles/hosts/hp-13/users.md": ('---\nbastet: role\nrole: users\napplies_to: "[[hp-13]]"\nusers:\n  alice:\n'
                                     '    shell: /bin/bash\n    password_hash: "$6$secret"\n---\n'),
 }
 

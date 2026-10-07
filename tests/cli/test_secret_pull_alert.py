@@ -41,7 +41,7 @@ def remote(inventory, secret_keys, tmp_path) -> Path:
     return bare
 
 
-def _push_secret_change(remote: Path, tmp_path: Path, pub: str, *, author: str = "Nick", email: str = "admin@laptop") -> None:
+def _push_secret_change(remote: Path, tmp_path: Path, pub: str, *, author: str = "Alice", email: str = "admin@laptop") -> None:
     other = tmp_path / "other-clone"
     subprocess.run(["git", "clone", "-q", str(remote), str(other)], check=True)
     git(other, "config", "user.name", author)
@@ -60,7 +60,7 @@ def test_check_prints_pull_alert_for_changed_secrets(runner, inventory, secret_k
     result = runner.invoke(app, ["check"])
     assert "ALERT" in result.output
     assert "_secrets/lab/dns_token.md" in result.output
-    assert "Nick" in result.output and "laptop" in result.output
+    assert "Alice" in result.output and "laptop" in result.output
 
 
 def test_apply_yes_with_changed_secret_and_no_terminal_stops_everything(

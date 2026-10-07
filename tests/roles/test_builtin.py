@@ -104,13 +104,13 @@ def test_packages_role():
 def test_users_role():
     out = resources(ap("users", {
         "groups": {"media": {"gid": 2001}},
-        "users": {"nick": {"groups": ["media"], "shell": "/bin/bash", "keys": [KEY, {"key": KEY.replace("Example", "Other0"), "state": "absent"}],
+        "users": {"alice": {"groups": ["media"], "shell": "/bin/bash", "keys": [KEY, {"key": KEY.replace("Example", "Other0"), "state": "absent"}],
                            "sudo": {"nopasswd": True}}},
         "sudoers": {"ops": {"group": "wheel", "commands": ["/usr/bin/systemctl"]}},
     }))
     assert [type(r).__name__ for r in out] == ["Group", "User", "AuthorizedKey", "AuthorizedKey", "File", "File"]
     assert out[1].groups == ("media",) and out[3].state == "absent"
-    assert out[4].path == "/etc/sudoers.d/nick" and "nick ALL=(ALL) NOPASSWD: ALL" in out[4].content
+    assert out[4].path == "/etc/sudoers.d/alice" and "alice ALL=(ALL) NOPASSWD: ALL" in out[4].content
     assert out[5].path == "/etc/sudoers.d/ops" and "%wheel ALL=(ALL) /usr/bin/systemctl" in out[5].content
 
 
