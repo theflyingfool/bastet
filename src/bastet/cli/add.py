@@ -1,5 +1,7 @@
 import socket
 
+from pathlib import Path
+
 import typer
 
 import bastet.cli.secret as secret_mod
@@ -110,6 +112,22 @@ def add_host(
         typer.echo(f"Suggested address: {draft.suggested_ip} (next free in {network})")
     if write_with_confirmation(ctx, [draft.change, *lab_embed_changes(inv)], f"add host {name}", yes):
         refresh_generated(ctx)
+        if local:
+            _set_up_this_machine(yes=yes)
+
+
+def _set_up_this_machine(*, yes: bool) -> None:
+    """A host marked as the computer Bastet runs on gets the same local setup `init` offers: the
+    `bastet` user with passwordless sudo, Bastet's key, the sshd check and the host-key pin."""
+    import bastet.cli.init as init_mod  # the setup's system calls live there, patched as one in tests
+
+    ctx = load_context()
+    key = ctx.config.ssh.key
+    pub = Path(str(key) + ".pub") if key is not None else None
+    if pub is None or not pub.is_file():
+        typer.echo("Bastet has no SSH key yet; run `bastet init --manage-this-machine` to create one and set up this machine.")
+        return
+    init_mod._setup_this_machine(ctx, pub, yes=yes)
 
 
 @add_app.command("hardware")

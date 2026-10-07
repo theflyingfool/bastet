@@ -134,7 +134,7 @@ def test_cli_init_interactive(runner, tmp_path, monkeypatch, interactive):
         "",                      # your SSH public key: skip
         "y",                     # go ahead
     ]) + "\n"
-    result = runner.invoke(app, ["init"], input=answers)
+    result = runner.invoke(app, ["init", "--no-manage-this-machine"], input=answers)
     assert result.exit_code == 0, result.output
     assert load_config(cfg).inventory.path == tmp_path / "Lab"
     assert "name: My Lab" in (tmp_path / "Lab" / "Homelab.md").read_text()
@@ -144,7 +144,7 @@ def test_cli_init_declined_writes_nothing(runner, tmp_path, monkeypatch, interac
     cfg = tmp_path / "c" / "bastet.yml"
     monkeypatch.setenv("BASTET_CONFIG", str(cfg))
     answers = "\n".join([str(tmp_path / "Lab"), "", "new", "alice", "Homelab", "", "-", "y", "", "n"]) + "\n"
-    result = runner.invoke(app, ["init"], input=answers)
+    result = runner.invoke(app, ["init", "--no-manage-this-machine"], input=answers)
     assert result.exit_code == 0
     assert not cfg.exists() and not (tmp_path / "Lab").exists()
 
@@ -152,7 +152,7 @@ def test_cli_init_declined_writes_nothing(runner, tmp_path, monkeypatch, interac
 def test_cli_init_builds_dashboard(runner, tmp_path, monkeypatch):
     cfg = tmp_path / "c" / "bastet.yml"
     monkeypatch.setenv("BASTET_CONFIG", str(cfg))
-    result = runner.invoke(app, ["init", "--inventory", str(tmp_path / "Homelab"), "-y"])
+    result = runner.invoke(app, ["init", "--inventory", str(tmp_path / "Homelab"), "-y", "--manage-this-machine"])
     assert result.exit_code == 0, result.output
     assert "![[bastet dashboard]]" in (tmp_path / "Homelab" / "Homelab.md").read_text()
     assert (tmp_path / "Homelab" / "_bastet" / "bastet dashboard.md").exists()
@@ -167,7 +167,7 @@ def _recovery_key(output: str) -> str:
 def test_cli_init_prints_recovery_key_once_and_never_writes_it(runner, tmp_path, monkeypatch, interactive):
     cfg = tmp_path / "c" / "bastet.yml"
     monkeypatch.setenv("BASTET_CONFIG", str(cfg))
-    result = runner.invoke(app, ["init", "--inventory", str(tmp_path / "Homelab"), "-y"])
+    result = runner.invoke(app, ["init", "--inventory", str(tmp_path / "Homelab"), "-y", "--manage-this-machine"])
     assert result.exit_code == 0, result.output
     assert "Recovery key: keep this offline" in result.output
     key = _recovery_key(result.output)
@@ -183,7 +183,7 @@ def test_cli_init_adds_recipients_to_homelab(runner, tmp_path, monkeypatch, inte
     home = tmp_path / "fakehome"
     (home / ".ssh").mkdir(parents=True)
     (home / ".ssh" / "id_ed25519.pub").write_text("ssh-ed25519 AAAAyourkey admin@laptop\n")
-    result = runner.invoke(app, ["init", "--inventory", str(tmp_path / "Homelab"), "-y"])
+    result = runner.invoke(app, ["init", "--inventory", str(tmp_path / "Homelab"), "-y", "--manage-this-machine"])
     assert result.exit_code == 0, result.output
     lab = (tmp_path / "Homelab" / "Homelab.md").read_text()
     assert "secrets:" in lab and "recipients:" in lab
@@ -226,14 +226,12 @@ def test_cli_init_offers_recipients_for_existing_inventory(runner, tmp_path, mon
     cfg = tmp_path / "c" / "bastet.yml"
     monkeypatch.setenv("BASTET_CONFIG", str(cfg))
     inv = tmp_path / "Homelab"
-    first = runner.invoke(app, ["init", "--inventory", str(inv), "-y"])
+    first = runner.invoke(app, ["init", "--inventory", str(inv), "-y", "--no-manage-this-machine"])
     assert first.exit_code == 0, first.output
     lab = inv / "Homelab.md"
     _strip_secrets_key(lab)
 
-    result = runner.invoke(
-        app,
-        ["init", "--lab-name", "Homelab", "--public-domain", "", "--internal-domain", "", "--snippet"],
+    result = runner.invoke(app, ["init", "--lab-name", "Homelab", "--public-domain", "", "--internal-domain", "", "--snippet", "--no-manage-this-machine"],
         input="\ny\ny\n",  # your SSH key: skip; add recipients: yes; go ahead: yes
     )
     assert result.exit_code == 0, result.output
@@ -249,7 +247,7 @@ def test_cli_init_offers_recipients_for_existing_inventory(runner, tmp_path, mon
 def test_cli_init_without_a_terminal_does_not_create_a_recovery_key(runner, tmp_path, monkeypatch):
     cfg = tmp_path / "c" / "bastet.yml"
     monkeypatch.setenv("BASTET_CONFIG", str(cfg))
-    result = runner.invoke(app, ["init", "--inventory", str(tmp_path / "Homelab"), "-y"])
+    result = runner.invoke(app, ["init", "--inventory", str(tmp_path / "Homelab"), "-y", "--manage-this-machine"])
     assert result.exit_code == 0, result.output
     assert "Recovery key" not in result.output
     assert not RECOVERY_RE.search(result.output)
@@ -287,7 +285,7 @@ def test_cli_init_without_a_terminal_for_an_existing_inventory_does_not_offer_re
 def test_cli_init_sets_up_this_machine_on_a_fresh_run(runner, tmp_path, monkeypatch, interactive, _fake_local_machine):
     cfg = tmp_path / "c" / "bastet.yml"
     monkeypatch.setenv("BASTET_CONFIG", str(cfg))
-    result = runner.invoke(app, ["init", "--inventory", str(tmp_path / "Homelab"), "-y"])
+    result = runner.invoke(app, ["init", "--inventory", str(tmp_path / "Homelab"), "-y", "--manage-this-machine"])
     assert result.exit_code == 0, result.output
     assert "created the local bastet user" in result.output
     assert "set up bastet's passwordless sudo" in result.output
@@ -301,7 +299,7 @@ def test_cli_init_discloses_the_local_account_before_asking_for_sudo(
     told plainly that this creates a root-equivalent local account."""
     cfg = tmp_path / "c" / "bastet.yml"
     monkeypatch.setenv("BASTET_CONFIG", str(cfg))
-    result = runner.invoke(app, ["init", "--inventory", str(tmp_path / "Homelab"), "-y"])
+    result = runner.invoke(app, ["init", "--inventory", str(tmp_path / "Homelab"), "-y", "--manage-this-machine"])
     assert result.exit_code == 0, result.output
     disclosure_in_summary = "this machine" in result.output and "passwordless sudo" in result.output
     assert disclosure_in_summary
@@ -322,11 +320,11 @@ def test_cli_init_discloses_the_local_account_before_asking_for_sudo(
 def test_cli_init_second_run_sets_up_nothing_more(runner, tmp_path, monkeypatch, interactive, _fake_local_machine):
     cfg = tmp_path / "c" / "bastet.yml"
     monkeypatch.setenv("BASTET_CONFIG", str(cfg))
-    first = runner.invoke(app, ["init", "--inventory", str(tmp_path / "Homelab"), "-y"])
+    first = runner.invoke(app, ["init", "--inventory", str(tmp_path / "Homelab"), "-y", "--manage-this-machine"])
     assert first.exit_code == 0, first.output
     _fake_local_machine.calls.clear()
 
-    second = runner.invoke(app, ["init", "-y"])
+    second = runner.invoke(app, ["init", "-y", "--manage-this-machine"])
     assert second.exit_code == 0, second.output
     assert "kept the local bastet user" in second.output
     assert "kept bastet's passwordless sudo" in second.output
@@ -347,7 +345,7 @@ def test_cli_init_sshd_inactive_prints_enable_hint_and_edits_no_sshd_config(
     _fake_local_machine.reachable = False
     cfg = tmp_path / "c" / "bastet.yml"
     monkeypatch.setenv("BASTET_CONFIG", str(cfg))
-    result = runner.invoke(app, ["init", "--inventory", str(tmp_path / "Homelab"), "-y"])
+    result = runner.invoke(app, ["init", "--inventory", str(tmp_path / "Homelab"), "-y", "--manage-this-machine"])
     assert result.exit_code == 0, result.output
     assert "sshd isn't active" in result.output
     assert "host key" not in result.output
@@ -362,7 +360,7 @@ def test_cli_init_sshd_not_answering_on_127_prints_listenaddress_hint(
     _fake_local_machine.reachable = False
     cfg = tmp_path / "c" / "bastet.yml"
     monkeypatch.setenv("BASTET_CONFIG", str(cfg))
-    result = runner.invoke(app, ["init", "--inventory", str(tmp_path / "Homelab"), "-y"])
+    result = runner.invoke(app, ["init", "--inventory", str(tmp_path / "Homelab"), "-y", "--manage-this-machine"])
     assert result.exit_code == 0, result.output
     assert "sshd isn't answering on 127.0.0.1" in result.output
     assert "host key" not in result.output
@@ -377,7 +375,7 @@ def test_cli_init_sshd_ready_even_if_systemctl_reports_inactive(
     _fake_local_machine.reachable = True
     cfg = tmp_path / "c" / "bastet.yml"
     monkeypatch.setenv("BASTET_CONFIG", str(cfg))
-    result = runner.invoke(app, ["init", "--inventory", str(tmp_path / "Homelab"), "-y"])
+    result = runner.invoke(app, ["init", "--inventory", str(tmp_path / "Homelab"), "-y", "--manage-this-machine"])
     assert result.exit_code == 0, result.output
     assert "sshd isn't" not in result.output
     assert "No local host in the inventory yet" in result.output
@@ -389,15 +387,13 @@ def test_cli_init_offers_to_start_sshd_and_continues_when_confirmed(
     cfg = tmp_path / "c" / "bastet.yml"
     monkeypatch.setenv("BASTET_CONFIG", str(cfg))
     inv = tmp_path / "Homelab"
-    first = runner.invoke(app, ["init", "--inventory", str(inv), "-y"])
+    first = runner.invoke(app, ["init", "--inventory", str(inv), "-y", "--manage-this-machine"])
     assert first.exit_code == 0, first.output
     _fake_local_machine.calls.clear()
     _fake_local_machine.sshd_active = False
     _fake_local_machine.reachable = False
 
-    result = runner.invoke(
-        app,
-        ["init", "--lab-name", "Homelab", "--public-domain", "", "--internal-domain", "", "--snippet"],
+    result = runner.invoke(app, ["init", "--lab-name", "Homelab", "--public-domain", "", "--internal-domain", "", "--snippet", "--manage-this-machine"],
         input="y\ny\n",  # go ahead: yes; start sshd now: yes
     )
     assert result.exit_code == 0, result.output
@@ -413,15 +409,13 @@ def test_cli_init_declines_to_start_sshd_and_issues_no_enable_command(
     cfg = tmp_path / "c" / "bastet.yml"
     monkeypatch.setenv("BASTET_CONFIG", str(cfg))
     inv = tmp_path / "Homelab"
-    first = runner.invoke(app, ["init", "--inventory", str(inv), "-y"])
+    first = runner.invoke(app, ["init", "--inventory", str(inv), "-y", "--manage-this-machine"])
     assert first.exit_code == 0, first.output
     _fake_local_machine.calls.clear()
     _fake_local_machine.sshd_active = False
     _fake_local_machine.reachable = False
 
-    result = runner.invoke(
-        app,
-        ["init", "--lab-name", "Homelab", "--public-domain", "", "--internal-domain", "", "--snippet"],
+    result = runner.invoke(app, ["init", "--lab-name", "Homelab", "--public-domain", "", "--internal-domain", "", "--snippet", "--manage-this-machine"],
         input="y\nn\n",  # go ahead: yes; start sshd now: no
     )
     assert result.exit_code == 0, result.output
@@ -435,16 +429,14 @@ def test_cli_init_reports_enable_now_failure(runner, tmp_path, monkeypatch, inte
     cfg = tmp_path / "c" / "bastet.yml"
     monkeypatch.setenv("BASTET_CONFIG", str(cfg))
     inv = tmp_path / "Homelab"
-    first = runner.invoke(app, ["init", "--inventory", str(inv), "-y"])
+    first = runner.invoke(app, ["init", "--inventory", str(inv), "-y", "--manage-this-machine"])
     assert first.exit_code == 0, first.output
     _fake_local_machine.calls.clear()
     _fake_local_machine.sshd_active = False
     _fake_local_machine.reachable = False
     _fake_local_machine.enable_fails = True
 
-    result = runner.invoke(
-        app,
-        ["init", "--lab-name", "Homelab", "--public-domain", "", "--internal-domain", "", "--snippet"],
+    result = runner.invoke(app, ["init", "--lab-name", "Homelab", "--public-domain", "", "--internal-domain", "", "--snippet", "--manage-this-machine"],
         input="y\ny\n",  # go ahead: yes; start sshd now: yes
     )
     assert result.exit_code == 0, result.output
@@ -460,7 +452,7 @@ def test_cli_init_sshd_uninstalled_prints_install_hint_with_no_start_offer(
     _fake_local_machine.reachable = False
     cfg = tmp_path / "c" / "bastet.yml"
     monkeypatch.setenv("BASTET_CONFIG", str(cfg))
-    result = runner.invoke(app, ["init", "--inventory", str(tmp_path / "Homelab"), "-y"])
+    result = runner.invoke(app, ["init", "--inventory", str(tmp_path / "Homelab"), "-y", "--manage-this-machine"])
     assert result.exit_code == 0, result.output
     assert "install openssh" in result.output
     assert "Start sshd now" not in result.output
@@ -473,7 +465,7 @@ def test_cli_init_yes_never_offers_to_start_sshd(runner, tmp_path, monkeypatch, 
     _fake_local_machine.reachable = False
     cfg = tmp_path / "c" / "bastet.yml"
     monkeypatch.setenv("BASTET_CONFIG", str(cfg))
-    result = runner.invoke(app, ["init", "--inventory", str(tmp_path / "Homelab"), "-y"])
+    result = runner.invoke(app, ["init", "--inventory", str(tmp_path / "Homelab"), "-y", "--manage-this-machine"])
     assert result.exit_code == 0, result.output
     assert "Start sshd now" not in result.output
     assert "sshd isn't active" in result.output
@@ -485,7 +477,7 @@ def test_cli_init_declined_fingerprint_is_not_recorded(runner, tmp_path, monkeyp
     cfg = tmp_path / "c" / "bastet.yml"
     monkeypatch.setenv("BASTET_CONFIG", str(cfg))
     inv = tmp_path / "Homelab"
-    first = runner.invoke(app, ["init", "--inventory", str(inv), "-y"])
+    first = runner.invoke(app, ["init", "--inventory", str(inv), "-y", "--manage-this-machine"])
     assert first.exit_code == 0, first.output
 
     (inv / "hosts").mkdir(exist_ok=True)
@@ -495,9 +487,7 @@ def test_cli_init_declined_fingerprint_is_not_recorded(runner, tmp_path, monkeyp
     sp.run(["git", "-C", str(inv), "-c", "user.name=T", "-c", "user.email=t@example.com",
            "commit", "-q", "-m", "add laptop1"], check=True)
 
-    result = runner.invoke(
-        app,
-        ["init", "--lab-name", "Homelab", "--public-domain", "", "--internal-domain", "", "--snippet"],
+    result = runner.invoke(app, ["init", "--lab-name", "Homelab", "--public-domain", "", "--internal-domain", "", "--snippet", "--manage-this-machine"],
         input="y\nn\n",  # go ahead: yes; trust the host key: no
     )
     assert result.exit_code == 0, result.output
@@ -509,7 +499,7 @@ def test_cli_init_confirmed_fingerprint_is_recorded(runner, tmp_path, monkeypatc
     cfg = tmp_path / "c" / "bastet.yml"
     monkeypatch.setenv("BASTET_CONFIG", str(cfg))
     inv = tmp_path / "Homelab"
-    first = runner.invoke(app, ["init", "--inventory", str(inv), "-y"])
+    first = runner.invoke(app, ["init", "--inventory", str(inv), "-y", "--manage-this-machine"])
     assert first.exit_code == 0, first.output
 
     (inv / "hosts").mkdir(exist_ok=True)
@@ -519,9 +509,7 @@ def test_cli_init_confirmed_fingerprint_is_recorded(runner, tmp_path, monkeypatc
     sp.run(["git", "-C", str(inv), "-c", "user.name=T", "-c", "user.email=t@example.com",
            "commit", "-q", "-m", "add laptop1"], check=True)
 
-    result = runner.invoke(
-        app,
-        ["init", "--lab-name", "Homelab", "--public-domain", "", "--internal-domain", "", "--snippet"],
+    result = runner.invoke(app, ["init", "--lab-name", "Homelab", "--public-domain", "", "--internal-domain", "", "--snippet", "--manage-this-machine"],
         input="y\ny\n",  # go ahead: yes; trust the host key: yes
     )
     assert result.exit_code == 0, result.output
@@ -531,6 +519,56 @@ def test_cli_init_confirmed_fingerprint_is_recorded(runner, tmp_path, monkeypatc
 
     assert f"ssh_host_key: ssh-ed25519 {FAKE_HOST_KEYS[0].fingerprint}" in facts_path(inv, "laptop1").read_text()
 
-    second = runner.invoke(app, ["init", "-y"])
+    second = runner.invoke(app, ["init", "-y", "--manage-this-machine"])
     assert second.exit_code == 0, second.output
     assert "laptop1: host key already set up" in second.output
+
+
+# --- managing this machine is optional: init only sets it up when asked to ---
+
+
+def _setup_calls(fake):
+    return [c for c in fake.calls if c[:2] == ["sudo", "-n"]]
+
+
+def test_cli_init_yes_alone_does_not_set_up_this_machine(runner, tmp_path, monkeypatch, interactive, _fake_local_machine):
+    monkeypatch.setenv("BASTET_CONFIG", str(tmp_path / "c" / "bastet.yml"))
+    result = runner.invoke(app, ["init", "--inventory", str(tmp_path / "Homelab"), "-y"])
+    assert result.exit_code == 0, result.output
+    assert _setup_calls(_fake_local_machine) == []
+    assert "created the local bastet user" not in result.output
+    assert "bastet add host <name> --local" in result.output  # how to do it later
+
+
+def test_cli_init_flag_sets_up_this_machine(runner, tmp_path, monkeypatch, interactive, _fake_local_machine):
+    monkeypatch.setenv("BASTET_CONFIG", str(tmp_path / "c" / "bastet.yml"))
+    result = runner.invoke(app, ["init", "--inventory", str(tmp_path / "Homelab"), "-y", "--manage-this-machine"])
+    assert result.exit_code == 0, result.output
+    assert "created the local bastet user" in result.output
+
+
+def test_cli_init_asks_and_defaults_to_no(runner, tmp_path, monkeypatch, interactive, _fake_local_machine):
+    monkeypatch.setenv("BASTET_CONFIG", str(tmp_path / "c" / "bastet.yml"))
+    result = runner.invoke(
+        app,
+        ["init", "--inventory", str(tmp_path / "Homelab"), "--remote", "", "--key", "new", "--bootstrap-user", "admin",
+         "--lab-name", "Homelab", "--public-domain", "", "--internal-domain", "-", "--no-snippet"],
+        input="\n" * 10,  # Enter at every question: the manage-this-machine default is no
+    )
+    assert result.exit_code == 0, result.output
+    assert "Also manage this computer with Bastet?" in result.output
+    assert _setup_calls(_fake_local_machine) == []
+
+
+def test_cli_init_no_flag_never_asks(runner, tmp_path, monkeypatch, interactive, _fake_local_machine):
+    monkeypatch.setenv("BASTET_CONFIG", str(tmp_path / "c" / "bastet.yml"))
+    result = runner.invoke(
+        app,
+        ["init", "--inventory", str(tmp_path / "Homelab"), "--remote", "", "--key", "new", "--bootstrap-user", "admin",
+         "--lab-name", "Homelab", "--public-domain", "", "--internal-domain", "-", "--no-snippet",
+         "--no-manage-this-machine"],
+        input="\n" * 10,
+    )
+    assert result.exit_code == 0, result.output
+    assert "Also manage this computer with Bastet?" not in result.output
+    assert _setup_calls(_fake_local_machine) == []

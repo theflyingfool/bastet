@@ -25,17 +25,18 @@ for `bastet secret show`'s clipboard option.
 
 ### On managed hosts
 
-Gather runs one POSIX `sh` script per host, over SSH -- including the computer you run Bastet from,
-reached at `127.0.0.1`: its sshd needs to be active and answering there (`ListenAddress 127.0.0.1` is
-enough even if it listens nowhere else). `bastet init` sets up the local `bastet` user for this, and
-can start sshd for you if it isn't running yet.
-No agent, no Python and no Ansible are needed on hosts.
+Gather runs one POSIX `sh` script per host, over SSH. No agent, no Python and no Ansible are needed on hosts.
 
-**Run `bastet init` and your first `bastet apply` on a laptop while it's disconnected from any
-network.** Until the `ssh` role is applied (with `listen_address: 127.0.0.1` in the laptop's own
-host note), a stock sshd listens on every interface and may still allow password logins -- exactly
-what `bastet init`'s local setup and the `ssh` role's lockout guard exist to close off. Do the setup
-and the first `apply` offline, then reconnect.
+**Managing the computer Bastet runs on is optional.** If you want it managed too, it's reached the same way,
+over SSH at `127.0.0.1`, as its own local `bastet` user (passwordless sudo; only Bastet's key can log in), so
+its sshd needs to be active and answering there (`ListenAddress 127.0.0.1` is enough). Set that up with
+`bastet init --manage-this-machine` (or answer yes when `init` asks; the default is no), or later with
+`bastet add host <name> --local`. Either can start sshd for you if it isn't running yet.
+
+**If you manage the laptop this way, do that setup and your first `bastet apply` while it's disconnected from
+any network.** Until the `ssh` role is applied (with `listen_address: 127.0.0.1` in the laptop's own role
+file), a stock sshd listens on every interface and may still allow password logins. Do the setup and the
+first `apply` offline, then reconnect.
 
 | Tool | Package | Required? | Gives |
 |---|---|---|---|
@@ -122,8 +123,8 @@ else `~/.config/bastet/bastet.yml`.
 
 | Command | Does |
 |---|---|
-| `bastet init` | Config, Bastet's SSH key, the inventory repository and `Homelab.md` |
-| `bastet add host [NAME] [--type …]` | Writes a minimal host file; asks for anything you leave out (`-y` to never ask) |
+| `bastet init [--manage-this-machine]` | Config, Bastet's SSH key, the inventory repository and `Homelab.md`; with the flag (or a yes when asked), also sets up this computer as a managed host |
+| `bastet add host [NAME] [--type …] [--local]` | Writes a minimal host file; asks for anything you leave out (`-y` to never ask). `--local` marks the computer Bastet runs on and sets it up as a managed host |
 | `bastet add hardware [NAME] [--category …]` | Writes a hardware file; asks for anything you leave out |
 | `bastet gather [HOST…] [-j JOBS]` | Collects facts and writes them into each host's facts note (`_bastet/facts/<host> facts.md`) after a diff; `--take FIELD` is for hardware notes only — host facts are always taken |
 | `bastet refresh` | Regenerates page summaries and the dashboard (`_bastet/`) from your files; `add` and `gather` do this too |

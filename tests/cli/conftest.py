@@ -131,3 +131,11 @@ def test_role(inventory, tmp_path, monkeypatch):
     git(inventory, "add", ".")
     git(inventory, "commit", "-q", "-m", "test role")
     return {"host": "box", "role": "testsecret"}
+
+
+@pytest.fixture(autouse=True)
+def _no_real_local_setup(monkeypatch):
+    """Setting up this machine as a Bastet host runs sudo; no CLI test may reach the real system.
+    Tests that exercise it patch in a fake machine of their own."""
+    import bastet.cli.init as init_mod
+    monkeypatch.setattr(init_mod, "_sudo_validate", lambda: False)

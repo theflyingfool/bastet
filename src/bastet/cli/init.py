@@ -96,7 +96,7 @@ def _setup_this_machine(ctx: Context, public_key: Path, *, yes: bool) -> None:
     authorized_keys, an sshd check, and (once confirmed) its host key. Tty only, like the recovery
     key -- every step is idempotent, and nothing here ever edits sshd config."""
     if not _stdout_is_tty():
-        typer.echo("Not a terminal: run `bastet init` in a terminal to set up this machine as a Bastet host.")
+        typer.echo("Not a terminal: run this in a terminal to set up this machine as a Bastet host.")
         return
     typer.echo(
         "Setting up this machine as a Bastet host: a local 'bastet' user with passwordless sudo "
@@ -186,6 +186,10 @@ def init(
     public_domain: str | None = typer.Option(None, "--public-domain"),
     internal_domain: str | None = typer.Option(None, "--internal-domain"),
     snippet: bool | None = typer.Option(None, "--snippet/--no-snippet", help="Install Bastet's Obsidian stylesheet."),
+    manage_this_machine: bool | None = typer.Option(
+        None, "--manage-this-machine/--no-manage-this-machine",
+        help="Also manage this computer with Bastet (a local 'bastet' user with passwordless sudo; needs sshd).",
+    ),
     yes: bool = typer.Option(False, "--yes", "-y", help="Take defaults for anything not given; don't ask."),
 ) -> None:
     """Set up config, Bastet's SSH key and the inventory. Safe to run again."""
@@ -225,6 +229,11 @@ def init(
         snippet = True if yes else typer.confirm("Install and enable Bastet's Obsidian stylesheet?", default=True)
 
     recipients, recovery_private = _plan_recipients(inventory_path, yes)
+    if manage_this_machine is None:
+        manage_this_machine = False if yes or not _stdout_is_tty() else typer.confirm(
+            "Also manage this computer with Bastet? (creates a local 'bastet' user with passwordless sudo; needs sshd)",
+            default=False,
+        )
 
     options = InitOptions(
         inventory=inventory_path, remote=remote_url, key=key_path, bootstrap_user=user,
@@ -237,10 +246,13 @@ def init(
     typer.echo(f"  login       {options.bootstrap_user} (to set up the bastet user on existing hosts)")
     typer.echo(f"  lab         {options.lab_name}" + (f"  {domains}" if domains else ""))
     typer.echo(f"  stylesheet  {'yes' if options.snippet else 'no'}")
-    typer.echo(
-        "  this machine  a local 'bastet' user with passwordless sudo (root-equivalent; only "
-        "Bastet's SSH key can log in as it)"
-    )
+    if manage_this_machine:
+        typer.echo(
+            "  this machine  a local 'bastet' user with passwordless sudo (root-equivalent; only "
+            "Bastet's SSH key can log in as it)"
+        )
+    else:
+        typer.echo("  this machine  not managed")
     if not yes and not typer.confirm("Go ahead?", default=True):
         typer.echo("Nothing written.")
         return
@@ -257,4 +269,7 @@ def init(
         typer.secho(_RECOVERY_WARNING, fg="yellow")
         typer.echo(recovery_private)
     typer.echo()
-    _setup_this_machine(ctx, result.public_key, yes=yes)
+    if manage_this_machine:
+        _setup_this_machine(ctx, result.public_key, yes=yes)
+    else:
+        typer.echo("This computer isn't managed by Bastet. To manage it later: bastet add host <name> --local")
