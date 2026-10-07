@@ -156,6 +156,21 @@ def test_facts_note_for_unknown_host_is_a_warning(tmp_path):
     assert inv.facts_for("ghost") == {}
 
 
+def test_renamed_host_two_facts_notes_canonical_path_wins(tmp_path):
+    """Host `zeta` renamed to `alpha` in Obsidian: it rewrites the `host:` link inside the old note
+    (left at its old filename), but the new facts note only appears at the next gather. Whichever one
+    sits at `facts_path(alpha)` is canonical; the other is a warning, never read."""
+    put(tmp_path, "hosts/alpha.md", '---\nbastet: host\ntype: vps\nprovider: x\nip: 203.0.113.10\n---\n# alpha\n')
+    put(tmp_path, "_bastet/facts/zeta facts.md",
+        '---\nbastet: facts\nhost: "[[alpha]]"\ngathered: "2026-01-01T00:00:00Z"\nos: Debian 12\n---\n')
+    put(tmp_path, "_bastet/facts/alpha facts.md",
+        '---\nbastet: facts\nhost: "[[alpha]]"\ngathered: "2026-10-06T00:00:00Z"\nos: Debian 13\n---\n')
+    inv = load_inventory(tmp_path, TYPES)
+    assert inv.facts_for("alpha").get("os") == "Debian 13"
+    warnings = [p.error.message for p in inv.problems if p.severity == "warning"]
+    assert any("zeta facts" in m and "alpha" in m for m in warnings)
+
+
 def test_stale_fact_keys_warning(tmp_path):
     put(
         tmp_path,
@@ -169,6 +184,30 @@ def test_stale_fact_keys_warning(tmp_path):
         "os, kernel, cpu are gathered facts; they now live in _bastet/facts/pve1 facts.md (remove them from this note)"
     )
     assert w.error.line == 5  # the 'os:' line
+
+
+def test_stale_fallback_key_already_in_facts_note_says_remove_it(tmp_path):
+    """ssh_host_key on the host note matches what the facts note already holds -- it's safe to tell the
+    user to remove it: the fallback has already done its job."""
+    put(tmp_path, "_bastet/facts/g facts.md",
+        '---\nbastet: facts\nhost: "[[g]]"\ngathered: "2026-10-06T00:00:00Z"\nssh_host_key: ssh-ed25519 AAAA\n---\n')
+    put(tmp_path, "hosts/g.md",
+        '---\nbastet: host\ntype: lxc\nruns_on: "[[pve1]]"\nip: 10.0.20.21\nssh_host_key: ssh-ed25519 AAAA\n---\n')
+    inv = load_inventory(tmp_path, TYPES)
+    [w] = [p for p in inv.problems if "ssh_host_key" in p.error.message]
+    assert "remove them from this note" in w.error.message
+    assert "kept" not in w.error.message
+
+
+def test_stale_fallback_key_not_yet_in_facts_note_says_kept_until_gather(tmp_path):
+    """ssh_host_key is only on the host note so far (never gathered yet) -- telling the user to remove
+    it now would silently undo the pin; it must say it's kept until the next gather copies it in."""
+    put(tmp_path, "hosts/g.md",
+        '---\nbastet: host\ntype: lxc\nruns_on: "[[pve1]]"\nip: 10.0.20.21\nssh_host_key: ssh-ed25519 AAAA\n---\n')
+    inv = load_inventory(tmp_path, TYPES)
+    [w] = [p for p in inv.problems if "ssh_host_key" in p.error.message]
+    assert "kept" in w.error.message and "next gather" in w.error.message
+    assert "remove them from this note" not in w.error.message
 
 
 def test_stale_fact_keys_no_warning_for_declared_keys(tmp_path):

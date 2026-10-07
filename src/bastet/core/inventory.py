@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from bastet.core.errors import BastetError
-from bastet.core.factsnote import FACTS_DIR, META_KEYS
+from bastet.core.factsnote import FACTS_DIR, META_KEYS, facts_path
 from bastet.core.frontmatter import Document, parse_document
 from bastet.core.hosttypes import HostType
 from bastet.core.links import link_target
@@ -93,16 +93,34 @@ def _bare_ip(value: object) -> str | None:
     return text
 
 
+FALLBACK_KEYS_WITH_NO_EARLY_REMOVE = ("ssh_host_key", "vmid")
+
+
 def _check_stale_facts(inv: Inventory, doc: Document, types: dict[str, HostType]) -> None:
     from bastet.core.hostview import stale_fact_keys  # hostview builds on inventory
+    from bastet.core.units import same_value
 
     stale = stale_fact_keys(doc, types)
     if not stale:
         return
-    message = (
-        f"{', '.join(stale)} are gathered facts; they now live in "
-        f"{FACTS_DIR}/{doc.name} facts.md (remove them from this note)"
-    )
+    facts = inv.facts_for(doc.name)
+    # ssh_host_key and vmid are also honoured as a fallback (hostview.FALLBACK_KEYS) until the facts
+    # note has its own value: telling the user to remove one before that would silently undo the pin.
+    removable = [
+        key for key in stale
+        if key not in FALLBACK_KEYS_WITH_NO_EARLY_REMOVE or (key in facts and same_value(key, facts[key], doc.data.get(key)))
+    ]
+    pending = [key for key in stale if key not in removable]
+    note_path = f"{FACTS_DIR}/{doc.name} facts.md"
+    parts = []
+    if removable:
+        parts.append(f"{', '.join(removable)} are gathered facts; they now live in {note_path} (remove them from this note)")
+    if pending:
+        parts.append(
+            f"{', '.join(pending)} are gathered facts; they now live in {note_path} once gather runs "
+            f"(kept here until then, so the next gather copies them in instead of losing them)"
+        )
+    message = " ".join(parts)
     line = doc.key_lines.get(stale[0])
     inv.problems.append(Problem("warning", BastetError(message, file=doc.path, line=line)))
 
@@ -193,6 +211,27 @@ def load_inventory(root: Path, types: dict[str, HostType]) -> Inventory:
     for extra in labs[1:]:
         _add(inv, "error", f"more than one lab file (also {labs[0].path})", extra)
 
+    # Index facts notes before checking hosts, so a host's stale-fact-key check below can see what its
+    # facts note already holds. The canonical note for a host is the one at `facts_path`; anything else
+    # claiming the same host (e.g. left behind by a rename) is a warning, never indexed -- so which one
+    # wins never depends on load order.
+    for doc in facts_docs:
+        target = link_target(doc.data.get("host"))
+        host_doc = inv.get(target) if target else None
+        if host_doc is None or host_doc.data.get("bastet") != "host":
+            _add(inv, "warning", f"no host named {target or doc.data.get('host')}", doc)
+            continue
+        canonical = facts_path(inv.root, host_doc.name)
+        if doc.path == canonical:
+            inv.facts[host_doc.name.lower()] = doc
+        else:
+            _add(
+                inv, "warning",
+                f"{doc.name} claims host [[{host_doc.name}]], but its facts note is "
+                f"{canonical.relative_to(inv.root).as_posix()}; ignored",
+                doc,
+            )
+
     ips: dict[str, Document] = {}
     for doc in sorted(inv.objects.values(), key=lambda d: str(d.path)):
         kind = doc.data["bastet"]
@@ -218,14 +257,7 @@ def load_inventory(root: Path, types: dict[str, HostType]) -> Inventory:
             _add(inv, "warning", 'a role file needs `applies_to: "[[host, group or lab]]"`', doc, "applies_to")
         elif inv.get(target) is None or inv.get(target).data.get("bastet") not in ("host", "group", "lab"):
             _add(inv, "warning", f"applies_to [[{target}]], which isn't a host, group or the lab", doc, "applies_to")
-    for doc in facts_docs:
-        target = link_target(doc.data.get("host"))
-        host_doc = inv.get(target) if target else None
-        if host_doc is None or host_doc.data.get("bastet") != "host":
-            _add(inv, "warning", f"no host named {target or doc.data.get('host')}", doc)
-        else:
-            inv.facts[host_doc.name.lower()] = doc
     from bastet.core.networks import check_networks  # networks builds on inventory
 
-    check_networks(inv)
+    check_networks(inv, types)
     return inv
