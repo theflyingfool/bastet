@@ -495,6 +495,10 @@ def _gather(
             for guest_name, items in drift.items():
                 guest_drift_by_host[guest_name] = items
                 notes.extend(Note(guest_name, "warn", f"drift — {item}") for item in items)
+                # Drift is stored in the guest's own facts note, cleared the moment the node that
+                # observes it agrees again -- so this guest needs an accumulator entry (even an
+                # unchanged one) whether or not it was directly gathered this run.
+                _merge_facts(facts_acc, ctx.inventory, guest_name, {})
             for guest_name, vmid in vmid_updates.items():
                 _merge_facts(facts_acc, ctx.inventory, guest_name, {"vmid": vmid})
             known_vmids = {
@@ -574,7 +578,10 @@ def _gather(
     added = _offer_guests(ctx, found_guests, yes, facts_acc) if found_guests else []
     changes.extend(added)
     for name, facts in facts_acc.values():  # exactly one Change per facts note, built once everything merged
-        change = facts_change(ctx.inventory.root, name, facts, gathered_at)
+        change = facts_change(
+            ctx.inventory.root, name, facts, gathered_at,
+            warnings=host_warnings.get(name), drift=guest_drift_by_host.get(name),
+        )
         if change is not None:
             changes.append(change)
     for name, facts in run_state.hw_facts.values():  # exactly one Change per hardware item's facts note

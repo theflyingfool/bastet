@@ -24,7 +24,8 @@ def test_ensure_views_refreshes_outdated_bastet_views(tmp_path):
 
 def test_hardware_view_table_first_then_cards():
     text = VIEWS[HARDWARE_BASE_PATH]
-    assert text.index("type: table") < text.index("type: cards") and "installed_in == this" in text
+    assert text.index("type: table") < text.index("type: cards")
+    assert 'bastet == "facts"' in text and "installed_in == this" in text
 
 
 def test_has_hardware_section():

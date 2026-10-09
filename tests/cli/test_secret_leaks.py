@@ -61,7 +61,7 @@ def test_security_note_write_failure_is_masked(runner, box, inventory, monkeypat
     def boom(*a, **k):
         raise RuntimeError(f"disk full near {SENTINEL}")
 
-    monkeypatch.setattr(run_mod, "security_note", boom)
+    monkeypatch.setattr(run_mod, "security_section", boom)
     monkeypatch.setattr(run_mod, "security_items", lambda items: True)
 
     result = runner.invoke(app, ["run", "-c", "box"])

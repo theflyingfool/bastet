@@ -25,8 +25,8 @@ def test_refresh_writes_role_pages_view_and_card(runner, inventory):
     runner.invoke(app, ["refresh"])
     assert "# packages role" in (inventory / "_bastet" / "roles" / "packages role.md").read_text()
     assert "applies_to == this" in (inventory / "_bastet" / "roles-here.base").read_text()
-    summary = (inventory / "_bastet" / "summary" / "pve1 summary.md").read_text()
-    assert "[!stat] Roles" in summary and "[[packages role|packages]]" in summary
+    facts = (inventory / "_bastet" / "facts" / "pve1 facts.md").read_text()
+    assert "[!stat] Roles" in facts and "[[packages role|packages]]" in facts
 
 
 def test_new_role_file_explains_itself(runner, inventory):

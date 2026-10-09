@@ -253,7 +253,9 @@ def test_check_writes_security_note(runner, box, inventory, monkeypatch):
         'service_exposure: false\nlistening_ports: false\nsysctl_defaults: false\n---\n')
     result = runner.invoke(app, ["run", "-c", "box"])
     assert result.exit_code == 0, result.output
-    note = inventory / "_bastet" / "reports" / "box reports.md"
+    from bastet.core.factsnote import facts_path
+
+    note = facts_path(inventory, "box")
     assert note.exists() and "## AppArmor\n\nnot enabled" in note.read_text()
     assert "refresh: security note box" in git(inventory, "log", "--format=%s")
 
@@ -288,7 +290,7 @@ def test_security_note_failure_never_stops_the_check(runner, box, inventory, mon
         res = next(r for b in batches for r in b.resources if isinstance(r, AppArmorStatus))
         return HostRun(host, False, [Item(res, ["harden"], [], current={"enabled": False, "enforce": None, "complain": None})])
     monkeypatch.setattr(run_mod, "run_host", fake)
-    monkeypatch.setattr(rm, "security_note", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+    monkeypatch.setattr(rm, "security_section", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
     (inventory / "_roles" / "hosts" / "box" / "harden.md").write_text(
         '---\nbastet: role\nrole: harden\napplies_to: "[[box]]"\nvulnerable_packages: false\n'
         'service_exposure: false\nlistening_ports: false\nsysctl_defaults: false\n---\n')

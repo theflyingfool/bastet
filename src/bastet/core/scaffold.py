@@ -8,7 +8,7 @@ from bastet.core.frontmatter import new_document
 from bastet.core.hosttypes import HostType
 from bastet.core.inventory import HARDWARE_STATUSES, Inventory, markdown_files
 from bastet.core.links import make_link
-from bastet.core.views import HARDWARE_SECTION, summary_embed
+from bastet.core.views import HARDWARE_SECTION, ROLES_SECTION, facts_embed
 
 NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._-]*$")
 OPTION_FOR = {"ip": "--ip", "runs_on": "--on", "provider": "--provider"}
@@ -102,9 +102,9 @@ def new_host(
     data.setdefault("gather", types[type_name].gather)
     path = inv.root / "hosts" / f"{name}.md"
     body = (
-        f"# {name}\n\n{summary_embed(name)}\n"
+        f"# {name}\n\n{facts_embed(name)}\n"
         + (HARDWARE_SECTION if types[type_name].physical else "")
-        + f"\n## Reports\n\n![[{name} reports]]\n"
+        + ROLES_SECTION
     )
     return HostDraft(Change(path, None, new_document(data, body)), suggested)
 
@@ -138,4 +138,4 @@ def new_hardware(
         data["location"] = make_link(inv.get(location).name)
     data["cssclasses"] = ["bastet-host"]
     path = inv.root / "hardware" / f"{name}.md"
-    return Change(path, None, new_document(data, f"# {name}\n\n{summary_embed(name)}\n"))
+    return Change(path, None, new_document(data, f"# {name}\n\n{facts_embed(name)}\n"))

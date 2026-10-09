@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from bastet.core.errors import BastetError
-from bastet.core.factsnote import FACTS_DIR, META_KEYS, facts_path, hardware_facts_path
+from bastet.core.factsnote import FACTS_DIR, META_KEYS, NOTE_KEYS, facts_path, hardware_facts_path
 from bastet.core.frontmatter import Document, parse_document
 from bastet.core.hosttypes import HostType
 from bastet.core.links import link_target
@@ -45,7 +45,7 @@ class Inventory:
         doc = self.facts.get(name.lower())
         if doc is None:
             return {}
-        return {k: v for k, v in doc.data.items() if k not in META_KEYS}
+        return {k: v for k, v in doc.data.items() if k not in META_KEYS and k not in NOTE_KEYS}
 
     def of_kind(self, kind: str) -> list[Document]:
         docs = [d for d in self.objects.values() if d.data.get("bastet") == kind]

@@ -7,7 +7,7 @@ from bastet.core.frontmatter import Document
 from bastet.core.hosttypes import HostType
 from bastet.core.inventory import Inventory
 from bastet.core.units import same_value
-from bastet.core.views import summary_embed
+from bastet.core.views import facts_embed
 
 
 @dataclass
@@ -84,11 +84,11 @@ def plan_facts(
     elif proposal and current_type and proposal != current_type:
         notes.append(Note(doc.name, "info", f"type is {current_type!r} but this host looks like a {proposal}"))
 
-    if summary_embed(doc.name) not in doc.body:
+    if facts_embed(doc.name) not in doc.body:
         rel = doc.path.relative_to(inv.root).as_posix()
         notes.append(Note(
             doc.name, "info",
-            f"{rel} has no summary embed; add {summary_embed(doc.name)} (bastet add host does this for new hosts)",
+            f"{rel} has no facts embed; add {facts_embed(doc.name)} (bastet add host does this for new hosts)",
         ))
 
     change = facts_change(inv.root, doc.name, observed, gathered)

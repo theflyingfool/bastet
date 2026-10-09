@@ -5,7 +5,7 @@ from pathlib import Path
 
 from bastet.core.changes import Change
 
-HARDWARE_LIST_COLUMNS = ("file.name", "category", "model", "serial", "size", "status")
+HARDWARE_LIST_COLUMNS = ("item", "make", "model", "serial", "size")
 
 
 def _yaml_list(items: tuple[str, ...], indent: str = "      ") -> str:
@@ -26,7 +26,7 @@ def _base(filter_exprs: str | list[str], views: list[tuple[str, str, tuple[str, 
 
 HARDWARE_BASE_PATH = "_bastet/hardware-here.base"
 HARDWARE_BASE = _base(
-    "installed_in == this",
+    ['bastet == "facts"', "installed_in == this"],
     [("table", "Table", HARDWARE_LIST_COLUMNS), ("cards", "Cards", HARDWARE_LIST_COLUMNS)],
 )
 ROLES_BASE_PATH = "_bastet/roles-here.base"
@@ -57,12 +57,12 @@ HARDWARE_SECTION = "\n## Hardware\n\n![[hardware-here.base]]\n"
 _LEGACY_SUMMARY = re.compile(r"## Summary\n\n!\[\[(?:host|hardware)-summary\.base\]\]")
 
 
-def summary_name(page: str) -> str:
-    return f"{page} summary"
+def facts_name(page: str) -> str:
+    return f"{page} facts"
 
 
-def summary_embed(page: str) -> str:
-    return f"![[{summary_name(page)}]]"
+def facts_embed(page: str) -> str:
+    return f"![[{facts_name(page)}]]"
 
 
 def ensure_views(root: Path) -> list[Change]:

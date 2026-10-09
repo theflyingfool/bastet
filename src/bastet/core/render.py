@@ -14,16 +14,17 @@ from bastet.core.frontmatter import Document, parse_document
 from bastet.core.gitrepo import BASTET_NAME, GitRepo
 from bastet.core.hardware import MACHINE_CATEGORIES
 from bastet.core.hosttypes import HostType
-from bastet.core.factsnote import facts_path
+from bastet.core.factsnote import (
+    FACTS_DIR, SECURITY_MARKER, facts_path, hardware_facts_path, render_facts, render_hardware_facts, split_security,
+)
 from bastet.core.hostview import hardware_data, host_data, missing_warning
 from bastet.core.hwparse import short_cpu
 from bastet.core.inventory import Inventory, markdown_files
-from bastet.core.links import link_target, make_link
+from bastet.core.links import link_target
 from bastet.core.units import format_size, parse_size
-from bastet.core.views import ensure_page_embed, ensure_views, summary_embed, summary_name
+from bastet.core.views import ensure_page_embed, ensure_views
 from bastet.core.yamlstyle import dump_frontmatter
 
-SUMMARY_DIR = "_bastet/summary"
 DASHBOARD_NAME = "bastet dashboard"
 DASHBOARD_PATH = f"_bastet/{DASHBOARD_NAME}.md"
 DASHBOARD_EMBED = f"![[{DASHBOARD_NAME}]]"
@@ -37,10 +38,6 @@ SECRETS_PATH = "_bastet/Secrets.md"
 def guide() -> str:
     text = (resources.files("bastet") / "data" / "guide" / "guide.md").read_text(encoding="utf-8")
     return _note({}, text)
-
-
-def summary_path(root: Path, page: str) -> Path:
-    return root / SUMMARY_DIR / f"{summary_name(page)}.md"
 
 
 def _flat(value: object) -> str:
@@ -179,22 +176,9 @@ def host_summary(
             peer = f"[[{r.peer}]] {_cell(r.peer_port)}".strip() if r.peer else "—"
             arrow = " ↑" if r.direction == "up" else ""
             body += f"| {_cell(r.port)} | {peer}{arrow} | {_cell(r.speed)} | {_cell(r.vlans)} | {_cell(r.note)} |\n"
-    note = inv.root / "_bastet" / "reports" / f"{doc.name} reports.md"
-    if note.exists():
-        try:
-            checked = (parse_document(note.read_text(encoding="utf-8"), note) or None)
-            when = checked.data.get("checked", "") if checked else ""
-        except (BastetError, OSError, UnicodeDecodeError):
-            when = ""
-        body += f"\nSecurity: [[{doc.name} reports|security report]]" + (f" (checked {when})" if when else "") + "\n"
     if roles_table:
         body += "\n" + roles_table
-    if facts_path(inv.root, doc.name).exists():
-        body += f"\nFacts: [[{doc.name} facts|gathered facts]]\n"
-    front = {"summary_of": make_link(doc.name), "warnings": list(warnings)}
-    if drift:
-        front["drift"] = drift
-    return _note(front, body)
+    return body
 
 
 def _memory_total(memory: object) -> str | None:
@@ -269,7 +253,7 @@ def hardware_summary(inv: Inventory, doc: Document) -> str:
     warning = missing_warning(inv, doc)
     if warning:
         body += f"\n> [!warning] {_cell(warning)}\n"
-    return _note({"summary_of": make_link(doc.name)}, body)
+    return body
 
 
 def _label(text: str) -> str:
@@ -468,16 +452,59 @@ def secrets_master_list(inv: Inventory, types: dict[str, HostType]) -> str:
     return "".join(rows)
 
 
-def _stored(root: Path, host: str, key: str) -> list[str]:
-    path = summary_path(root, host)
-    if not path.exists():
-        return []
-    try:
-        doc = parse_document(path.read_text(encoding="utf-8"), path)
-    except BastetError:
-        return []
-    value = doc.data.get(key) if doc else None
-    return [str(w) for w in value] if isinstance(value, list) else []
+def _migrated_warnings_drift_security(root: Path, name: str) -> tuple[list[str], list[str], str]:
+    """One-time upgrade support: recover what the retired `_bastet/summary/` and `_bastet/reports/`
+    notes held for `name`, so the first refresh after upgrading doesn't blank a host's warnings,
+    drift or security section before they've ever made it into the facts note. A no-op once those
+    notes are gone (`_retired_notes_to_delete` removes them the same refresh that reads them here)."""
+    warnings: list[str] = []
+    drift: list[str] = []
+    security = ""
+    old_summary = root / "_bastet" / "summary" / f"{name} summary.md"
+    if old_summary.exists():
+        try:
+            doc = parse_document(old_summary.read_text(encoding="utf-8"), old_summary)
+        except (BastetError, OSError, UnicodeDecodeError):
+            doc = None
+        if doc is not None:
+            warnings = [str(w) for w in (doc.data.get("warnings") or [])]
+            drift = [str(w) for w in (doc.data.get("drift") or [])]
+    old_reports = root / "_bastet" / "reports" / f"{name} reports.md"
+    if old_reports.exists():
+        try:
+            text = old_reports.read_text(encoding="utf-8")
+            doc = parse_document(text, old_reports)
+        except (BastetError, OSError, UnicodeDecodeError):
+            doc = None
+        if doc is not None and doc.body.strip():
+            security = SECURITY_MARKER + doc.body
+    return warnings, drift, security
+
+
+def _retired_notes_to_delete(root: Path) -> list[Change]:
+    """The old per-page summary notes (`generated: true`) and security reports (`security_of`), now
+    that everything they held lives in the facts note. Only Bastet's own notes are ever removed here:
+    a user's note with the same name never carries either marker."""
+    changes = []
+    summary_dir = root / "_bastet" / "summary"
+    for path in sorted(summary_dir.glob("*.md")) if summary_dir.is_dir() else []:
+        try:
+            text = path.read_text(encoding="utf-8")
+            doc = parse_document(text, path)
+        except (BastetError, OSError, UnicodeDecodeError):
+            continue
+        if doc is not None and doc.data.get("generated"):
+            changes.append(Change(path, text, None))
+    reports_dir = root / "_bastet" / "reports"
+    for path in sorted(reports_dir.glob("*.md")) if reports_dir.is_dir() else []:
+        try:
+            text = path.read_text(encoding="utf-8")
+            doc = parse_document(text, path)
+        except (BastetError, OSError, UnicodeDecodeError):
+            continue
+        if doc is not None and "security_of" in doc.data:
+            changes.append(Change(path, text, None))
+    return changes
 
 
 def generated_changes(
@@ -503,13 +530,25 @@ def generated_changes(
             changes.append(Change(path, before, text))
 
     for doc in inv.of_kind("host"):
-        current = warnings[doc.name] if doc.name in warnings else _stored(root, doc.name, "warnings")
-        current_drift = drift[doc.name] if doc.name in drift else _stored(root, doc.name, "drift")
+        existing = inv.facts.get(doc.name.lower())
+        migrated_warnings, migrated_drift, migrated_security = _migrated_warnings_drift_security(root, doc.name)
+        stored_warnings = (existing.data.get("warnings") if existing is not None else None) or migrated_warnings
+        stored_drift = (existing.data.get("drift") if existing is not None else None) or migrated_drift
+        current = warnings[doc.name] if doc.name in warnings else list(stored_warnings)
+        current_drift = drift[doc.name] if doc.name in drift else list(stored_drift)
         by_host[doc.name] = current
         drift_by_host[doc.name] = current_drift
-        want(summary_path(root, doc.name), host_summary(inv, doc, types, current, current_drift))
+        security = (split_security(existing.body)[1] if existing is not None else "") or migrated_security
+        facts = inv.facts_for(doc.name)
+        gathered = existing.data.get("gathered") if existing is not None else None
+        body = host_summary(inv, doc, types, current, current_drift) + security
+        want(facts_path(root, doc.name), render_facts(doc.name, facts, gathered, warnings=current, drift=current_drift, body=body))
     for doc in inv.of_kind("hardware"):
-        want(summary_path(root, doc.name), hardware_summary(inv, doc))
+        existing = inv.facts.get(doc.name.lower())
+        facts = inv.facts_for(doc.name)
+        gathered = existing.data.get("gathered") if existing is not None else None
+        want(hardware_facts_path(root, doc.name), render_hardware_facts(doc.name, facts, gathered, body=hardware_summary(inv, doc)))
+    changes.extend(_retired_notes_to_delete(root))
     from bastet.core.osinfo import os_id
 
     for ident in sorted({i for d in inv.of_kind("host") if (i := os_id(host_data(inv, d, types)))}):
@@ -522,30 +561,21 @@ def generated_changes(
         body = (f"Every host whose OS is {ident}, from what gather recorded. Generated by Bastet.\n\n"
                 f'Point a role file at it (`applies_to: "[[{ident}]]"`) to reach all of them.\n')
         want(path, _note({"bastet": "group", "match": {"os": ident}}, body))
-    security_dir = root / "_bastet" / "reports"
-    hosts_on_disk = {p.stem.lower() for p in markdown_files(root)}
-    for path in sorted(security_dir.glob("* reports.md")) if security_dir.is_dir() else []:
-        try:
-            text = path.read_text(encoding="utf-8")
-            note = parse_document(text, path)
-        except (BastetError, OSError, UnicodeDecodeError):
-            continue
-        target = link_target(note.data.get("security_of")) if note is not None else None
-        if target and target.lower() not in hosts_on_disk:
-            changes.append(Change(path, text, None))
-    wanted = {summary_path(root, d.name) for d in [*inv.of_kind("host"), *inv.of_kind("hardware")]}
+    wanted_facts = {facts_path(root, d.name) for d in inv.of_kind("host")} | {
+        hardware_facts_path(root, d.name) for d in inv.of_kind("hardware")
+    }
     on_disk = {p.stem.lower() for p in markdown_files(root)}  # includes notes that failed to load
-    summary_dir = root / SUMMARY_DIR
-    for path in sorted(summary_dir.glob("*.md")) if summary_dir.is_dir() else []:
-        if path in wanted:
+    facts_dir = root / FACTS_DIR
+    for path in sorted(facts_dir.glob("* facts.md")) if facts_dir.is_dir() else []:
+        if path in wanted_facts:
             continue
         try:
             text = path.read_text(encoding="utf-8")
             doc = parse_document(text, path)
         except (BastetError, OSError, UnicodeDecodeError):
             continue
-        target = link_target(doc.data.get("summary_of")) if doc is not None else None
-        if target and target.lower() not in on_disk:  # only Bastet's own summaries of notes that are really gone
+        target = link_target(doc.data.get("host") or doc.data.get("item")) if doc is not None else None
+        if target and target.lower() not in on_disk:  # only Bastet's own facts notes of notes that are really gone
             changes.append(Change(path, text, None))
     if inv.secrets:
         want(root / SECRETS_PATH, _note({}, secrets_master_list(inv, types)))

@@ -237,7 +237,7 @@ def test_changed_hostkey_stops(runner, vps):
     result = runner.invoke(app, ["run", "-g", "vps1", "-y"])
     assert "host key changed" in result.output and "--accept-new-hostkey" in result.output
     assert p.read_text() == before
-    assert facts(vps, "vps1") == ""
+    assert "gathered:" not in facts(vps, "vps1")  # refresh may still create the facts note's cards
 
 
 def test_changed_key_in_the_facts_note_is_refused_then_accepted(runner, vps, monkeypatch):
@@ -457,14 +457,14 @@ def test_guests_on_other_nodes_ignored_and_names_quoted(runner, server, monkeypa
 
 
 
-def test_gather_stores_warnings_in_summary_and_refresh_keeps_them(runner, server, monkeypatch):
+def test_gather_stores_warnings_in_facts_note_and_refresh_keeps_them(runner, server, monkeypatch):
     monkeypatch.setattr(gather_mod, "ssh_runner", lambda target: FakeRunner(
         dict(SERVER, privilege="none", dmidecode=(126, ""), smart=(126, ""), ipmi=(126, ""), pve_guests=(126, "")), "x"))
     runner.invoke(app, ["run", "-g", "pve1", "-y", "--accept-new-hostkey"])
-    summary = (server / "_bastet" / "summary" / "pve1 summary.md").read_text()
-    assert "warnings:" in summary and "root-only" in summary and "[!warning]" in summary
+    facts_text = facts(server, "pve1")
+    assert "warnings:" in facts_text and "root-only" in facts_text and "[!warning]" in facts_text
     runner.invoke(app, ["refresh"])
-    assert "root-only" in (server / "_bastet" / "summary" / "pve1 summary.md").read_text()
+    assert "root-only" in facts(server, "pve1")
     dash = (server / "_bastet" / "bastet dashboard.md").read_text()
     assert "Needs attention" in dash and "[[pve1]]" in dash
 
@@ -565,7 +565,7 @@ def test_gather_false_skipped_unless_named(runner, laptop):
     p.write_text(p.read_text().replace("type: laptop\n", "type: laptop\ngather: false\n"))
     git(laptop, "commit", "-q", "-am", "not ready")
     result = runner.invoke(app, ["run", "-g", "-y"])
-    assert "hp-13: skipped (gather: false)" in result.output and not facts(laptop, "hp-13")
+    assert "hp-13: skipped (gather: false)" in result.output and "gathered:" not in facts(laptop, "hp-13")
     runner.invoke(app, ["run", "-g", "hp-13", "-y"])
     assert "os: Arch Linux" in facts(laptop, "hp-13")
 
@@ -580,12 +580,12 @@ def test_guest_drift_reported_inline_on_page_and_dashboard_not_adopted(runner, s
     assert result.exit_code == 0, result.output
     assert "git1: drift" in result.output and "10.0.20.99/24" in result.output and "10.0.20.21/24" in result.output
     assert "ip: 10.0.20.99/24" in (server / "hosts" / "git1.md").read_text()
-    summary = (server / "_bastet" / "summary" / "git1 summary.md").read_text()
-    assert "drift:" in summary and "[!danger] Drift" in summary
+    git1_facts = facts(server, "git1")
+    assert "drift:" in git1_facts and "[!danger] Drift" in git1_facts
     dash = (server / "_bastet" / "bastet dashboard.md").read_text()
     assert "[[git1]]" in dash and "drift" in dash.lower()
     runner.invoke(app, ["refresh"])
-    assert "drift:" in (server / "_bastet" / "summary" / "git1 summary.md").read_text()
+    assert "drift:" in facts(server, "git1")
 
 
 def test_guest_drift_clears_when_they_agree_and_vmid_added(runner, server):
@@ -597,8 +597,7 @@ def test_guest_drift_clears_when_they_agree_and_vmid_added(runner, server):
     assert "git1: drift" not in result.output
     assert "vmid: 104" in facts(server, "git1")
     assert "vmid" not in p.read_text()
-    summary = (server / "_bastet" / "summary" / "git1 summary.md").read_text()
-    assert "[!danger]" not in summary
+    assert "[!danger]" not in facts(server, "git1")
 
 
 def test_guest_on_another_node_is_drift(runner, server):

@@ -17,7 +17,7 @@ from bastet.core.inventory import Inventory, markdown_files
 from bastet.core.links import link_target, make_link
 from bastet.core.shell import ProbeResult
 from bastet.core.units import format_size
-from bastet.core.views import summary_embed
+from bastet.core.views import facts_embed
 
 DRIVE_TRANSPORTS = {"sata", "sas", "nvme", "ata", "scsi"}
 CARD_CLASSES = {"0300": "gpu", "0302": "gpu", "0380": "gpu", "0100": "hba", "0104": "hba", "0107": "hba", "0200": "nic"}
@@ -451,7 +451,7 @@ def plan_hardware(
                 name, n = f"{obs.name} {n}", n + 1
             run.names.add(name.lower())
             run.seen.add(name.lower())
-            body = f"# {name}\n\n{summary_embed(name)}\n"
+            body = f"# {name}\n\n{facts_embed(name)}\n"
             your_data: dict[str, object] = {
                 "bastet": "hardware", "category": obs.data.get("category", "machine"), "cssclasses": ["bastet-host"]
             }

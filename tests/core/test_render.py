@@ -4,14 +4,12 @@ from pathlib import Path
 import pytest
 
 from bastet.core.changes import write_changes
-from bastet.core.factsnote import facts_path, hardware_facts_path, render_facts, render_hardware_facts
+from bastet.core.factsnote import SECURITY_MARKER, facts_path, hardware_facts_path, render_facts, render_hardware_facts
 from bastet.core.frontmatter import parse_document
 from bastet.core.gitrepo import GitRepo
 from bastet.core.hosttypes import load_host_types
 from bastet.core.inventory import load_inventory
-from bastet.core.render import (
-    DASHBOARD_PATH, dashboard, generated_changes, hardware_summary, host_summary, short_cpu, summary_path,
-)
+from bastet.core.render import DASHBOARD_PATH, dashboard, generated_changes, hardware_summary, host_summary, short_cpu
 
 TYPES = load_host_types()
 
@@ -67,9 +65,9 @@ def write_facts(root: Path, host: str, facts: dict) -> None:
 def add_facts(root: Path, host: str, extra: dict) -> None:
     """Merge `extra` into a host's existing facts note (for tests exercising one more fact key)."""
     current = parse_document(facts_path(root, host).read_text(), facts_path(root, host))
-    from bastet.core.factsnote import META_KEYS
+    from bastet.core.factsnote import META_KEYS, NOTE_KEYS
 
-    facts = {k: v for k, v in current.data.items() if k not in META_KEYS}
+    facts = {k: v for k, v in current.data.items() if k not in META_KEYS and k not in NOTE_KEYS}
     write_facts(root, host, {**facts, **extra})
 
 
@@ -129,8 +127,6 @@ def test_short_cpu():
 def test_host_summary_cards_and_warnings(repo):
     i = inv(repo)
     text = host_summary(i, i.get("pve1"), TYPES, ["ram: file says 128 GB, observed 64 GB"])
-    doc = parse_document(text, Path("x.md"))
-    assert doc.data["generated"] is True and doc.data["warnings"] == ["ram: file says 128 GB, observed 64 GB"]
     for card in ("[!stat] OS", "[!stat] CPU", "[!stat] RAM", "[!stat] Storage", "[!stat] Network",
                  "[!stat] Machine", "[!stat] Out-of-band", "[!stat] Guests"):
         assert card in text, card
@@ -201,12 +197,12 @@ def test_dashboard(repo):
 def test_generated_changes_idempotent_and_keep_warnings(repo):
     first = generated_changes(inv(repo), TYPES, repo, warnings={"pve1": ["ram mismatch"]})
     paths = {c.path for c in first}
-    assert summary_path(repo.root, "pve1") in paths and repo.root / DASHBOARD_PATH in paths
-    assert summary_path(repo.root, "Spare WD") in paths
+    assert facts_path(repo.root, "pve1") in paths and repo.root / DASHBOARD_PATH in paths
+    assert hardware_facts_path(repo.root, "Spare WD") in paths
     write_changes(first)
     repo.commit([c.path for c in first], "refresh: views")
     assert generated_changes(inv(repo), TYPES, repo) == []
-    kept = parse_document(summary_path(repo.root, "pve1").read_text(), Path("x"))
+    kept = parse_document(facts_path(repo.root, "pve1").read_text(), Path("x"))
     assert kept.data["warnings"] == ["ram mismatch"]
 
 
@@ -300,12 +296,12 @@ def test_new_category_summaries_and_cards(repo):
     assert "[!stat] Bridges" in host and "vmbr0" in host
 
 
-def test_summary_of_deleted_host_is_removed(repo):
+def test_facts_note_of_deleted_host_is_removed(repo):
     write_changes(generated_changes(inv(repo), TYPES, repo))
-    stale = summary_path(repo.root, "git1")
+    stale = facts_path(repo.root, "git1")
     assert stale.exists()
     (repo.root / "hosts" / "git1.md").unlink()
-    (repo.root / "_bastet" / "summary" / "notes.md").write_text("my own note\n")
+    (repo.root / "_bastet" / "facts" / "notes.md").write_text("my own note\n")
     changes = generated_changes(inv(repo), TYPES, repo)
     gone = [c for c in changes if c.after is None]
     assert [c.path for c in gone] == [stale]
@@ -325,7 +321,7 @@ def test_maps_are_generated(repo):
     assert "_bastet/maps/Cabling.md" in paths
 
 
-def test_broken_host_file_keeps_its_summary(repo):
+def test_broken_host_file_keeps_its_facts_note(repo):
     write_changes(generated_changes(inv(repo), TYPES, repo))
     git1 = repo.root / "hosts" / "git1.md"
     git1.write_text(git1.read_text().replace("ip: 10.0.20.21\n", "ip: 10.0.20.21\nnotes: [unclosed\n"))
@@ -383,34 +379,74 @@ def test_where_map_runs_top_down(repo):
     assert "flowchart TB" in where_map(inv(repo))
 
 
-def test_summary_links_security_note_and_deleted_hosts_lose_theirs(repo):
-    sec = repo.root / "_bastet" / "reports"
-    sec.mkdir(parents=True)
-    (sec / "pve1 reports.md").write_text('---\nsecurity_of: "[[pve1]]"\nchecked: 2026-10-02 10:00\n---\n## Lynis\n')
-    (sec / "gone reports.md").write_text('---\nsecurity_of: "[[gone]]"\nchecked: x\n---\n')
-    text = host_summary(inv(repo), inv(repo).get("pve1"), TYPES, [])
-    assert "[[pve1 reports|security report]]" in text and "2026-10-02 10:00" in text
-    removed = [c.path.name for c in generated_changes(inv(repo), TYPES, repo) if c.after is None]
-    assert "gone reports.md" in removed and "pve1 reports.md" not in removed
+def test_security_section_survives_a_refresh(repo):
+    path = facts_path(repo.root, "pve1")
+    text = path.read_text()
+    path.write_text(text.rstrip("\n") + "\n" + SECURITY_MARKER + "\n## Lynis\n\nHardening index **59**.\n")
+    changes = {c.path: c for c in generated_changes(inv(repo), TYPES, repo)}
+    assert "Hardening index **59**" in changes[path].after
+    assert "[!stat] OS" in changes[path].after  # sections 1-3 still rebuilt around it
 
 
-def test_summary_ends_with_facts_link(repo):
-    text = host_summary(inv(repo), inv(repo).get("pve1"), TYPES, [])
-    assert text.rstrip("\n").endswith("Facts: [[pve1 facts|gathered facts]]")
-
-
-def test_summary_has_no_facts_link_for_a_never_gathered_host(repo):
-    """A host added but never gathered has no facts note yet -- an unresolved `Facts:` link would make
-    Obsidian create `<host> facts.md` the moment anyone clicks it, pre-empting the one gather writes."""
+def test_a_never_gathered_host_still_gets_a_facts_note_with_cards(repo):
+    """So `![[new facts]]` on a freshly added page isn't a dangling embed, and a hand-typed spare's
+    cards show up even though nothing has gathered it yet."""
     p = repo.root / "hosts" / "new.md"
     p.write_text('---\nbastet: host\ntype: server\nip: 10.0.10.50\n---\n# new\n')
     subprocess.run(["git", "-C", str(repo.root), "add", "."], check=True)
     repo.commit([p], "add new", as_bastet=True)
-    text = host_summary(inv(repo), inv(repo).get("new"), TYPES, [])
-    assert "Facts:" not in text
+    changes = {c.path: c for c in generated_changes(inv(repo), TYPES, repo)}
+    new_facts = facts_path(repo.root, "new")
+    assert new_facts in changes
+    doc = parse_document(changes[new_facts].after, new_facts)
+    assert "gathered" not in doc.data
+    assert "[!stat] Network" in doc.body
 
 
 def test_roles_index_generated_and_linked(repo):
     changes = {c.path.relative_to(repo.root).as_posix(): c for c in generated_changes(inv(repo), TYPES, repo)}
     assert "_bastet/Roles.md" in changes and "| Role | What it does | Used by |" in changes["_bastet/Roles.md"].after
     assert "[[_bastet/Roles|" in dashboard(inv(repo), TYPES, {}, [])
+
+
+def test_retired_paths_confined_to_the_migration_helpers():
+    """`_bastet/summary/` and `_bastet/reports/` are retired -- the only code in `src/` that still
+    names them is the one-time upgrade migration in render.py, not any writer."""
+    import re
+
+    pattern = re.compile(r'_bastet/summary|_bastet/reports|"summary"|"reports"')
+    src = Path(__file__).resolve().parents[2] / "src"
+    hits: dict[Path, list[int]] = {}
+    for path in src.rglob("*.py"):
+        for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+            if pattern.search(line):
+                hits.setdefault(path, []).append(n)
+    render_py = Path(__file__).resolve().parents[1].parent / "src" / "bastet" / "core" / "render.py"
+    assert set(hits) <= {render_py}, hits
+    text = render_py.read_text(encoding="utf-8")
+    start = text.index("def _migrated_warnings_drift_security")
+    end = text.index("def generated_changes")
+    allowed_lines = set(range(text[:start].count("\n") + 1, text[:end].count("\n") + 1))
+    assert set(hits.get(render_py, [])) <= allowed_lines
+
+
+def test_old_summary_and_reports_notes_deleted_only_when_generated(repo):
+    summary_dir = repo.root / "_bastet" / "summary"
+    summary_dir.mkdir(parents=True)
+    (summary_dir / "pve1 summary.md").write_text(
+        '---\ngenerated: true\nsummary_of: "[[pve1]]"\nwarnings:\n  - "old warning"\n---\n> [!grid]\n'
+    )
+    (summary_dir / "notes.md").write_text("my own note, not Bastet's\n")  # no `generated:` key
+    reports_dir = repo.root / "_bastet" / "reports"
+    reports_dir.mkdir(parents=True)
+    (reports_dir / "pve1 reports.md").write_text('---\nsecurity_of: "[[pve1]]"\nchecked: 2026-10-02 10:00\n---\n## Lynis\n\nold report\n')
+    changes = {c.path: c for c in generated_changes(inv(repo), TYPES, repo)}
+    removed = {path for path, c in changes.items() if c.after is None}
+    assert summary_dir / "pve1 summary.md" in removed
+    assert reports_dir / "pve1 reports.md" in removed
+    assert summary_dir / "notes.md" not in removed
+    # and what they held made it into the facts note before they were deleted
+    pve1_facts = changes[facts_path(repo.root, "pve1")].after
+    doc = parse_document(pve1_facts, facts_path(repo.root, "pve1"))
+    assert doc.data["warnings"] == ["old warning"]
+    assert "old report" in pve1_facts

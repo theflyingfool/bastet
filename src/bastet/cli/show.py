@@ -58,7 +58,7 @@ def _show_one(inv: Inventory, root: Path, name: str) -> None:
         path = facts_path(inv.root, doc.name)
         rel = path.relative_to(inv.root)
         facts_doc = inv.facts.get(doc.name.lower())
-        if facts_doc is None:
+        if facts_doc is None or not facts_doc.data.get("gathered"):
             typer.echo(f"\nGathered facts ({rel}): not gathered yet")
         else:
             typer.echo(f"\nGathered facts ({rel}):")

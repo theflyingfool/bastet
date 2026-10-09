@@ -87,7 +87,7 @@ def test_collect_runs_serially_with_dash_j_1(runner, three_hosts, monkeypatch):
     assert result.exit_code == 0, result.output
     assert result.output.count("unexpected error") == 3
     for name in ("h1", "h2", "h3"):
-        assert facts(three_hosts, name) == ""
+        assert "gathered:" not in facts(three_hosts, name)
         assert "os:" not in (three_hosts / "hosts" / f"{name}.md").read_text()
 
 
@@ -189,7 +189,7 @@ def test_one_host_unexpected_error_does_not_stop_others(runner, three_hosts, mon
     result = runner.invoke(app, ["run", "-g", "h1", "h2", "h3", "-y"])
     assert result.exit_code == 0, result.output
     assert "unexpected error: ValueError: disk on fire" in result.output
-    assert facts(three_hosts, "h1") == ""
+    assert "gathered:" not in facts(three_hosts, "h1")
     assert "os: Arch Linux" in facts(three_hosts, "h2")
     assert "os: Arch Linux" in facts(three_hosts, "h3")
 

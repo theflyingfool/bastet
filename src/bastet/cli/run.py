@@ -28,7 +28,7 @@ from bastet.core.secrets import health as secret_health
 from bastet.cli.gather import _resolve_address, _scan_pinned, scan_keys, ssh_runner
 from bastet.core import hostkeys
 from bastet.core.errors import BastetError
-from bastet.core.frontmatter import Document
+from bastet.core.frontmatter import Document, new_document, parse_document
 from bastet.core.hostview import host_data
 from bastet.core.links import link_target
 from bastet.core.parallel import HostFailed, HostLog, Outcome, break_cycles, run_parallel, stopping
@@ -38,7 +38,8 @@ from bastet.cli.reboot import RebootPlan, perform_reboot, reboot_decision
 from bastet.engine.packages import Reboot
 from bastet.core.changes import Change, write_changes
 from bastet.core.secrets.redact import ACTIVE
-from bastet.core.security_note import security_items, security_note, security_path
+from bastet.core.factsnote import facts_path, split_security
+from bastet.core.security_note import security_items, security_section
 from bastet.engine.report import render_host
 from bastet.engine.script import exec_script, new_mark
 from bastet.engine.security import LYNIS_AUDIT, LynisReport
@@ -89,19 +90,35 @@ AUDIT_TIMEOUT = 600
 
 
 def _write_security_note(ctx: Context, doc: Document, items) -> bool:
-    """Write the host's security note from this run's reports (a Bastet-owned file: no confirmation)."""
+    """Rewrite the security section of the host's facts note from this run's reports (a Bastet-owned
+    section: no confirmation). The frontmatter and the rest of the body -- someone else's -- are
+    carried over untouched."""
+    from bastet.core.links import make_link
+
     if not security_items(items) or not ctx.repo.is_repo():
         return False
     try:
         if ctx.repo.busy():
             typer.secho(f"{doc.name}: security note not written: a git merge or rebase is in progress", fg="yellow")
             return False
-        path = security_path(ctx.root, doc.name)
-        text = security_note(doc.name, items, dt.datetime.now().strftime("%Y-%m-%d %H:%M"))
+        path = facts_path(ctx.root, doc.name)
         before = path.read_text(encoding="utf-8") if path.exists() else None
-        if before is not None and _without_checked(before) == _without_checked(text):
+        try:
+            existing = parse_document(before, path) if before is not None else None
+        except BastetError:
+            existing = None
+        frontmatter = existing.data if existing is not None else {
+            "bastet": "facts", "host": make_link(doc.name), "cssclasses": ["bastet-facts"],
+        }
+        main_body = split_security(existing.body)[0] if existing is not None else ""
+        old_section = split_security(existing.body)[1] if existing is not None else ""
+        new_section = security_section(items, dt.datetime.now().strftime("%Y-%m-%d %H:%M"))
+        if _without_checked(old_section) == _without_checked(new_section):
             return False  # nothing new but the time: no commit on every check
-        write_changes([Change(path, before, text)])
+        after = new_document(frontmatter, main_body + new_section)
+        if before == after:
+            return False
+        write_changes([Change(path, before, after)])
         return ctx.repo.commit([path], ctx.secrets.redactor.mask(f"refresh: security note {doc.name}"))
     except Exception as exc:  # a note must never stop a check or an apply
         typer.secho(ctx.secrets.redactor.mask(f"{doc.name}: security note not written: {exc.__class__.__name__}: {exc}"),
@@ -110,7 +127,7 @@ def _write_security_note(ctx: Context, doc: Document, items) -> bool:
 
 
 def _without_checked(text: str) -> str:
-    return "\n".join(line for line in text.splitlines() if not line.startswith("checked:"))
+    return "\n".join(line for line in text.splitlines() if not line.startswith("Security, refreshed by"))
 
 
 def run_audit(runner, doc: Document) -> str | None:
