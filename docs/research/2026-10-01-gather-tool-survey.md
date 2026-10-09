@@ -92,7 +92,7 @@ Things **neither** collects that a good hardware inventory needs:
 
 `hostnamectl` reports `Chassis` (systemd's classification from DMI and virtualization detection), with the fallback `/sys/class/dmi/id/chassis_type` (an SMBIOS number). Bastet maps it in this order; the first match wins:
 
-1. `pveversion` present → `proxmox-node`.
+1. `pveversion` present → `proxmox`.
 2. Chassis `container` → `lxc`.
 3. Chassis `vm` → `vps` if the DMI vendor or product names a VPS provider (e.g. "Linode", "Akamai", "DigitalOcean", "Hetzner"); otherwise `vm`.
 4. Chassis `laptop`, `convertible`, `tablet` (SMBIOS 8–10, 14, 30–32) → `laptop`.

@@ -20,7 +20,7 @@ def lab(tmp_path):
         "hosts/uxg.md": "---\nbastet: host\ntype: unifi-gateway\nip: 10.10.0.1\n---\n",
         "hosts/ap.md": "---\nbastet: host\ntype: unifi-ap\nip: 10.10.0.3\n---\n",
         "hosts/sw.md": "---\nbastet: host\ntype: unifi-switch\nip: 10.10.0.5\n---\n",
-        "hosts/pve3.md": "---\nbastet: host\ntype: proxmox-node\nip: 10.10.0.15\n---\n",
+        "hosts/pve3.md": "---\nbastet: host\ntype: proxmox\nip: 10.10.0.15\n---\n",
         "hosts/vm1.md": '---\nbastet: host\ntype: vm\nruns_on: "[[pve3]]"\nip: 10.10.0.60\n---\n',
     }
     for rel, text in files.items():
@@ -111,7 +111,7 @@ def test_port_rows_both_directions(tmp_path):
     ]})
     (tmp_path / "hosts" / "nas.md").write_text(
         '---\nbastet: host\ntype: server\nlinks:\n  - {port: eno1, to: "[[sw]]", to_port: "2", speed: 1G, vlans: [20]}\n---\n# nas\n')
-    (tmp_path / "hosts" / "pve.md").write_text("---\nbastet: host\ntype: proxmox-node\n---\n# pve\n")
+    (tmp_path / "hosts" / "pve.md").write_text("---\nbastet: host\ntype: proxmox\n---\n# pve\n")
     (tmp_path / "hardware" / "X540.md").write_text(
         '---\nbastet: hardware\ncategory: nic\ninstalled_in: "[[pve]]"\n'
         'links:\n  - {port: enp1s0f0, to: "[[sw]]", to_port: "1", note: storage}\n---\n# X540\n')

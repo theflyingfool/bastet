@@ -99,7 +99,7 @@ def test_prompts_all_asked_on_main_thread(runner, inventory, secret_keys, monkey
     )
     add_host(
         inventory, "tools",
-        f"---\nbastet: host\ntype: proxmox-node\nip: 203.0.113.23\nssh_host_key: {HOST_KEY}\n---\n# tools\n",
+        f"---\nbastet: host\ntype: proxmox\nip: 203.0.113.23\nssh_host_key: {HOST_KEY}\n---\n# tools\n",
     )
     monkeypatch.setattr(gather_mod, "scan_keys", lambda address, recorded=None, port=22: KEYS)
 

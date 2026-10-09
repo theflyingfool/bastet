@@ -1,4 +1,4 @@
-name: proxmox-node
+name: proxmox
 description: Proxmox VE node on physical hardware
 physical: true
 minimal: [ip]

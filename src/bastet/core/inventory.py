@@ -132,7 +132,10 @@ def _check_host(inv: Inventory, doc: Document, types: dict[str, HostType], ips: 
         _add(inv, "error", "missing 'type'", doc, "bastet")
     elif type_name not in types:
         known = ", ".join(sorted(types))
-        _add(inv, "error", f"unknown host type '{type_name}' (known: {known})", doc, "type")
+        if type_name == "proxmox-node":
+            _add(inv, "error", f"unknown type '{type_name}' (renamed to proxmox)", doc, "type")
+        else:
+            _add(inv, "error", f"unknown host type '{type_name}' (known: {known})", doc, "type")
     else:
         for name in types[type_name].minimal:
             if doc.data.get(name) in (None, ""):
@@ -210,6 +213,11 @@ def load_inventory(root: Path, types: dict[str, HostType]) -> Inventory:
     labs = inv.of_kind("lab")
     for extra in labs[1:]:
         _add(inv, "error", f"more than one lab file (also {labs[0].path})", extra)
+
+    # Check that group names don't conflict with type names (type groups are automatic)
+    for doc in inv.of_kind("group"):
+        if doc.name in types:
+            _add(inv, "error", f"'{doc.name}' is a host type; type groups are automatic, so rename this group", doc)
 
     # Index facts notes before checking hosts, so a host's stale-fact-key check below can see what its
     # facts note already holds. The canonical note for a host is the one at `facts_path`; anything else

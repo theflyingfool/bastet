@@ -27,7 +27,7 @@ def inventory(tmp_path, monkeypatch) -> Path:
         "---\nbastet: lab\nnetworks:\n  servers:\n    cidr: 10.0.20.0/24\n    reserved: .1-.9\n---\n# Homelab\n"
     )
     (root / "hosts").mkdir()
-    (root / "hosts" / "pve1.md").write_text("---\nbastet: host\ntype: proxmox-node\nip: 10.0.10.11\n---\n# pve1\n")
+    (root / "hosts" / "pve1.md").write_text("---\nbastet: host\ntype: proxmox\nip: 10.0.10.11\n---\n# pve1\n")
     git(root, "add", ".")
     git(root, "commit", "-q", "-m", "seed")
     cfg = tmp_path / "bastet.yml"

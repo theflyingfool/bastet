@@ -37,7 +37,7 @@ def test_add_host_error_is_clean(runner, inventory):
 
 
 def test_add_host_commits_pending_edits_as_user(runner, inventory):
-    (inventory / "hosts" / "pve1.md").write_text("---\nbastet: host\ntype: proxmox-node\nip: 10.0.10.11\nnote: mine\n---\n")
+    (inventory / "hosts" / "pve1.md").write_text("---\nbastet: host\ntype: proxmox\nip: 10.0.10.11\nnote: mine\n---\n")
     result = runner.invoke(app, ["add", "host", "edge1", "--type", "vps", "--provider", "linode", "--ip", "203.0.113.10"], input="y\ny\n")
     assert result.exit_code == 0, result.output
     assert "hosts/pve1.md" in result.output
@@ -65,7 +65,7 @@ def test_unreachable_remote_warns_and_continues(runner, inventory, tmp_path):
 
 def test_pending_personal_notes_left_alone(runner, inventory):
     (inventory / "journal.md").write_text("# personal\n")
-    (inventory / "hosts" / "pve1.md").write_text("---\nbastet: host\ntype: proxmox-node\nip: 10.0.10.11\nnote: mine\n---\n")
+    (inventory / "hosts" / "pve1.md").write_text("---\nbastet: host\ntype: proxmox\nip: 10.0.10.11\nnote: mine\n---\n")
     result = runner.invoke(app, ["add", "host", "edge1", "--type", "vps", "--provider", "linode", "--ip", "203.0.113.10", "-y"])
     assert result.exit_code == 0, result.output
     status = subprocess.run(["git", "-C", str(inventory), "status", "--porcelain"], capture_output=True, text=True).stdout

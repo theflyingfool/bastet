@@ -126,7 +126,7 @@ def _bare_with_commit(tmp_path):
     seed = tmp_path / "seed"
     subprocess.run(["git", "clone", "-q", str(bare), str(seed)], check=True, capture_output=True)
     (seed / "hosts").mkdir()
-    (seed / "hosts" / "pve1.md").write_text("---\nbastet: host\ntype: proxmox-node\nip: 10.0.10.11\n---\n")
+    (seed / "hosts" / "pve1.md").write_text("---\nbastet: host\ntype: proxmox\nip: 10.0.10.11\n---\n")
     for args in (["add", "."], ["-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-q", "-m", "seed"], ["push", "-q"]):
         subprocess.run(["git", "-C", str(seed), *args], check=True, capture_output=True)
     return bare

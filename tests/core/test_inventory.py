@@ -14,7 +14,7 @@ def put(root: Path, rel: str, text: str) -> Path:
 
 
 def host(name: str, extra: str = "") -> str:
-    return f"---\nbastet: host\ntype: proxmox-node\nip: 10.0.10.{len(name)}\n{extra}---\n# {name}\n"
+    return f"---\nbastet: host\ntype: proxmox\nip: 10.0.10.{len(name)}\n{extra}---\n# {name}\n"
 
 
 def test_loads_kinds_and_ignores_other_notes(tmp_path):
@@ -262,3 +262,20 @@ def test_secret_notes_are_collected_separately(tmp_path):
     assert inv.problems == []
     assert len(inv.secrets) == 2
     assert "admin_password" not in inv.objects
+
+
+def test_old_proxmox_node_type_name_gives_helpful_error(tmp_path):
+    put(tmp_path, "hosts/pve1.md", "---\nbastet: host\ntype: proxmox-node\nip: 10.0.10.11\n---\n# pve1\n")
+    inv = load_inventory(tmp_path, TYPES)
+    [error] = inv.errors
+    assert "proxmox-node" in error.error.message
+    assert "renamed to proxmox" in error.error.message
+
+
+def test_group_named_after_type_is_reserved_name_error(tmp_path):
+    put(tmp_path, "groups/proxmox.md", "---\nbastet: group\n---\n# proxmox\n")
+    inv = load_inventory(tmp_path, TYPES)
+    [error] = inv.errors
+    assert "proxmox" in error.error.message
+    assert "host type" in error.error.message
+    assert "rename this group" in error.error.message

@@ -32,7 +32,7 @@ def test_type_proposals():
     assert propose_type(ex(LAPTOP)) == "laptop"
     assert propose_type(ex(VPS)) == "vps"
     pve = dict(VPS, pveversion="pve-manager/9.0.6", hostnamectl=(1, ""), chassis_type="17", virt=(1, "none"))
-    assert propose_type(ex(pve)) == "proxmox-node"
+    assert propose_type(ex(pve)) == "proxmox"
     lxc = dict(VPS, hostnamectl=(1, ""), virt="lxc")
     assert propose_type(ex(lxc)) == "lxc"
     vm = dict(VPS, hostnamectl=(1, ""), virt="kvm", sys_vendor="QEMU", product_name="Standard PC")

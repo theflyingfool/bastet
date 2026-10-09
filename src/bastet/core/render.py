@@ -156,7 +156,7 @@ def host_summary(
         names = [str(b.get("name")) for b in bridges if isinstance(b, dict)]
         cards.append(_card("Bridges", len(names), ", ".join(names)))
     guests = _guests(inv, doc.name)
-    if guests or (host_type and host_type.name == "proxmox-node"):
+    if guests or (host_type and host_type.name == "proxmox"):
         cards.append(_card("Guests", len(guests), ", ".join(f"[[{g.name}]]" for g in guests) or None))
     card, roles_table = _roles(inv, doc, types)
     if card is not None:

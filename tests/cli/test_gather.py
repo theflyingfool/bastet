@@ -391,7 +391,7 @@ def test_gather_server_creates_hardware_files(runner, server):
     assert result.exit_code == 0, result.output
     hw = sorted(p.name for p in (server / "hardware").glob("*.md"))
     assert "Supermicro SYS-5019C-MR S123456X.md" in hw and len(hw) == 10
-    assert (server / "hosts" / "pve1.md").read_text() == "---\nbastet: host\ntype: proxmox-node\nip: 10.0.10.11\n---\n# pve1\n"
+    assert (server / "hosts" / "pve1.md").read_text() == "---\nbastet: host\ntype: proxmox\nip: 10.0.10.11\n---\n# pve1\n"
     assert "pools:\n  - name: tank\n    state: ONLINE\n" in facts(server, "pve1")
     assert "git1" in result.output and "media" in result.output and "aren't in the inventory" in result.output
     files = git(server, "log", "-1", "--name-only", "--format=", "--grep=^gather").splitlines()
@@ -521,7 +521,7 @@ class InstallingRunner:
 
 
 def _rack_host(inventory):
-    add_host(inventory, "pve3", "---\nbastet: host\ntype: proxmox-node\nip: 10.0.10.12\n---\n# pve3\n")
+    add_host(inventory, "pve3", "---\nbastet: host\ntype: proxmox\nip: 10.0.10.12\n---\n# pve3\n")
 
 
 def test_missing_tools_installed_when_confirmed_and_recorded(runner, inventory, monkeypatch):
@@ -547,7 +547,7 @@ def test_tools_not_installed_with_yes_by_default_or_when_host_opts_out(runner, i
     runner.invoke(app, ["run", "-g", "pve3", "-y", "--accept-new-hostkey"])
     assert fake.installs == []
     p = inventory / "hosts" / "pve3.md"
-    p.write_text(p.read_text().replace("type: proxmox-node\n", "type: proxmox-node\ninstall_tools: false\n"))
+    p.write_text(p.read_text().replace("type: proxmox\n", "type: proxmox\ninstall_tools: false\n"))
     git(inventory, "commit", "-q", "-am", "no tools here")
     runner.invoke(app, ["run", "-g", "pve3"], input="y\n")
     assert fake.installs == []

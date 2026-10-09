@@ -18,7 +18,7 @@ def test_show_writes_and_commits_nothing(runner, inventory):
 def test_show_lists_hosts(runner, inventory):
     result = runner.invoke(app, ["show"])
     assert result.exit_code == 0, result.output
-    assert "pve1" in result.output and "proxmox-node" in result.output and "10.0.10.11" in result.output
+    assert "pve1" in result.output and "proxmox" in result.output and "10.0.10.11" in result.output
 
 
 def test_show_problems_exit_1(runner, inventory):
@@ -30,7 +30,7 @@ def test_show_problems_exit_1(runner, inventory):
 
 def test_show_stale_fact_keys_warning(runner, inventory):
     (inventory / "hosts" / "pve1.md").write_text(
-        "---\nbastet: host\ntype: proxmox-node\nip: 10.0.10.11\nos: Debian 12\n---\n# pve1\n"
+        "---\nbastet: host\ntype: proxmox\nip: 10.0.10.11\nos: Debian 12\n---\n# pve1\n"
     )
     result = runner.invoke(app, ["show"])
     assert result.exit_code == 0, result.output
@@ -43,7 +43,7 @@ def test_show_lists_os_from_facts(runner, inventory):
     from bastet.core.factsnote import facts_path, render_facts
 
     (inventory / "hosts" / "pve1.md").write_text(
-        "---\nbastet: host\ntype: proxmox-node\nip: 10.0.10.11\nos: Debian 12\n---\n# pve1\n"
+        "---\nbastet: host\ntype: proxmox\nip: 10.0.10.11\nos: Debian 12\n---\n# pve1\n"
     )
     facts_path(inventory, "pve1").parent.mkdir(parents=True, exist_ok=True)
     facts_path(inventory, "pve1").write_text(render_facts("pve1", {"os": "Debian 13"}, "2026-10-06T10:00:00Z"))
@@ -74,7 +74,7 @@ def test_show_one_hints_stale_fact_keys(runner, inventory):
     from bastet.core.factsnote import facts_path, render_facts
 
     (inventory / "hosts" / "pve1.md").write_text(
-        "---\nbastet: host\ntype: proxmox-node\nip: 10.0.10.11\nos: Debian 12\n---\n# pve1\n"
+        "---\nbastet: host\ntype: proxmox\nip: 10.0.10.11\nos: Debian 12\n---\n# pve1\n"
     )
     facts_path(inventory, "pve1").parent.mkdir(parents=True, exist_ok=True)
     facts_path(inventory, "pve1").write_text(render_facts("pve1", {"os": "Debian 13"}, "2026-10-06T10:00:00Z"))
@@ -90,7 +90,7 @@ def test_show_one_with_links(runner, inventory):
     )
     result = runner.invoke(app, ["show", "PVE1"])
     assert result.exit_code == 0, result.output
-    assert "type: proxmox-node" in result.output
+    assert "type: proxmox" in result.output
     assert "d1 (installed_in)" in result.output
 
 

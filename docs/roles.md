@@ -345,7 +345,7 @@ clean_method:
 
 ## proxmox
 
-A Proxmox VE node's own setup: the PVE and Debian repositories, the subscription notice, Proxmox tools. Every proxmox-node gets it from its type.
+A Proxmox VE node's own setup: the PVE and Debian repositories, the subscription notice, Proxmox tools. Every proxmox gets it from its type.
 
 ### Examples
 

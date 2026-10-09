@@ -13,7 +13,7 @@ FILES = {
     "Homelab.md": "---\nbastet: lab\n---\n# Homelab\n",
     "groups/laptops.md": "---\nbastet: group\n---\n# laptops\n",
     "hosts/hp-13.md": '---\nbastet: host\ntype: laptop\nconnection: local\ngroups:\n  - "[[laptops]]"\n---\n# hp-13\n',
-    "hosts/pve1.md": "---\nbastet: host\ntype: proxmox-node\nip: 10.0.10.11\n---\n# pve1\n",
+    "hosts/pve1.md": "---\nbastet: host\ntype: proxmox\nip: 10.0.10.11\n---\n# pve1\n",
     "_roles/lab/systemd.md": '---\nbastet: role\nrole: systemd\napplies_to: "[[Homelab]]"\ntimezone: UTC\nntp_service: timesyncd\n---\n',
     "_roles/hosts/hp-13/systemd.md": '---\nbastet: role\nrole: systemd\napplies_to: "[[hp-13]]"\ntimezone: America/Chicago\n---\n',
     "_roles/groups/laptops/packages.md": '---\nbastet: role\nrole: packages\napplies_to: "[[laptops]]"\ninstall:\n  - git\n  - name: jq\n    version: "1.7"\n---\n',
@@ -50,7 +50,7 @@ def test_table_shows_winner_origin_merged_lists_and_defaults(tmp_path):
 def test_type_roles_show_and_summary_embeds_table(tmp_path):
     inv = lab(tmp_path)
     summary = host_summary(inv, inv.get("pve1"), TYPES, [])
-    assert "| [[systemd role\\|systemd]] | ntp_service | chrony | type proxmox-node |" in summary
+    assert "| [[systemd role\\|systemd]] | ntp_service | chrony | type proxmox |" in summary
     assert summary.index("[!grid]") < summary.index("Resolved roles")
 
 

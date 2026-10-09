@@ -12,12 +12,12 @@ def results(outputs):
 
 def test_physical_host_missing_tools():
     r = results(dict(SERVER, dmidecode=(127, ""), lspci=(127, ""), smart=(127, "")))
-    assert needed_tools(r, TYPES["proxmox-node"]) == ["dmidecode", "pciutils", "smartmontools"]
+    assert needed_tools(r, TYPES["proxmox"]) == ["dmidecode", "pciutils", "smartmontools"]
 
 
 def test_ipmitool_only_when_board_has_a_bmc():
-    assert needed_tools(results(RACK), TYPES["proxmox-node"]) == ["ipmitool"]
-    assert needed_tools(results(dict(SERVER, ipmi=(127, ""))), TYPES["proxmox-node"]) == []
+    assert needed_tools(results(RACK), TYPES["proxmox"]) == ["ipmitool"]
+    assert needed_tools(results(dict(SERVER, ipmi=(127, ""))), TYPES["proxmox"]) == []
 
 
 def test_virtual_hosts_get_nothing_extra():
@@ -28,7 +28,7 @@ def test_required_tools_on_any_host_and_denied_is_unknown():
     r = results(dict(VPS, ip_addr=(127, ""), lscpu=(127, "")))
     assert needed_tools(r, TYPES["vps"]) == ["iproute2", "util-linux"]
     denied = results(dict(SERVER, dmidecode=(126, ""), smart=(126, "")))
-    assert needed_tools(denied, TYPES["proxmox-node"]) == []
+    assert needed_tools(denied, TYPES["proxmox"]) == []
 
 
 def test_smartmontools_only_with_real_drives():
@@ -50,14 +50,14 @@ def test_bmc_detected_by_bmc_graphics_or_ipmi_device():
     import json
     from gather_fixtures import RACK
     no_smbios = RACK["dmidecode"].split("Handle 0x0031")[0]
-    assert needed_tools(results(dict(RACK, dmidecode=no_smbios)), TYPES["proxmox-node"]) == ["ipmitool"]
+    assert needed_tools(results(dict(RACK, dmidecode=no_smbios)), TYPES["proxmox"]) == ["ipmitool"]
     plain = dict(RACK, dmidecode=no_smbios, lspci=RACK["lspci"].replace("ASPEED Technology, Inc. [1a03]", "Intel Corporation [8086]"))
-    assert needed_tools(results(plain), TYPES["proxmox-node"]) == []
-    assert needed_tools(results(dict(plain, ipmi_dev="/dev/ipmi0")), TYPES["proxmox-node"]) == ["ipmitool"]
+    assert needed_tools(results(plain), TYPES["proxmox"]) == []
+    assert needed_tools(results(dict(plain, ipmi_dev="/dev/ipmi0")), TYPES["proxmox"]) == ["ipmitool"]
 
 
 def test_ethtool_for_physical_hosts_with_nics():
-    assert "ethtool" in needed_tools(results(dict(SERVER, ethtool=(127, ""))), TYPES["proxmox-node"])
-    assert "ethtool" not in needed_tools(results(dict(SERVER, ethtool=(127, ""), net_sysfs="lo\t\t\n")), TYPES["proxmox-node"])
+    assert "ethtool" in needed_tools(results(dict(SERVER, ethtool=(127, ""))), TYPES["proxmox"])
+    assert "ethtool" not in needed_tools(results(dict(SERVER, ethtool=(127, ""), net_sysfs="lo\t\t\n")), TYPES["proxmox"])
     assert "ethtool" not in needed_tools(results(dict(VPS, ethtool=(127, ""))), TYPES["vps"])
     assert "ethtool" in install_script("pacman", ["ethtool"])

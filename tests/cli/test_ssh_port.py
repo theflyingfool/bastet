@@ -34,7 +34,7 @@ def test_connect_uses_the_port(inventory, monkeypatch):
     monkeypatch.setattr(run_mod, "scan_keys", scan)
     _ssh_role(inventory, "[2222]")
     (inventory / "hosts" / "pve1.md").write_text(
-        "---\nbastet: host\ntype: proxmox-node\nip: 10.0.10.11\nssh_host_key: ssh-ed25519 SHA256:x\n---\n# pve1\n")
+        "---\nbastet: host\ntype: proxmox\nip: 10.0.10.11\nssh_host_key: ssh-ed25519 SHA256:x\n---\n# pve1\n")
     ctx = load_context()
     try:
         run_mod.connect(ctx, ctx.inventory.get("pve1"), inventory, yes=True)
@@ -79,7 +79,7 @@ def test_connect_falls_back_to_the_next_port_that_answers(inventory, monkeypatch
     monkeypatch.setattr(run_mod, "scan_keys", scan)
     _ssh_role(inventory, "[2222, 22]")
     (inventory / "hosts" / "pve1.md").write_text(
-        "---\nbastet: host\ntype: proxmox-node\nip: 10.0.10.11\nssh_host_key: ssh-ed25519 SHA256:x\n---\n# pve1\n")
+        "---\nbastet: host\ntype: proxmox\nip: 10.0.10.11\nssh_host_key: ssh-ed25519 SHA256:x\n---\n# pve1\n")
     ctx = load_context()
     try:
         run_mod.connect(ctx, ctx.inventory.get("pve1"), inventory, yes=True)

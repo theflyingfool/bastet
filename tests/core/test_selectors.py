@@ -13,8 +13,8 @@ FILES = {
     "Homelab.md": "---\nbastet: lab\n---\n# Homelab\n",
     "groups/servers.md": "---\nbastet: group\n---\n# servers\n",
     "groups/arch.md": "---\nbastet: group\nmatch:\n  os: arch\n---\n# arch\n",
-    "hosts/pve1.md": "---\nbastet: host\ntype: proxmox-node\nip: 10.0.10.11\n---\n# pve1\n",
-    "hosts/pve2.md": '---\nbastet: host\ntype: proxmox-node\nip: 10.0.10.12\ngroups:\n  - "[[servers]]"\n---\n# pve2\n',
+    "hosts/pve1.md": "---\nbastet: host\ntype: proxmox\nip: 10.0.10.11\n---\n# pve1\n",
+    "hosts/pve2.md": '---\nbastet: host\ntype: proxmox\nip: 10.0.10.12\ngroups:\n  - "[[servers]]"\n---\n# pve2\n',
     "hosts/media01.md": '---\nbastet: host\ntype: server\nip: 10.0.20.30\ngroups:\n  - "[[servers]]"\n---\n# media01\n',
     "hosts/archdev.md": "---\nbastet: host\ntype: laptop\nconnection: local\n---\n# archdev\n",
     "hosts/gone.md": "---\nbastet: host\ntype: laptop\nconnection: local\nstate: destroyed\n---\n# gone\n",
@@ -68,7 +68,7 @@ def test_at_lab_selector_is_every_host(tmp_path):
 
 def test_at_type_selector(tmp_path):
     inv = lab(tmp_path)
-    assert names(select_hosts(inv, TYPES, ["@proxmox-node"], [])) == ["pve1", "pve2"]
+    assert names(select_hosts(inv, TYPES, ["@proxmox"], [])) == ["pve1", "pve2"]
 
 
 def test_at_group_selector_direct_membership(tmp_path):
@@ -99,14 +99,14 @@ def test_exclude_removes_from_the_result(tmp_path):
 
 def test_exclude_takes_selector_forms_too(tmp_path):
     inv = lab(tmp_path)
-    assert names(select_hosts(inv, TYPES, [], ["@proxmox-node"])) == ["archdev", "media01"]
+    assert names(select_hosts(inv, TYPES, [], ["@proxmox"])) == ["archdev", "media01"]
 
 
 def test_unknown_at_name_lists_groups_and_types(tmp_path):
     inv = lab(tmp_path)
     with pytest.raises(BastetError) as exc:
         select_hosts(inv, TYPES, ["@nope"], [])
-    assert "servers" in str(exc.value) and "proxmox-node" in str(exc.value)
+    assert "servers" in str(exc.value) and "proxmox" in str(exc.value)
 
 
 def test_glob_matching_nothing_is_an_error(tmp_path):

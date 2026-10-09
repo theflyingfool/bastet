@@ -27,7 +27,7 @@ def inv_with(tmp_path: Path, files: dict[str, str]):
     return load_inventory(tmp_path, TYPES)
 
 
-PVE1 = "---\nbastet: host\ntype: proxmox-node\nip: 10.0.10.11\n---\n"
+PVE1 = "---\nbastet: host\ntype: proxmox\nip: 10.0.10.11\n---\n"
 
 
 def test_new_vps(tmp_path):
@@ -45,7 +45,7 @@ def test_new_vps(tmp_path):
 
 def test_new_physical_host_gets_hardware_and_reports_sections(tmp_path):
     inv = inv_with(tmp_path, {})
-    draft = new_host(inv, TYPES, "pve2", "proxmox-node", ip="10.0.10.12")
+    draft = new_host(inv, TYPES, "pve2", "proxmox", ip="10.0.10.12")
     assert draft.change.after.endswith(
         "# pve2\n\n![[pve2 summary]]\n\n## Hardware\n\n![[hardware-here.base]]\n\n## Reports\n\n![[pve2 reports]]\n"
     )
@@ -89,7 +89,7 @@ def test_on_must_be_a_host(tmp_path):
 def test_duplicate_address_rejected(tmp_path):
     inv = inv_with(tmp_path, {"hosts/pve1.md": PVE1})
     with pytest.raises(BastetError) as e:
-        new_host(inv, TYPES, "pve2", "proxmox-node", ip="10.0.10.11")
+        new_host(inv, TYPES, "pve2", "proxmox", ip="10.0.10.11")
     assert "already used" in e.value.message
 
 

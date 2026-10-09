@@ -136,7 +136,7 @@ def test_subscription_notice_fails_loudly_when_proxmox_changes(tmp_path):
 
 def test_proxmox_node_type_baseline_includes_proxmox():
     from bastet.core.hosttypes import load_host_types
-    assert "proxmox" in load_host_types()["proxmox-node"].roles
+    assert "proxmox" in load_host_types()["proxmox"].roles
 
 
 def test_stray_sources_keep_every_planned_repository():
@@ -246,4 +246,4 @@ def test_pacman_list_replaces_every_active_line():
 
 def test_proxmox_baseline_leaves_hostname_alone():
     from bastet.core.hosttypes import load_host_types
-    assert load_host_types()["proxmox-node"].roles["systemd"]["manage_hostname"] is False
+    assert load_host_types()["proxmox"].roles["systemd"]["manage_hostname"] is False

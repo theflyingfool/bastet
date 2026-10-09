@@ -73,7 +73,7 @@ Public entry point.
 ```markdown
 ---
 bastet: host
-type: proxmox-node
+type: proxmox
 ip: 10.0.10.11
 location: "[[Closet]]"
 ---
@@ -121,7 +121,7 @@ Write? [Y/n] y
 Committed: "gather: pve1 edge1 laptop — 3 hosts, 4 hardware files" (Bastet)
 ```
 
-pve1 is a `proxmox-node`, so it's the only type that falls back to bootstrap credentials (chapter 8). edge1 was built with management access already in place.
+pve1 is a `proxmox`, so it's the only type that falls back to bootstrap credentials (chapter 8). edge1 was built with management access already in place.
 
 ### 2.4 A fact you set by hand
 
@@ -321,7 +321,7 @@ The host page's roles table shows every role, where it came from, and each optio
 
 ## 6. Host types
 
-Types ship in the Bastet repo; you can add your own. v1: `proxmox-node`, `lxc`, `vm`, `vps`, `laptop`, `server`, and `unknown` (imported hosts whose type couldn't be inferred; gather offers the right type in its diff). UniFi types (`unifi-gateway`, `unifi-switch`, `unifi-ap`) follow after the slice.
+Types ship in the Bastet repo; you can add your own. v1: `proxmox`, `lxc`, `vm`, `vps`, `laptop`, `server`, and `unknown` (imported hosts whose type couldn't be inferred; gather offers the right type in its diff). UniFi types (`unifi-gateway`, `unifi-switch`, `unifi-ap`) follow after the slice.
 
 Each type declares:
 
@@ -334,7 +334,7 @@ Each type declares:
 | **fact** | only gathered (e.g. `ram` on physical hardware, serials, OS version) | reported; a ⚠ warning on physical hardware (chapter 7) |
 | **yours** | never observed (purchase info, notes) | never compared |
 
-- **baseline roles** (e.g. `systemd`, `users`), with option defaults suited to the type. They act as the role files of the type's group (5.4): they beat the lab and lose to your groups and the host, so a type sets only the options it deliberately differs on (e.g. `proxmox-node` sets `systemd.ntp_service: chrony` and leaves `timezone` to the lab);
+- **baseline roles** (e.g. `systemd`, `users`), with option defaults suited to the type. They act as the role files of the type's group (5.4): they beat the lab and lose to your groups and the host, so a type sets only the options it deliberately differs on (e.g. `proxmox` sets `systemd.ntp_service: chrony` and leaves `timezone` to the lab);
 - **how it's gathered** (Ansible facts, a native gatherer, later the UniFi controller API);
 - **how it becomes manageable** (chapter 8);
 - **how it's created, if creatable** (chapter 8);
@@ -381,10 +381,10 @@ finds in reality (e.g. a guest's IP changed in Proxmox, a guest now on another n
 
 **Becoming manageable** is declared per type:
 
-- **`proxmox-node`: credential fallback.**
+- **`proxmox`: credential fallback.**
   - Any command that connects tries the management credentials first. If they're **rejected** (authentication failure only; timeouts, refusals and DNS failures mean "unreachable"), it tries the host's bootstrap credentials.
   - If those work, Bastet creates the management user, installs the key, configures sudo and ensures Python, then carries on.
-  - Bootstrap credentials are secrets: per host, falling back to per type (`bootstrap/<host>`, then `bootstrap/proxmox-node`).
+  - Bootstrap credentials are secrets: per host, falling back to per type (`bootstrap/<host>`, then `bootstrap/proxmox`).
 - **`lxc`, `vm`, `vps`: manageable at birth.** The tooling that creates them sets up management access. There's no bootstrap step.
 - **Other types** declare their own method when added. There's no fallback unless the type opts in.
 
@@ -637,7 +637,7 @@ A role option, resolved through the usual precedence:
 
 `bastet import --inventory <dir> --playbook <site.yml> [--roles <dir>…]` takes over an existing Ansible setup so it runs through Bastet **unchanged**, then lets you migrate role by role.
 
-1. **Inventory → files.** Each host becomes a host file; each group becomes a group file, nesting kept. The type is inferred where possible (e.g. a group of Proxmox nodes → `proxmox-node`, container groups → `lxc`), otherwise `unknown`.
+1. **Inventory → files.** Each host becomes a host file; each group becomes a group file, nesting kept. The type is inferred where possible (e.g. a group of Proxmox nodes → `proxmox`, container groups → `lxc`), otherwise `unknown`.
 2. **Playbook → role assignments.** `import_playbook` is followed, and every play is resolved to which hosts get which roles, in which order:
    - a play targeting exactly one group becomes a role assignment on that group's file;
    - other patterns (`all:!pvenodes`) become assignments on the resolved hosts;
@@ -777,10 +777,10 @@ Goal: get inventory in, both by importing an existing Ansible setup and by fresh
 - Git handling (chapter 4).
 
 **Stage 2: Gather.**
-- Gather for `vps`, `proxmox-node`, `laptop`, `lxc` and `server`: Bastet's own collector, **no Ansible and no Python needed on the target**. The tools come from the survey in `inv.sh`/`inv2.sh`; Bastet calls each tool itself over SSH (at 127.0.0.1 for the controller), prefers JSON output (`lsblk -J`, `ip -j`, `smartctl -j`, `hostnamectl --json`), has a parser and tests per tool, and keeps the raw output as the snapshot. The stage plan compares the tool list against Ansible's fact gathering and fills the gaps. Then diff-then-write, hardware files, unit normalisation.
-- Host type proposal from systemd's chassis type (`hostnamectl`; `/sys/class/dmi/id/chassis_type` fallback) plus markers such as `pveversion` (proxmox-node) and the DMI vendor (VPS providers).
+- Gather for `vps`, `proxmox`, `laptop`, `lxc` and `server`: Bastet's own collector, **no Ansible and no Python needed on the target**. The tools come from the survey in `inv.sh`/`inv2.sh`; Bastet calls each tool itself over SSH (at 127.0.0.1 for the controller), prefers JSON output (`lsblk -J`, `ip -j`, `smartctl -j`, `hostnamectl --json`), has a parser and tests per tool, and keeps the raw output as the snapshot. The stage plan compares the tool list against Ansible's fact gathering and fills the gaps. Then diff-then-write, hardware files, unit normalisation.
+- Host type proposal from systemd's chassis type (`hostnamectl`; `/sys/class/dmi/id/chassis_type` fallback) plus markers such as `pveversion` (proxmox) and the DMI vendor (VPS providers).
 - Value-history attribution, ⚠ on physical facts, `--take`.
-- Access (8): connect as `bastet` with Bastet's key; on rejection fall back to the user's own SSH login and offer, as a confirmable change, to set up the `bastet` user (user, key, sudo, Python); host-key recording. Credential fallback for fresh `proxmox-node` installs (age-encrypted secret notes, recovery key).
+- Access (8): connect as `bastet` with Bastet's key; on rejection fall back to the user's own SSH login and offer, as a confirmable change, to set up the `bastet` user (user, key, sudo, Python); host-key recording. Credential fallback for fresh `proxmox` installs (age-encrypted secret notes, recovery key).
 - The laptop gathered over SSH at 127.0.0.1, as its local `bastet` user.
 
 **Stage 2c: Hardware completeness.** Anything physically removable gets its own hardware file; anything built in is listed on its parent.
@@ -808,7 +808,7 @@ Revisited after milestone 1 (9.0, 9.2). Ansible import is deferred; the first ro
 3. **First roles:**
    - **`systemd`:** the settings systemd owns, in one role.
      - **Services:** `services: {<unit>: {enabled, state}}` for units you want in a given state. Another role wanting the same unit merges with it (9.0).
-     - **Time:** `timezone`, `ntp`, `ntp_servers`, `fallback_ntp_servers`, `rtc_local`, `ntp_service` (`timesyncd` | `chrony` | `keep`; lab default `timesyncd`, `proxmox-node` default `chrony`, needed for clustering). `timedatectl` sets the timezone, hardware clock and NTP on/off (falling back to enabling the detected unit directly, and reporting which path it used). Servers go in a Bastet-owned drop-in (`/etc/systemd/timesyncd.conf.d/bastet.conf`, or `/etc/chrony/sources.d/bastet.sources`), and the service is reloaded only on change; verified with `timedatectl show-timesync` / `chronyc -c sources`. On LXC only the timezone applies (the clock belongs to the node).
+     - **Time:** `timezone`, `ntp`, `ntp_servers`, `fallback_ntp_servers`, `rtc_local`, `ntp_service` (`timesyncd` | `chrony` | `keep`; lab default `timesyncd`, `proxmox` default `chrony`, needed for clustering). `timedatectl` sets the timezone, hardware clock and NTP on/off (falling back to enabling the detected unit directly, and reporting which path it used). Servers go in a Bastet-owned drop-in (`/etc/systemd/timesyncd.conf.d/bastet.conf`, or `/etc/chrony/sources.d/bastet.sources`), and the service is reloaded only on change; verified with `timedatectl show-timesync` / `chronyc -c sources`. On LXC only the timezone applies (the clock belongs to the node).
      - **Hostname:** `hostname:` is always present in the host's frontmatter, even when redundant: `bastet add host` writes the note's name, and gather fills it in once with the machine's current hostname where it's missing (through the usual diff). From then on it's desired state, not a fact: a mismatch is a change for apply (`hostnamectl`), and gather never overwrites it. The note's file name is the fallback when the key is absent. Skipped on LXC, where Proxmox sets it from the container's config.
      - **Locale:** `locale`, `keymap` (`localectl`).
      - Without systemd (Alpine): timezone through `/etc/localtime` and `/etc/timezone`; the rest reported unsupported.
@@ -829,7 +829,7 @@ In rough order:
 5. UniFi discovery (controller API) with cabling and overlay maps.
 6. The web UI and orchestrator LXC, including a per-host lock on targets.
 7. Run logs and resilience: every run recorded as JSONL events on the controller (secrets redacted), long or risky steps run as transient systemd units so a dropped connection doesn't kill them, reconnecting to finish a run, `bastet watch` / `bastet log`.
-8. Explicit removal per role; `become` other than sudo (run0 first); the `proxmox-node` baseline (no-subscription repositories, the subscription notice, Proxmox packages, microcode); more native roles.
+8. Explicit removal per role; `become` other than sudo (run0 first); the `proxmox` baseline (no-subscription repositories, the subscription notice, Proxmox packages, microcode); more native roles.
 
 **Existing work:** the current `cli/` and `ansible/` keep working unchanged until the Ansible import (milestone 3). Then they run through Bastet as `imported_` roles, and each moves into the Bastet repo as it's reworked.
 

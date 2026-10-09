@@ -6,13 +6,13 @@ from bastet.core.hosttypes import load_host_types
 
 def test_shipped_types():
     types = load_host_types()
-    assert set(types) == {"proxmox-node", "server", "laptop", "vps", "lxc", "vm", "unknown",
+    assert set(types) == {"proxmox", "server", "laptop", "vps", "lxc", "vm", "unknown",
                           "unifi-gateway", "unifi-switch", "unifi-ap"}
     assert types["vps"].minimal == ["provider", "ip"]
     assert types["lxc"].minimal == ["runs_on", "ip"]
-    assert types["proxmox-node"].physical is True
+    assert types["proxmox"].physical is True
     assert types["lxc"].fields["ram"] == "desired"
-    assert types["proxmox-node"].fields["ram"] == "fact"
+    assert types["proxmox"].fields["ram"] == "fact"
 
 
 def test_bad_nature_names_file(tmp_path):

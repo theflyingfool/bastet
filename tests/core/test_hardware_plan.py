@@ -24,7 +24,7 @@ def repo(tmp_path) -> GitRepo:
     for name in ("pve1", "pve2"):
         p = tmp_path / "hosts" / f"{name}.md"
         p.parent.mkdir(exist_ok=True)
-        p.write_text(f"---\nbastet: host\ntype: proxmox-node\nip: 10.0.10.{11 if name == 'pve1' else 12}\n---\n# {name}\n")
+        p.write_text(f"---\nbastet: host\ntype: proxmox\nip: 10.0.10.{11 if name == 'pve1' else 12}\n---\n# {name}\n")
     r.commit([tmp_path / "hosts" / "pve1.md", tmp_path / "hosts" / "pve2.md"], "hosts", as_bastet=False)
     return r
 

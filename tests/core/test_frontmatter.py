@@ -10,7 +10,7 @@ P = Path("/v/hosts/pve1.md")
 TEXT = """---
 bastet: host
 # a comment
-type: proxmox-node
+type: proxmox
 interfaces:
   - name: eno1
     mac: aa:bb:cc:dd:ee:01
@@ -23,7 +23,7 @@ Prose.
 
 def test_parse_document():
     doc = parse_document(TEXT, P)
-    assert doc.data["type"] == "proxmox-node"
+    assert doc.data["type"] == "proxmox"
     assert doc.data["interfaces"][0]["name"] == "eno1"
     assert doc.body == "# pve1\nProse.\n"
     assert doc.key_lines == {"bastet": 2, "type": 4, "interfaces": 5, "ip": 8}

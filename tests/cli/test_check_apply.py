@@ -506,7 +506,7 @@ def test_host_info_reads_os_and_cpu_from_facts_not_stale_host_note(inventory):
 
     pve1 = inventory / "hosts" / "pve1.md"
     pve1.write_text(
-        "---\nbastet: host\ntype: proxmox-node\nip: 10.0.10.11\nos: Arch Linux\ncpu: made up\n---\n# pve1\n"
+        "---\nbastet: host\ntype: proxmox\nip: 10.0.10.11\nos: Arch Linux\ncpu: made up\n---\n# pve1\n"
     )
     facts_path(inventory, "pve1").parent.mkdir(parents=True, exist_ok=True)
     facts_path(inventory, "pve1").write_text(render_facts(

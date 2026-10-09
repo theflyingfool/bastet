@@ -62,7 +62,7 @@ def test_host_data_unknown_type_uses_unknown_fields():
 
 
 def test_stale_fact_keys_no_warning_for_declared_keys():
-    d = doc("---\nbastet: host\ntype: proxmox-node\nip: 10.0.10.11\nlocation: \"[[Rack]]\"\n---\n")
+    d = doc("---\nbastet: host\ntype: proxmox\nip: 10.0.10.11\nlocation: \"[[Rack]]\"\n---\n")
     assert stale_fact_keys(d, TYPES) == []
 
 

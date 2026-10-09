@@ -172,7 +172,7 @@ def extract(results: dict[str, ProbeResult]) -> Extracted:
 
 def propose_type(ex: Extracted) -> str | None:
     if ex.hints.get("proxmox"):
-        return "proxmox-node"
+        return "proxmox"
     chassis = ex.facts.get("chassis")
     if chassis == "container":
         return "lxc"

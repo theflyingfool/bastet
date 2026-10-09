@@ -44,7 +44,7 @@ def _matches(inv: Inventory, group: Document, host: Document, types: dict[str, H
         return False
     rule = group.data.get("match")
     if not isinstance(rule, dict) or not rule:
-        raise BastetError("match: expected a rule like {os: arch} or {type: proxmox-node}", file=group.path, key="match")
+        raise BastetError("match: expected a rule like {os: arch} or {type: proxmox}", file=group.path, key="match")
     unknown = set(rule) - {"os", "type"}
     if unknown:
         raise BastetError(f"match: unknown key {', '.join(sorted(map(str, unknown)))} (known: os, type)",

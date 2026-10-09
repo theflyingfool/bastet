@@ -52,7 +52,7 @@ def _optional(prompt: str) -> str | None:
 @handles_errors
 def add_host(
     name: str | None = typer.Argument(None, help="Host name (asked if not given)."),
-    type_: str | None = typer.Option(None, "--type", help="Host type, e.g. vps, proxmox-node, lxc, laptop."),
+    type_: str | None = typer.Option(None, "--type", help="Host type, e.g. vps, proxmox, lxc, laptop."),
     ip: str | None = typer.Option(None, "--ip", help="Fixed address, or 'dhcp'."),
     on: str | None = typer.Option(None, "--on", help="Parent host for an LXC or VM."),
     network: str | None = typer.Option(None, "--network", help="Lab network; suggests the next free address."),

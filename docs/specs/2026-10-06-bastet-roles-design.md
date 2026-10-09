@@ -234,7 +234,7 @@ Resources are the documented way, and upstream review enforces that for bundled 
 
 **Guided flow:**
 1. **Pick targets:** hosts, groups or the lab; several are allowed.
-2. **Pick roles,** filtered to those compatible with every target. Hidden ones are explained ("podman: not for proxmox-node").
+2. **Pick roles,** filtered to those compatible with every target. Hidden ones are explained ("podman: not for proxmox").
 3. **Pick a preset,** or none.
 4. **Enter required options** not covered by the preset.
 5. **Unmet needs are offered:**

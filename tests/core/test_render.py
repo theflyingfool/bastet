@@ -19,7 +19,7 @@ FILES = {
     "Homelab.md": "---\nbastet: lab\nname: Homelab\ndomains:\n  public: example.com\n---\n# Homelab\n",
     "locations/Closet.md": "---\nbastet: location\n---\n# Closet\n",
     "locations/Linode.md": "---\nbastet: location\n---\n# Linode\n",
-    "hosts/pve1.md": "---\nbastet: host\ntype: proxmox-node\nip: 10.0.10.11\nlocation: \"[[Closet]]\"\n---\n# pve1\n",
+    "hosts/pve1.md": "---\nbastet: host\ntype: proxmox\nip: 10.0.10.11\nlocation: \"[[Closet]]\"\n---\n# pve1\n",
     "hosts/git1.md": "---\nbastet: host\ntype: lxc\nruns_on: \"[[pve1]]\"\nip: 10.0.20.21\n---\n# git1\n",
     "hosts/vps1.md": (
         "---\nbastet: host\ntype: vps\nprovider: linode\nip: 203.0.113.10\nlocation: \"[[Linode]]\"\n---\n# vps1\n"
@@ -125,7 +125,7 @@ def test_dashboard(repo):
     assert "## Needs attention" in text and "ram mismatch" in text
     assert "```mermaid" not in text  # maps are embedded notes now, not inline graphs
     assert "## Hosts" in text and "| [[git1]] | lxc | Debian 13 | 10.0.20.21 | on [[pve1]] |" in text
-    assert "| [[pve1]] | proxmox-node |" in text and "Closet" in text
+    assert "| [[pve1]] | proxmox |" in text and "Closet" in text
     assert "example.com" in text and "Spare WD" in text and "10.0.10.9" in text
     assert "gather: pve1" in text
 

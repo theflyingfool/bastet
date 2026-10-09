@@ -23,7 +23,7 @@ FILES = {
     "groups/workstations.md": "---\nbastet: group\n---\n# workstations\n",
     "groups/laptops.md": '---\nbastet: group\ngroups:\n  - "[[workstations]]"\n---\n# laptops\n',
     "hosts/hp-13.md": '---\nbastet: host\ntype: laptop\nconnection: local\ngroups:\n  - "[[laptops]]"\n---\n# hp-13\n',
-    "hosts/pve1.md": "---\nbastet: host\ntype: proxmox-node\nip: 10.0.10.11\n---\n# pve1\n",
+    "hosts/pve1.md": "---\nbastet: host\ntype: proxmox\nip: 10.0.10.11\n---\n# pve1\n",
     "_roles/lab/systemd.md": ('---\nbastet: role\nrole: systemd\napplies_to: "[[Homelab]]"\ntimezone: UTC\nntp: true\n'
                               "ntp_service: timesyncd\nntp_servers:\n  - 10.0.10.1\n---\n"),
     "_roles/groups/workstations/packages.md": '---\nbastet: role\nrole: packages\napplies_to: "[[workstations]]"\ninstall:\n  - git\n  - vim\n---\n',
@@ -110,7 +110,7 @@ def test_bad_role_files(tmp_path):
 
 
 def test_host_types_have_baseline_roles():
-    assert TYPES["proxmox-node"].roles == {"systemd": {"ntp_service": "chrony", "manage_hostname": False}, "proxmox": {}}
+    assert TYPES["proxmox"].roles == {"systemd": {"ntp_service": "chrony", "manage_hostname": False}, "proxmox": {}}
     assert TYPES["laptop"].roles == {}
 
 
