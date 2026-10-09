@@ -20,7 +20,7 @@ from bastet.core.factsnote import (
 from bastet.core.hostview import hardware_data, host_data, missing_warning
 from bastet.core.hwparse import short_cpu
 from bastet.core.inventory import Inventory, markdown_files
-from bastet.core.links import link_target
+from bastet.core.links import link_target, make_link
 from bastet.core.units import format_size, parse_size
 from bastet.core.views import ensure_page_embed, ensure_views
 from bastet.core.yamlstyle import dump_frontmatter
@@ -547,7 +547,15 @@ def generated_changes(
         existing = inv.facts.get(doc.name.lower())
         facts = inv.facts_for(doc.name)
         gathered = existing.data.get("gathered") if existing is not None else None
-        want(hardware_facts_path(root, doc.name), render_hardware_facts(doc.name, facts, gathered, body=hardware_summary(inv, doc)))
+        mirror = {k: v for k, v in (
+            ("category", doc.data.get("category")),
+            ("status", doc.data.get("status") or "in-service"),
+            ("hardware", make_link(doc.name)),
+        ) if v is not None}
+        want(
+            hardware_facts_path(root, doc.name),
+            render_hardware_facts(doc.name, facts, gathered, mirror=mirror, body=hardware_summary(inv, doc)),
+        )
     changes.extend(_retired_notes_to_delete(root))
     from bastet.core.osinfo import os_id
 

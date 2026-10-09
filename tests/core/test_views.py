@@ -28,6 +28,11 @@ def test_hardware_view_table_first_then_cards():
     assert 'bastet == "facts"' in text and "installed_in == this" in text
 
 
+def test_hardware_view_lists_the_link_category_and_status_columns():
+    text = VIEWS[HARDWARE_BASE_PATH]
+    assert "- hardware\n" in text and "- category\n" in text and "- status\n" in text
+
+
 def test_has_hardware_section():
     assert has_hardware_section("# h\n\n## Hardware\n\n![[hardware-here.base]]\n")
     assert not has_hardware_section("# h\n")

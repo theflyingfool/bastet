@@ -145,6 +145,14 @@ def test_render_hardware_facts_round_trip():
     assert doc.data["item"] == "[[disk1]]" and doc.data["serial"] == "S1" and doc.data["missing_since"] == "2026-10-01"
 
 
+def test_render_hardware_facts_includes_mirror():
+    text = render_hardware_facts(
+        "disk1", {"serial": "S1"}, "now", mirror={"category": "drive", "status": "spare", "hardware": "[[disk1]]"},
+    )
+    doc = parse_document(text, Path("/v/disk1 facts.md"))
+    assert doc.data["category"] == "drive" and doc.data["status"] == "spare" and doc.data["hardware"] == "[[disk1]]"
+
+
 def test_hardware_facts_change_new_file(tmp_path):
     change = hardware_facts_change(tmp_path, "disk1", {"serial": "S1"}, "2026-10-06T10:00:00Z")
     assert change is not None and "S1" in change.after
@@ -163,3 +171,20 @@ def test_hardware_facts_change_none_when_only_gathered_differs(tmp_path):
     path.parent.mkdir(parents=True)
     path.write_text(render_hardware_facts("disk1", {"serial": "S1"}, "x"), encoding="utf-8")
     assert hardware_facts_change(tmp_path, "disk1", {"serial": "S1"}, "y") is None
+
+
+def test_hardware_facts_change_never_removes_refresh_s_mirror(tmp_path):
+    """category/status/hardware are refresh's mirror of the user's note -- a gather rewriting the
+    frontmatter (a real fact changed) must carry them over untouched, not drop them."""
+    path = hardware_facts_path(tmp_path, "disk1")
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        render_hardware_facts("disk1", {"serial": "S1"}, "x", mirror={
+            "category": "drive", "status": "spare", "hardware": "[[disk1]]",
+        }),
+        encoding="utf-8",
+    )
+    change = hardware_facts_change(tmp_path, "disk1", {"serial": "S2"}, "y")
+    assert change is not None
+    doc = parse_document(change.after, path)
+    assert doc.data["category"] == "drive" and doc.data["status"] == "spare" and doc.data["hardware"] == "[[disk1]]"

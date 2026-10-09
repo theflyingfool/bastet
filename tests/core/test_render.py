@@ -150,6 +150,26 @@ def test_hardware_summaries(repo):
     assert "[!stat] Health" in drive and "passed" in drive and "tank" in drive and "[[pve1]]" in drive
 
 
+def test_refresh_mirrors_category_status_and_link_onto_the_facts_note(repo):
+    item = "WDC WD40EFRX WD-1"
+    changes = {c.path: c for c in generated_changes(inv(repo), TYPES, repo)}
+    path = hardware_facts_path(repo.root, item)
+    doc = parse_document(changes[path].after, path)
+    assert doc.data["category"] == "drive" and doc.data["status"] == "in-service"
+    assert doc.data["hardware"] == f"[[{item}]]"
+
+
+def test_changing_status_and_refreshing_updates_the_mirror(repo):
+    item = "WDC WD40EFRX WD-1"
+    write_changes(generated_changes(inv(repo), TYPES, repo))
+    hw = repo.root / "hardware" / f"{item}.md"
+    hw.write_text(hw.read_text().replace("status: in-service\n", "status: failed\n"))
+    changes = {c.path: c for c in generated_changes(inv(repo), TYPES, repo)}
+    path = hardware_facts_path(repo.root, item)
+    doc = parse_document(changes[path].after, path)
+    assert doc.data["status"] == "failed"
+
+
 def test_hand_typed_fields_on_a_spare_with_no_facts_note_show_up_and_report_no_stale_key(repo):
     """A spare's serial/model/size were often typed by hand -- it was never seen by a gather -- so
     with no facts note at all, `hardware_data` falls back to the note's own values instead of

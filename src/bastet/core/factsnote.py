@@ -14,6 +14,11 @@ write to it, each owning a different part, so each must leave the others' parts 
 - `check`/`apply` (the run command) own the security section. They rewrite only what's after
   `SECURITY_MARKER`, leaving the frontmatter and the first three body sections alone.
 
+A hardware item's facts note also carries a small mirror of its own: `category`, `status` and a
+`hardware` link back to the user's note (`HARDWARE_MIRROR_KEYS`), for the hardware-here Base to
+show without needing to read a second file. Refresh owns these too, always overwriting them from
+the user's note; gather leaves them exactly as they are, the same way it leaves the body alone.
+
 `host_data`/`hardware_data` (bastet.core.hostview) are how the rest of Bastet reads the frontmatter
 together with the host or hardware note's own declared keys.
 """
@@ -30,6 +35,10 @@ META_KEYS = ("bastet", "host", "item", "gathered", "cssclasses")
 # Stored in frontmatter alongside the facts, but not themselves facts: never fed into `facts_for`'s
 # result, so they never leak into `host_data`, `show`, roles' `HostInfo`, and the like.
 NOTE_KEYS = ("warnings", "drift")
+# Refresh's own mirror of a hardware item's user-facing note, kept on the facts note so the
+# hardware-here Base can show them without reading a second file. Refresh always overwrites these;
+# gather never touches them (they're not facts it observes) and never feeds them into `facts_for`.
+HARDWARE_MIRROR_KEYS = ("category", "status", "hardware")
 # Keys a host's *own* gather never produces -- they're observed by something else (a Proxmox node
 # seeing a guest's vmid; a UniFi device seeing a host's cabling) -- so a direct gather of the host
 # itself must keep whatever is already there instead of wiping it.
@@ -119,28 +128,33 @@ def facts_change(
     return Change(path, before, after)
 
 
-def render_hardware_facts(item: str, facts: dict, gathered: str | None, *, body: str = "") -> str:
+def render_hardware_facts(
+    item: str, facts: dict, gathered: str | None, *, mirror: dict | None = None, body: str = "",
+) -> str:
     data: dict[str, object] = {"bastet": "facts", "item": make_link(item)}
     if gathered:
         data["gathered"] = gathered
     data["cssclasses"] = ["bastet-facts"]
-    for key in sorted(facts):
-        data[key] = facts[key]
+    combined = {**facts, **(mirror or {})}
+    for key in sorted(combined):
+        data[key] = combined[key]
     return new_document(data, body)
 
 
 def hardware_facts_change(root: Path, item: str, facts: dict, gathered: str) -> Change | None:
     """A Change updating a hardware item's facts note's frontmatter, or None if only `gathered` would
-    differ. The body is left exactly as it was, like `facts_change`."""
+    differ. The body is left exactly as it was, like `facts_change`. `HARDWARE_MIRROR_KEYS` are
+    carried over from whatever the note already has -- they're refresh's, not gather's, to set."""
     path = hardware_facts_path(root, item)
     before = path.read_text(encoding="utf-8") if path.exists() else None
     existing = _read(path)
     body = existing.body if existing is not None else ""
+    mirror = {k: existing.data[k] for k in HARDWARE_MIRROR_KEYS if existing is not None and k in existing.data}
     if existing is not None:
-        old_facts = {k: v for k, v in existing.data.items() if k not in META_KEYS}
+        old_facts = {k: v for k, v in existing.data.items() if k not in META_KEYS and k not in HARDWARE_MIRROR_KEYS}
         if old_facts == facts:
             return None
-    after = render_hardware_facts(item, facts, gathered, body=body)
+    after = render_hardware_facts(item, facts, gathered, mirror=mirror, body=body)
     if before == after:
         return None
     return Change(path, before, after)

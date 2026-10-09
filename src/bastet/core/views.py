@@ -5,7 +5,7 @@ from pathlib import Path
 
 from bastet.core.changes import Change
 
-HARDWARE_LIST_COLUMNS = ("item", "make", "model", "serial", "size")
+HARDWARE_LIST_COLUMNS = ("hardware", "category", "status", "make", "model", "serial", "size")
 
 
 def _yaml_list(items: tuple[str, ...], indent: str = "      ") -> str:
