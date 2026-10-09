@@ -156,25 +156,21 @@ def _check_host(inv: Inventory, doc: Document, types: dict[str, HostType], ips: 
 
 
 def _check_stale_hardware(inv: Inventory, doc: Document) -> None:
+    """A gathered-looking key on a hardware note is only reported once Bastet's own facts note holds
+    a value for it -- until then it's a legitimate hand-typed value (a spare's serial, a never-
+    regathered item's model and size), kept quietly as a fallback (`hostview.hardware_data`)."""
     from bastet.core.hostview import stale_hardware_keys  # hostview builds on inventory
 
     stale = stale_hardware_keys(doc)
     if not stale:
         return
     facts = inv.facts_for(doc.name)
-    note_path = hardware_facts_path(inv.root, doc.name).relative_to(inv.root).as_posix()
     removable = [key for key in stale if key in facts]
-    pending = [key for key in stale if key not in removable]
-    parts = []
-    if removable:
-        parts.append(f"{', '.join(removable)} are gathered facts; they now live in {note_path} (remove them from this note)")
-    if pending:
-        parts.append(
-            f"{', '.join(pending)} are gathered facts; they now live in {note_path} once gather runs "
-            f"(kept here until then, so the next gather copies them in instead of losing them)"
-        )
-    message = " ".join(parts)
-    line = doc.key_lines.get(stale[0])
+    if not removable:
+        return
+    note_path = hardware_facts_path(inv.root, doc.name).relative_to(inv.root).as_posix()
+    message = f"{', '.join(removable)} are gathered facts; they now live in {note_path} (remove them from this note)"
+    line = doc.key_lines.get(removable[0])
     inv.problems.append(Problem("warning", BastetError(message, file=doc.path, line=line)))
 
 

@@ -154,6 +154,38 @@ def test_hardware_summaries(repo):
     assert "[!stat] Health" in drive and "passed" in drive and "tank" in drive and "[[pve1]]" in drive
 
 
+def test_hand_typed_fields_on_a_spare_with_no_facts_note_show_up_and_report_no_stale_key(repo):
+    """A spare's serial/model/size were often typed by hand -- it was never seen by a gather -- so
+    with no facts note at all, `hardware_data` falls back to the note's own values instead of
+    dropping them, and no "stale key" warning fires (nothing to remove: Bastet has no value yet)."""
+    spare = repo.root / "hardware" / "Spare WD.md"
+    spare.write_text(spare.read_text().replace(
+        "category: drive\n", "category: drive\nmodel: WDC WD40EFRX\nserial: WD-2\nsize: 4 TB\n"
+    ))
+    i = inv(repo)
+    assert not [p for p in i.problems if p.severity == "warning" and "Spare WD" in str(p.error)]
+    drive = hardware_summary(i, i.get("Spare WD"))
+    assert "WDC WD40EFRX" in drive and "WD-2" in drive and "4 TB" in drive
+    hardware = dashboard(i, TYPES, {}, [])
+    spares = hardware[hardware.index("## Spares"):]
+    assert "4 TB" in spares
+
+
+def test_facts_note_serial_wins_over_a_hand_typed_one_and_is_reported_stale(repo):
+    from bastet.core.factsnote import render_hardware_facts
+    from bastet.core.hostview import hardware_data
+
+    spare = repo.root / "hardware" / "Spare WD.md"
+    spare.write_text(spare.read_text().replace("category: drive\n", "category: drive\nserial: WD-2\n"))
+    facts_note = repo.root / "_bastet" / "facts" / "Spare WD facts.md"
+    facts_note.parent.mkdir(parents=True, exist_ok=True)
+    facts_note.write_text(render_hardware_facts("Spare WD", {"serial": "WD-OTHER"}, "2026-10-06T10:00:00Z"))
+    i = inv(repo)
+    assert hardware_data(i, i.get("Spare WD"))["serial"] == "WD-OTHER"
+    messages = " ".join(str(p.error) for p in i.problems if p.severity == "warning")
+    assert "serial" in messages and "gathered facts" in messages and "Spare WD.md" in messages
+
+
 def test_dashboard(repo):
     i = inv(repo)
     text = dashboard(i, TYPES, {"pve1": ["ram mismatch"]}, ["`2026-10-01` gather: pve1"])

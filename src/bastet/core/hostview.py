@@ -59,8 +59,10 @@ HARDWARE_RETIRED_STATUSES = ("failed", "retired", "sold", "spare")
 def hardware_data(inv: Inventory, doc: Document) -> dict:
     """A hardware item's facts note overlaid with its own declared (yours) fields.
 
-    Gathered keys left on the item's own note (e.g. from before the facts-note split) are ignored here;
-    `stale_hardware_keys` is how they're reported instead.
+    A gathered key still hand-typed on the item's own note (a spare's serial, a never-regathered
+    item's model and size, or anything from before the facts-note split) is kept as a fallback for
+    whatever the facts note doesn't hold -- it's only truly stale, and reported as such, once Bastet's
+    own note has its own value for that key (`stale_hardware_keys`/`_check_stale_hardware`).
     """
     data = dict(inv.facts_for(doc.name))
     for key in (*HARDWARE_YOURS, "category"):
@@ -73,6 +75,9 @@ def hardware_data(inv: Inventory, doc: Document) -> dict:
         merged, _ = merge_links(doc.data.get("links"), observed_links)
         if merged is not None:
             data["links"] = merged
+    for key, value in doc.data.items():
+        if key not in HARDWARE_YOURS and key not in HARDWARE_STRUCTURAL_KEYS and key not in data:
+            data[key] = value
     return data
 
 
