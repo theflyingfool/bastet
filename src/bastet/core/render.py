@@ -15,7 +15,7 @@ from bastet.core.gitrepo import BASTET_NAME, GitRepo
 from bastet.core.hardware import MACHINE_CATEGORIES
 from bastet.core.hosttypes import HostType
 from bastet.core.factsnote import facts_path
-from bastet.core.hostview import host_data
+from bastet.core.hostview import hardware_data, host_data, missing_warning
 from bastet.core.hwparse import short_cpu
 from bastet.core.inventory import Inventory, markdown_files
 from bastet.core.links import link_target, make_link
@@ -72,7 +72,8 @@ def _note(frontmatter: dict, body: str) -> str:
 
 
 def _installed(inv: Inventory, host: str) -> list[Document]:
-    return [d for d in inv.of_kind("hardware") if (link_target(d.data.get("installed_in")) or "").lower() == host.lower()]
+    return [d for d in inv.of_kind("hardware")
+            if (link_target(hardware_data(inv, d).get("installed_in")) or "").lower() == host.lower()]
 
 
 def _machine(inv: Inventory, host: str) -> Document | None:
@@ -127,7 +128,7 @@ def host_summary(
         cards.append(_card("CPU", short_cpu(d["cpu"]), counts))
     machine = _machine(inv, doc.name)
     if d.get("ram"):
-        cards.append(_card("RAM", d["ram"], machine.data.get("memory_slots") if machine else None))
+        cards.append(_card("RAM", d["ram"], hardware_data(inv, machine).get("memory_slots") if machine else None))
     if d.get("storage"):
         drives = [h for h in _installed(inv, doc.name) if h.data.get("category") == "drive"]
         cards.append(_card("Storage", d["storage"], f"{len(drives)} drive{'s' if len(drives) != 1 else ''}" if drives else None))
@@ -137,7 +138,7 @@ def host_summary(
     kind = " · ".join(str(x) for x in (d.get("chassis"), d.get("virtualization")) if x)
     cards.append(_card("Type", d.get("type", "?"), f"on [[{parent}]]" if parent else kind))
     if machine:
-        m = machine.data
+        m = hardware_data(inv, machine)
         what = " ".join(str(x) for x in (m.get("make"), m.get("model")) if x)
         if m.get("make") and str(m.get("model", "")).lower().startswith(str(m["make"]).lower()):
             what = str(m["model"])
@@ -145,10 +146,10 @@ def host_summary(
         if m.get("oob_address"):
             cards.append(_card("Out-of-band", m["oob_address"], _oob_type(m.get("oob"))))
     if host_type and host_type.physical:
-        ports = _port_names(machine.data.get("interfaces") if machine else None)
+        ports = _port_names(hardware_data(inv, machine).get("interfaces") if machine else None)
         for item in _installed(inv, doc.name):
             if item.data.get("category") not in MACHINE_CATEGORIES:
-                ports += _port_names(item.data.get("ports"))
+                ports += _port_names(hardware_data(inv, item).get("ports"))
         if ports:
             cards.append(_card("Ports", len(ports), ", ".join(ports)))
     bridges = d.get("bridges")
@@ -165,8 +166,10 @@ def host_summary(
     drift = list(drift or [])
     if drift:
         body += "\n> [!danger] Drift: Proxmox disagrees with this file\n" + "".join(f"> - {_cell(d)}\n" for d in drift)
-    if warnings:
-        body += "\n> [!warning] Needs attention\n" + "".join(f"> - {_cell(w)}\n" for w in warnings)
+    hw_warnings = [w for item in _installed(inv, doc.name) if (w := missing_warning(inv, item))]
+    all_warnings = list(warnings) + hw_warnings
+    if all_warnings:
+        body += "\n> [!warning] Needs attention\n" + "".join(f"> - {_cell(w)}\n" for w in all_warnings)
     from bastet.core.cabling import port_rows  # lazy: cabling imports unifi
 
     rows = port_rows(inv, types, doc.name)
@@ -202,7 +205,7 @@ def _memory_total(memory: object) -> str | None:
 
 
 def hardware_summary(inv: Inventory, doc: Document) -> str:
-    d = doc.data
+    d = hardware_data(inv, doc)
     category = d.get("category")
     where = link_target(d.get("installed_in")) or link_target(d.get("location"))
     place = _card("Where", f"[[{where}]]" if where else "—", d.get("status"))
@@ -262,7 +265,11 @@ def hardware_summary(inv: Inventory, doc: Document) -> str:
         if isinstance(ports, list) and ports:
             cards.append(_card("Ports", len(ports), ", ".join(str(p.get("name")) for p in ports if isinstance(p, dict))))
     cards.append(place)
-    return _note({"summary_of": make_link(doc.name)}, _grid(cards))
+    body = _grid(cards)
+    warning = missing_warning(inv, doc)
+    if warning:
+        body += f"\n> [!warning] {_cell(warning)}\n"
+    return _note({"summary_of": make_link(doc.name)}, body)
 
 
 def _label(text: str) -> str:
@@ -323,15 +330,16 @@ def dashboard(
     spares = [h for h in hardware if h.data.get("status") == "spare"]
     flagged = {name: ws for name, ws in warnings.items() if ws}
     drifted = {name: ds for name, ds in (drift or {}).items() if ds}
-    total = sum(len(ws) for ws in flagged.values()) + sum(len(ds) for ds in drifted.values())
+    missing = {h.name: w for h in hardware if (w := missing_warning(inv, h))}
+    total = sum(len(ws) for ws in flagged.values()) + sum(len(ds) for ds in drifted.values()) + len(missing)
 
     out = ["How this vault works: [[Bastet guide]]\n\n", _grid([
         _card("Hosts", len(hosts), f"{len(physical)} physical · {len(hosts) - len(physical)} virtual"),
         _card("Hardware", len(hardware), f"{len(drives)} drive{'s' if len(drives) != 1 else ''}"),
         _card("Spares", len(spares), ", ".join(f"[[{s.name}]]" for s in spares[:3]) or None),
-        _card("Warnings", total, ", ".join(f"[[{n}]]" for n in sorted(set(flagged) | set(drifted))) or "none"),
+        _card("Warnings", total, ", ".join(f"[[{n}]]" for n in sorted(set(flagged) | set(drifted) | set(missing))) or "none"),
     ])]
-    if flagged or drifted:
+    if flagged or drifted or missing:
         out.append("\n## Needs attention\n\n| | Host | What |\n|---|---|---|\n")
         for name in sorted(drifted):
             for d in drifted[name]:
@@ -339,8 +347,10 @@ def dashboard(
         for name in sorted(flagged):
             for w in flagged[name]:
                 out.append(f"| #warn | [[{name}]] | {_cell(w)} |\n")
+        for name in sorted(missing):
+            out.append(f"| #warn | [[{name}]] | {_cell(missing[name])} |\n")
     out.append(_hosts_table(inv, types, hosts))
-    out.append(_hardware_tables(hardware))
+    out.append(_hardware_tables(inv, hardware))
     from bastet.core.maps import cabling_map, networks_map  # lazy: maps builds on render
 
     shown = [f"![[{MAPS_DIR}/{t}]]" for t, f in (
@@ -385,41 +395,42 @@ def _hosts_table(inv: Inventory, types: dict[str, HostType], hosts: list[Documen
 DEVICE_CATEGORIES = MACHINE_CATEGORIES | {"gateway", "switch", "ap", "network"}  # whole physical boxes
 
 
-def _make_model(h: Document) -> str:
-    make, model = h.data.get("make"), h.data.get("model")
+def _make_model(hd: dict) -> str:
+    make, model = hd.get("make"), hd.get("model")
     if make and model and str(model).lower().startswith(str(make).lower()):
         return str(model)
     return " ".join(str(v) for v in (make, model) if v)
 
 
-def _hardware_row(h: Document, *, badge: bool) -> str:
-    status = str(h.data.get("status") or "in-service")
+def _hardware_row(inv: Inventory, h: Document, *, badge: bool) -> str:
+    hd = hardware_data(inv, h)
+    status = str(hd.get("status") or "in-service")
     mark = {"spare": "#spare", "failed": "#down", "in-service": "#ok"}.get(status, "#info")
-    where = link_target(h.data.get("installed_in")) or link_target(h.data.get("location"))
+    where = link_target(hd.get("installed_in")) or link_target(hd.get("location"))
     notes = " · ".join(str(x) for x in (
-        _make_model(h) if h.data.get("category") in DEVICE_CATEGORIES else "",
-        f"OOB {h.data['oob_address']}" if h.data.get("oob_address") else "",
-        f"warranty to {h.data['warranty_until']}" if h.data.get("warranty_until") else "",
-        h.data.get("size") or "",
+        _make_model(hd) if hd.get("category") in DEVICE_CATEGORIES else "",
+        f"OOB {hd['oob_address']}" if hd.get("oob_address") else "",
+        f"warranty to {hd['warranty_until']}" if hd.get("warranty_until") else "",
+        hd.get("size") or "",
     ) if x)
     cells = [mark] if badge else []
-    cells += [f"[[{h.name}]]", _cell(h.data.get("category") or ""), f"[[{where}]]" if where else "—", _cell(notes)]
+    cells += [f"[[{h.name}]]", _cell(hd.get("category") or ""), f"[[{where}]]" if where else "—", _cell(notes)]
     return "| " + " | ".join(cells) + " |\n"
 
 
-def _hardware_tables(hardware: list[Document]) -> str:
+def _hardware_tables(inv: Inventory, hardware: list[Document]) -> str:
     """Every machine, plus other hardware worth seeing (failed, retired, out-of-band, warranty); spares separately."""
     spares = [h for h in hardware if h.data.get("status") == "spare"]
     listed = [h for h in hardware if h.data.get("status") != "spare" and (
         h.data.get("category") in DEVICE_CATEGORIES or h.data.get("status") not in (None, "in-service")
-        or h.data.get("oob_address") or h.data.get("warranty_until"))]
+        or hardware_data(inv, h).get("oob_address") or h.data.get("warranty_until"))]
     out = ""
     if listed:
         out += "\n## Hardware\n\n| | Item | Category | Where | Notes |\n|---|---|---|---|---|\n"
-        out += "".join(_hardware_row(h, badge=True) for h in listed)
+        out += "".join(_hardware_row(inv, h, badge=True) for h in listed)
     if spares:
         out += "\n## Spares\n\n| Item | Category | Where | Notes |\n|---|---|---|---|\n"
-        out += "".join(_hardware_row(h, badge=False) for h in spares)
+        out += "".join(_hardware_row(inv, h, badge=False) for h in spares)
     return out
 
 

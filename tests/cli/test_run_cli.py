@@ -68,7 +68,7 @@ def test_gather_receives_the_exclude_option(runner, inventory, monkeypatch):
     import bastet.cli.run as run_mod
     seen = {}
 
-    def fake_gather(hosts, take, accept_new_hostkey, yes, jobs, exclude=None):
+    def fake_gather(hosts, accept_new_hostkey, yes, jobs, exclude=None):
         seen["exclude"] = exclude
     monkeypatch.setattr(run_mod.gather_mod, "_gather", fake_gather)
     result = runner.invoke(app, ["run", "-g", "--exclude", "pve1"])

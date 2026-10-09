@@ -30,29 +30,22 @@ from bastet.core import hostkeys
 from bastet.core.bootstrap import setup_command
 from bastet.core.cabling import merge_links, propose_links
 from bastet.core.networks import compare_networks, lab_networks
-from bastet.core.changes import Change
 from bastet.core.collect import Snapshot, collect, save_snapshot
 from bastet.core.config import data_dir
 from bastet.core.errors import AuthFailed, BastetError, Unreachable
 from bastet.core.facts import Extracted, extract
-from bastet.core.factsnote import facts_change
-from bastet.core.frontmatter import Document, parse_document, set_keys
+from bastet.core.factsnote import facts_change, hardware_facts_change
+from bastet.core.frontmatter import Document
 from bastet.core.unifi import device_facts, machine_item, parse_mca, redact
 from bastet.core.gatherplan import Note, plan_facts
-from bastet.core.hardware import HardwareView, RunState, observe_hardware, plan_hardware
+from bastet.core.hardware import (
+    HardwareView, RunState, hw_baseline, missing_hardware, observe_hardware, plan_hardware, set_hw_facts,
+)
 from bastet.core.inventory import Inventory
 from bastet.core.parallel import HostLog, Outcome, run_parallel
 from bastet.core.remote import SshRunner, SshTarget, run_interactive
 from bastet.core.secrets.redact import ACTIVE
 from bastet.core.shell import ProbeResult
-
-# Fields that are "fact" nature on some host type and also plausible hardware-note field names (so a
-# key that's ambiguous, e.g. firmware, still works with --take on hardware and stays silent here).
-HARDWARE_FACT_KEYS = {
-    "model", "serial", "size", "firmware", "slot", "socket", "speed", "state", "health",
-    "rotation", "make", "part", "bytes", "max_power", "max_speed", "busid", "pci",
-    "removable", "ports", "oob_address", "wearout", "bay",
-}
 
 LOCAL_ADDRESS = "127.0.0.1"
 
@@ -366,7 +359,7 @@ def _offer_guests(ctx: Context, found: list[tuple[str, dict]], yes: bool, facts_
 
 
 def _gather(
-    hosts: list[str] | None, take: list[str], accept_new_hostkey: bool, yes: bool, jobs: int | None,
+    hosts: list[str] | None, accept_new_hostkey: bool, yes: bool, jobs: int | None,
     exclude: list[str] | None = None,
 ) -> None:
     ctx = load_context()
@@ -386,11 +379,6 @@ def _gather(
         typer.echo("No hosts yet. Add one with `bastet add host`.")
         return
 
-    host_fact_keys = {k for t in ctx.types.values() for k, n in t.fields.items() if n == "fact"} - HARDWARE_FACT_KEYS
-    for key in dict.fromkeys(take):  # de-duplicated, in order
-        if key in host_fact_keys:
-            typer.echo(f"--take {key}: host facts are always taken now; nothing to do")
-    take_fields = set(take) | ({"ssh_host_key"} if accept_new_hostkey else set())
     gathered_at = _now()
     changes, notes, gathered = [], [], []
     host_warnings: dict[str, list[str]] = {}
@@ -482,7 +470,9 @@ def _gather(
                     existing=_facts_baseline(ctx.inventory, facts_acc, doc.name),
                 )
                 _set_facts(facts_acc, doc.name, update.facts)
-                hw_changes, hw_notes = plan_hardware(inv, doc, view, ctx.repo, take=take_fields, run=run_state) if view else ([], [])
+                hw_changes, hw_notes, hw_touched = (
+                    plan_hardware(inv, doc, view, run=run_state, gathered=gathered_at) if view else ([], [], False)
+                )
             except BastetError as exc:
                 typer.secho(f"{doc.name}: {exc}", fg="yellow")
                 continue
@@ -516,7 +506,7 @@ def _gather(
                 if guest.get("name") and inv.get(str(guest["name"])) is None and str(guest.get("vmid")) not in known_vmids:
                     found_guests.append((doc.name, guest))
             host_warnings[doc.name] = [n.message for n in notes if n.host == doc.name and n.severity == "warn"]
-            if update.change is None and not hw_changes:
+            if update.change is None and not hw_changes and not hw_touched:
                 typer.echo(f"{doc.name}: up to date")
             else:
                 changes.extend(hw_changes)
@@ -524,7 +514,6 @@ def _gather(
 
     linked: list[str] = []
     if unifi_devices:
-        by_path = {c.path: c for c in changes}  # hardware notes: unchanged, still a direct write
         proposals, cable_notes = propose_links(inv, ctx.types, unifi_devices)
         notes.extend(Note(host, "warn", message) for host, message in cable_notes)
         gathered_device_names = {d.lower() for d in unifi_devices}
@@ -535,38 +524,27 @@ def _gather(
                 target = inv.get(proposal_host)
                 if target is None:
                     continue
-                if target.data.get("bastet") == "hardware":
-                    pending = by_path.get(target.path)
-                    text = pending.after if pending is not None else target.path.read_text(encoding="utf-8")
-                    existing = parse_document(text, target.path).data.get("links")
-                    merged, conflicts = merge_links(existing, links)
-                    notes.extend(Note(target.name, "warn", f"link {c}; left as written") for c in conflicts)
-                    if merged is None:
-                        continue
-                    after = set_keys(text, {"links": merged}, target.path)
-                    if pending is not None:
-                        pending.after = after
-                    else:
-                        by_path[target.path] = Change(target.path, text, after)
-                        changes.append(by_path[target.path])
-                        linked.append(target.name)
-                    before = existing if isinstance(existing, list) else []
-                    notes.extend(Note(target.name, "info", f"link {link['port']} → {link['to']} port {link['to_port']}")
-                                 for link in merged[len(before):])
-                    continue
-                # A host target: observed links go to its facts note, tagged with which device saw them,
-                # so regathering that device replaces only its own entries (declared `links` on the host
-                # note still wins for the same port -- host_data merges that for readers).
+                # Observed links go to the facts note (the host's, or -- for a BMC -- the machine's own
+                # hardware note), tagged with which device saw them, so regathering that device replaces
+                # only its own entries (declared `links` on the host/hardware note still wins for the
+                # same port -- host_data/hardware_data merge that in for readers).
+                is_hardware = target.data.get("bastet") == "hardware"
+                baseline = (
+                    hw_baseline(inv, run_state, target.name) if is_hardware
+                    else _facts_baseline(ctx.inventory, facts_acc, target.name)
+                )
                 _, conflicts = merge_links(target.data.get("links"), links)
                 notes.extend(Note(target.name, "warn", f"link {c}; left as written") for c in conflicts)
-                baseline = _facts_baseline(ctx.inventory, facts_acc, target.name)
                 prior_links = baseline.get("links") if isinstance(baseline.get("links"), list) else []
                 prior_ports = {str(e.get("port")) for e in prior_links if isinstance(e, dict)}
                 tagged = [{**link, "seen_by": link_target(link["to"]) or str(link["to"])} for link in links]
                 new_links = _prune_seen_by(prior_links, gathered_device_names) + tagged
                 if new_links != prior_links:
                     linked.append(target.name)
-                _merge_facts(facts_acc, ctx.inventory, target.name, {"links": new_links})
+                if is_hardware:
+                    set_hw_facts(run_state, target.name, {**baseline, "links": new_links})
+                else:
+                    _merge_facts(facts_acc, ctx.inventory, target.name, {"links": new_links})
                 notes.extend(Note(target.name, "info", f"link {link['port']} → {link['to']} port {link['to_port']}")
                              for link in links if str(link["port"]) not in prior_ports)
             except Exception as exc:  # one host's links must not lose the rest of the run
@@ -585,6 +563,11 @@ def _gather(
                 _merge_facts(facts_acc, ctx.inventory, doc.name, {"links": kept})
                 linked.append(doc.name)
 
+    # Hardware recorded as installed somewhere this run checked, but never seen there: now that every
+    # host has been planned (and any within-run move has updated run_state.hw_facts), this can't mistake
+    # a move for a disappearance.
+    notes.extend(missing_hardware(inv, run_state, gathered_at))
+
     for note in notes:
         mark = "⚠" if note.severity == "warn" else "·"
         typer.secho(f"{mark} {note.host}: {note.message}", fg="yellow" if note.severity == "warn" else None)
@@ -592,6 +575,10 @@ def _gather(
     changes.extend(added)
     for name, facts in facts_acc.values():  # exactly one Change per facts note, built once everything merged
         change = facts_change(ctx.inventory.root, name, facts, gathered_at)
+        if change is not None:
+            changes.append(change)
+    for name, facts in run_state.hw_facts.values():  # exactly one Change per hardware item's facts note
+        change = hardware_facts_change(ctx.inventory.root, name, facts, gathered_at)
         if change is not None:
             changes.append(change)
     if changes:

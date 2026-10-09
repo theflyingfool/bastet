@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from bastet.core.errors import BastetError
-from bastet.core.factsnote import FACTS_DIR, META_KEYS, facts_path
+from bastet.core.factsnote import FACTS_DIR, META_KEYS, facts_path, hardware_facts_path
 from bastet.core.frontmatter import Document, parse_document
 from bastet.core.hosttypes import HostType
 from bastet.core.links import link_target
@@ -155,10 +155,34 @@ def _check_host(inv: Inventory, doc: Document, types: dict[str, HostType], ips: 
             ips[bare] = doc
 
 
+def _check_stale_hardware(inv: Inventory, doc: Document) -> None:
+    from bastet.core.hostview import stale_hardware_keys  # hostview builds on inventory
+
+    stale = stale_hardware_keys(doc)
+    if not stale:
+        return
+    facts = inv.facts_for(doc.name)
+    note_path = hardware_facts_path(inv.root, doc.name).relative_to(inv.root).as_posix()
+    removable = [key for key in stale if key in facts]
+    pending = [key for key in stale if key not in removable]
+    parts = []
+    if removable:
+        parts.append(f"{', '.join(removable)} are gathered facts; they now live in {note_path} (remove them from this note)")
+    if pending:
+        parts.append(
+            f"{', '.join(pending)} are gathered facts; they now live in {note_path} once gather runs "
+            f"(kept here until then, so the next gather copies them in instead of losing them)"
+        )
+    message = " ".join(parts)
+    line = doc.key_lines.get(stale[0])
+    inv.problems.append(Problem("warning", BastetError(message, file=doc.path, line=line)))
+
+
 def _check_hardware(inv: Inventory, doc: Document) -> None:
+    _check_stale_hardware(inv, doc)
     if not doc.data.get("category"):
         _add(inv, "error", "missing 'category'", doc, "bastet")
-    status = doc.data.get("status")
+    status = doc.data.get("status") or None
     if status is not None and status not in HARDWARE_STATUSES:
         _add(inv, "error", f"status '{status}' is not one of: {', '.join(HARDWARE_STATUSES)}", doc, "status")
 
@@ -220,22 +244,26 @@ def load_inventory(root: Path, types: dict[str, HostType]) -> Inventory:
             _add(inv, "error", f"'{doc.name}' is a host type; type groups are automatic, so rename this group", doc)
 
     # Index facts notes before checking hosts, so a host's stale-fact-key check below can see what its
-    # facts note already holds. The canonical note for a host is the one at `facts_path`; anything else
-    # claiming the same host (e.g. left behind by a rename) is a warning, never indexed -- so which one
-    # wins never depends on load order.
+    # facts note already holds. The canonical note for a host or hardware item is the one at
+    # `facts_path`/`hardware_facts_path`; anything else claiming the same object (e.g. left behind by a
+    # rename) is a warning, never indexed -- so which one wins never depends on load order.
     for doc in facts_docs:
-        target = link_target(doc.data.get("host"))
-        host_doc = inv.get(target) if target else None
-        if host_doc is None or host_doc.data.get("bastet") != "host":
-            _add(inv, "warning", f"no host named {target or doc.data.get('host')}", doc)
+        if "item" in doc.data:
+            kind, link_key, canonical_path = "hardware", "item", hardware_facts_path
+        else:
+            kind, link_key, canonical_path = "host", "host", facts_path
+        target = link_target(doc.data.get(link_key))
+        owner = inv.get(target) if target else None
+        if owner is None or owner.data.get("bastet") != kind:
+            _add(inv, "warning", f"no {kind} named {target or doc.data.get(link_key)}", doc)
             continue
-        canonical = facts_path(inv.root, host_doc.name)
+        canonical = canonical_path(inv.root, owner.name)
         if doc.path == canonical:
-            inv.facts[host_doc.name.lower()] = doc
+            inv.facts[owner.name.lower()] = doc
         else:
             _add(
                 inv, "warning",
-                f"{doc.name} claims host [[{host_doc.name}]], but its facts note is "
+                f"{doc.name} claims {kind} [[{owner.name}]], but its facts note is "
                 f"{canonical.relative_to(inv.root).as_posix()}; ignored",
                 doc,
             )

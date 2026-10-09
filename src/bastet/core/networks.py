@@ -122,10 +122,17 @@ def check_networks(inv: Inventory, types: dict[str, HostType]) -> None:
     vlans = set(seen_vlan)
     if not vlans:  # an untagged-only lab: nothing to check link VLANs against
         return
-    from bastet.core.hostview import host_data  # lazy: hostview builds on inventory
+    from bastet.core.hostview import hardware_data, host_data  # lazy: hostview builds on inventory
+
+    def _data(doc) -> dict:
+        if doc.data.get("bastet") == "host":
+            return host_data(inv, doc, types)
+        if doc.data.get("bastet") == "hardware":
+            return hardware_data(inv, doc)
+        return doc.data
 
     for doc in [*inv.of_kind("host"), *inv.of_kind("hardware")]:
-        links = (host_data(inv, doc, types) if doc.data.get("bastet") == "host" else doc.data).get("links")
+        links = _data(doc).get("links")
         for link in links if isinstance(links, list) else []:
             if not isinstance(link, dict):
                 continue

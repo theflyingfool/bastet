@@ -13,10 +13,14 @@ from bastet.core.render import _address, _label, _where
 
 
 def _edges(inv: Inventory, types: dict[str, HostType]) -> list[tuple[str, str, str]]:
-    from bastet.core.hostview import host_data  # lazy: hostview imports cabling
+    from bastet.core.hostview import hardware_data, host_data  # lazy: hostview imports cabling
 
     def _data(doc) -> dict:
-        return host_data(inv, doc, types) if doc.data.get("bastet") == "host" else doc.data
+        if doc.data.get("bastet") == "host":
+            return host_data(inv, doc, types)
+        if doc.data.get("bastet") == "hardware":
+            return hardware_data(inv, doc)
+        return doc.data
 
     out = []
     for doc in [*inv.of_kind("host"), *inv.of_kind("hardware")]:

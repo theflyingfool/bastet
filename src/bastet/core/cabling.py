@@ -38,7 +38,7 @@ def _host_macs(inv: Inventory, types: dict[str, HostType]) -> dict[str, tuple[st
     Physical interfaces only. A BMC is its own cable end, port "bmc", linked on its machine's hardware note
     (it belongs to the board, not the OS); it still counts as the same machine as the host's NICs.
     """
-    from bastet.core.hostview import host_data  # lazy: hostview imports cabling
+    from bastet.core.hostview import hardware_data, host_data  # lazy: hostview imports cabling
 
     out: dict[str, tuple[str, str, str]] = {}
     hosts = {d.name.lower(): d for d in inv.of_kind("host")}
@@ -54,14 +54,15 @@ def _host_macs(inv: Inventory, types: dict[str, HostType]) -> dict[str, tuple[st
             if isinstance(i, dict):
                 add(i.get("mac"), doc.name, i.get("name"))
     for hw in inv.of_kind("hardware"):
-        host = cabled.get((link_target(hw.data.get("installed_in")) or "").lower())
+        hd = hardware_data(inv, hw)
+        host = cabled.get((link_target(hd.get("installed_in")) or "").lower())
         if host is None:
             continue
         for key in ("interfaces", "ports"):
-            for i in hw.data.get(key) or []:
+            for i in hd.get(key) or []:
                 if isinstance(i, dict):
                     add(i.get("mac"), host.name, i.get("name"))
-        oob = hw.data.get("oob")
+        oob = hd.get("oob")
         if isinstance(oob, dict) and oob.get("mac"):
             add(oob["mac"], host.name, BMC_PORT, note=hw.name)
     return out
@@ -175,7 +176,9 @@ class PortRow:
 def _owner(inv: Inventory, doc) -> str:
     """Links on a hardware note (a NIC) belong to the host it's installed in."""
     if doc.data.get("bastet") == "hardware":
-        return link_target(doc.data.get("installed_in")) or doc.name
+        from bastet.core.hostview import hardware_data  # lazy: hostview imports cabling
+
+        return link_target(hardware_data(inv, doc).get("installed_in")) or doc.name
     return doc.name
 
 
@@ -197,10 +200,14 @@ def _port_key(port: str) -> tuple:
 
 
 def port_rows(inv: Inventory, types: dict[str, HostType], name: str) -> list[PortRow]:
-    from bastet.core.hostview import host_data  # lazy: hostview imports cabling
+    from bastet.core.hostview import hardware_data, host_data  # lazy: hostview imports cabling
 
     def _data(doc) -> dict:
-        return host_data(inv, doc, types) if doc.data.get("bastet") == "host" else doc.data
+        if doc.data.get("bastet") == "host":
+            return host_data(inv, doc, types)
+        if doc.data.get("bastet") == "hardware":
+            return hardware_data(inv, doc)
+        return doc.data
 
     me = name.lower()
     rows: dict[tuple[str, str, str], PortRow] = {}  # several links can share a port (a BMC sharing a NIC)

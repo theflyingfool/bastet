@@ -1,12 +1,9 @@
-from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from bastet.core.attribution import last_setter
 from bastet.core.changes import Change
 from bastet.core.facts import Extracted, propose_type
 from bastet.core.factsnote import OBSERVED_BY_OTHERS, facts_change
 from bastet.core.frontmatter import Document
-from bastet.core.gitrepo import BASTET_NAME, GitRepo
 from bastet.core.hosttypes import HostType
 from bastet.core.inventory import Inventory
 from bastet.core.units import same_value
@@ -25,45 +22,6 @@ class HostUpdate:
     change: Change | None
     notes: list[Note] = field(default_factory=list)
     facts: dict = field(default_factory=dict)
-
-
-def merge_facts(
-    doc: Document,
-    observed: dict,
-    repo: GitRepo,
-    *,
-    take: set[str],
-    nature_of: Callable[[str], str | None],
-    warn: Callable[[str], bool],
-) -> tuple[dict, list[Note]]:
-    """Per-field merge: desired fields reported, facts added or updated, hand-set values kept and attributed."""
-    updates: dict[str, object] = {}
-    notes: list[Note] = []
-    for key, value in observed.items():
-        nature = nature_of(key)
-        current = doc.data.get(key)
-        if nature == "desired":
-            if current is not None and not same_value(key, current, value):
-                notes.append(Note(doc.name, "info", f"{key}: desired {current!r}, host has {value!r} (apply will handle desired fields later)"))
-            continue
-        if nature != "fact":
-            continue
-        if current is None or key in take:
-            if current is None or not same_value(key, current, value):
-                updates[key] = value
-            continue
-        if same_value(key, current, value):
-            continue
-        setter = last_setter(repo, doc.path, key)
-        if setter is not None and setter.author == BASTET_NAME:
-            updates[key] = value
-            continue
-        who = setter.describe() if setter is not None else "set by you"
-        notes.append(Note(
-            doc.name, "warn" if warn(key) else "info",
-            f"{key}: file says {current!r} ({who}), observed {value!r}; keeping yours. Use --take {key} to accept the observed value",
-        ))
-    return updates, notes
 
 
 def plan_facts(

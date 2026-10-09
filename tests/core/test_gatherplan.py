@@ -144,15 +144,3 @@ def test_summary_embed_present_gives_no_note(repo):
     host(repo, "---\nbastet: host\ntype: laptop\nconnection: local\n---\n# h\n![[h summary]]\n")
     up = plan(repo.root, LAPTOP, "laptop")
     assert not [n for n in up.notes if "summary embed" in n.message]
-
-
-def test_merge_facts_direct(repo):
-    from bastet.core.gatherplan import merge_facts
-
-    p = host(repo, "---\nbastet: hardware\nmodel: Old\nsize: 4 TB\n---\n")
-    doc = parse_document(p.read_text(), p)
-    updates, notes = merge_facts(doc, {"model": "New", "size": "4 TB", "firmware": "1.0"}, repo,
-                                 take=set(), nature_of=lambda k: "fact", warn=lambda k: True)
-    assert updates == {"firmware": "1.0"}
-    [n] = notes
-    assert n.severity == "warn" and "model" in n.message

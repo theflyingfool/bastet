@@ -8,6 +8,7 @@ note can never beat a fresh one from the facts note.
 from bastet.core.cabling import merge_links
 from bastet.core.factsnote import OBSERVED_BY_OTHERS
 from bastet.core.frontmatter import Document
+from bastet.core.hardware import HARDWARE_YOURS
 from bastet.core.hosttypes import HostType
 from bastet.core.inventory import Inventory
 
@@ -47,3 +48,46 @@ def host_data(inv: Inventory, doc: Document, types: dict[str, HostType]) -> dict
 def stale_fact_keys(doc: Document, types: dict[str, HostType]) -> list[str]:
     fields = _fields(doc, types)
     return [key for key in doc.data if key not in IDENTITY_KEYS and fields.get(key) == "fact"]
+
+
+# Structural keys on a hardware note that are never a stale gathered key, whatever they hold:
+# `bastet`/`category` are yours by definition, the rest are Obsidian/organisational, not facts.
+HARDWARE_STRUCTURAL_KEYS = ("bastet", "category", "cssclasses", "tags", "aliases", "links")
+HARDWARE_RETIRED_STATUSES = ("failed", "retired", "sold", "spare")
+
+
+def hardware_data(inv: Inventory, doc: Document) -> dict:
+    """A hardware item's facts note overlaid with its own declared (yours) fields.
+
+    Gathered keys left on the item's own note (e.g. from before the facts-note split) are ignored here;
+    `stale_hardware_keys` is how they're reported instead.
+    """
+    data = dict(inv.facts_for(doc.name))
+    for key in (*HARDWARE_YOURS, "category"):
+        if key in doc.data:
+            data[key] = doc.data[key]
+    if "links" in doc.data:  # hand-declared, kept even before anything's ever been observed
+        data["links"] = doc.data["links"]
+    observed_links = inv.facts_for(doc.name).get("links")
+    if isinstance(observed_links, list):
+        merged, _ = merge_links(doc.data.get("links"), observed_links)
+        if merged is not None:
+            data["links"] = merged
+    return data
+
+
+def stale_hardware_keys(doc: Document) -> list[str]:
+    return [key for key in doc.data if key not in HARDWARE_YOURS and key not in HARDWARE_STRUCTURAL_KEYS]
+
+
+def missing_warning(inv: Inventory, doc: Document) -> str | None:
+    """The persistent "hasn't been seen" warning for a hardware item, or None.
+
+    Computed fresh from `missing_since` (stored in the item's facts note) and `status` (yours) every
+    time, so it survives a plain refresh and clears the moment you set the status yourself.
+    """
+    since = hardware_data(inv, doc).get("missing_since")
+    status = doc.data.get("status") or None
+    if since and status not in HARDWARE_RETIRED_STATUSES:
+        return f"{doc.name} hasn't been seen since {since} (pulled, failed or moved?)"
+    return None

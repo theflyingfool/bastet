@@ -49,9 +49,11 @@ def _bare(value: object) -> str | None:
 
 def used_addresses(inventory: Inventory) -> set[str]:
     """Fixed addresses in use; `ip: dhcp` and host names are skipped."""
+    from bastet.core.hostview import hardware_data  # lazy: hostview builds on inventory
+
     values = [d.data.get("ip") for d in inventory.of_kind("host")]
     for doc in inventory.of_kind("hardware"):
-        oob = doc.data.get("oob")
+        oob = hardware_data(inventory, doc).get("oob")
         if isinstance(oob, dict):
             values.append(oob.get("address"))
     return {bare for v in values if v and (bare := _bare(v))}

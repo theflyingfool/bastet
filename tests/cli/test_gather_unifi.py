@@ -61,7 +61,8 @@ def test_gather_unifi_writes_facts_hardware_and_links(runner, unifi_lab, tmp_pat
     assert "interface: br0" in uxg and "198.51.100" not in uxg
     assert "10.10.0.0/24 (br0) is on the gateway but not in the lab file's networks" in result.output
     hw = (unifi_lab / "hardware" / "Ubiquiti Gateway Fiber 1C0B8B000001.md").read_text()
-    assert "category: gateway" in hw and 'installed_in: "[[uxg]]"' in hw
+    assert "category: gateway" in hw
+    assert 'installed_in: "[[uxg]]"' in facts(unifi_lab, "Ubiquiti Gateway Fiber 1C0B8B000001")
     assert 'to: "[[uxg]]"' in facts(unifi_lab, "ap")
     assert "to" not in (unifi_lab / "hosts" / "ap.md").read_text()
     nas = facts(unifi_lab, "nas")

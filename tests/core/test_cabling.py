@@ -1,7 +1,8 @@
 from bastet.core.cabling import merge_links, port_rows, propose_links
-from bastet.core.factsnote import render_facts
+from bastet.core.factsnote import render_facts, render_hardware_facts
 from bastet.core.hosttypes import load_host_types
 from bastet.core.inventory import load_inventory
+from bastet.core.links import make_link
 from bastet.core.unifi import parse_mca
 from unifi_fixtures import AP, GATEWAY, GUEST_MAC, HOST_MAC, SWITCH
 
@@ -12,6 +13,16 @@ def write_facts(root, host: str, facts: dict) -> None:
     path = root / "_bastet" / "facts" / f"{host} facts.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(render_facts(host, facts, "2026-10-06T10:00:00Z"))
+
+
+def write_hw_facts(root, item: str, facts: dict) -> None:
+    """A hardware item's facts note; `installed_in`, if present, is a plain host name."""
+    data = dict(facts)
+    if "installed_in" in data:
+        data["installed_in"] = make_link(data["installed_in"]) if not str(data["installed_in"]).startswith("[[") else data["installed_in"]
+    path = root / "_bastet" / "facts" / f"{item} facts.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(render_hardware_facts(item, data, "2026-10-06T10:00:00Z"))
 
 
 def lab(tmp_path):
@@ -113,8 +124,9 @@ def test_port_rows_both_directions(tmp_path):
         '---\nbastet: host\ntype: server\nlinks:\n  - {port: eno1, to: "[[sw]]", to_port: "2", speed: 1G, vlans: [20]}\n---\n# nas\n')
     (tmp_path / "hosts" / "pve.md").write_text("---\nbastet: host\ntype: proxmox\n---\n# pve\n")
     (tmp_path / "hardware" / "X540.md").write_text(
-        '---\nbastet: hardware\ncategory: nic\ninstalled_in: "[[pve]]"\n'
+        '---\nbastet: hardware\ncategory: nic\n'
         'links:\n  - {port: enp1s0f0, to: "[[sw]]", to_port: "1", note: storage}\n---\n# X540\n')
+    write_hw_facts(tmp_path, "X540", {"installed_in": "pve"})
     rows = port_rows(load_inventory(tmp_path, TYPES), TYPES, "sw")
     assert [(r.port, r.peer, r.peer_port, r.direction) for r in rows] == [
         ("1", "pve", "enp1s0f0", "down"), ("2", "nas", "eno1", "down"), ("10", "gw", "4", "up")]
@@ -129,12 +141,12 @@ def bmc_lab(tmp_path):
     import json
     lab(tmp_path)
     (tmp_path / "hardware").mkdir()
-    (tmp_path / "hardware" / "ASRock X470.md").write_text(
-        f'---\nbastet: hardware\ncategory: server\ninstalled_in: "[[pve3]]"\noob:\n  type: ipmi\n  mac: {BMC_MAC}\n---\n')
+    (tmp_path / "hardware" / "ASRock X470.md").write_text('---\nbastet: hardware\ncategory: server\n---\n')
+    write_hw_facts(tmp_path, "ASRock X470", {"installed_in": "pve3", "oob": {"type": "ipmi", "mac": BMC_MAC}})
     (tmp_path / "hosts" / "nas.md").write_text("---\nbastet: host\ntype: server\nip: 10.10.0.20\n---\n")
     write_facts(tmp_path, "nas", {"interfaces": [{"name": "eno1", "mac": NAS_MAC}, {"name": "eno2", "mac": NAS_MAC2}]})
-    (tmp_path / "hardware" / "Supermicro X11.md").write_text(
-        f'---\nbastet: hardware\ncategory: server\ninstalled_in: "[[nas]]"\noob:\n  type: ipmi\n  mac: {BMC2_MAC}\n---\n')
+    (tmp_path / "hardware" / "Supermicro X11.md").write_text('---\nbastet: hardware\ncategory: server\n---\n')
+    write_hw_facts(tmp_path, "Supermicro X11", {"installed_in": "nas", "oob": {"type": "ipmi", "mac": BMC2_MAC}})
     sw = json.loads(SWITCH)
     sw["port_table"] += [
         {"port_idx": 1, "name": "Port 1", "media": "GE", "is_uplink": False, "mac_table": [{"mac": BMC_MAC}]},
@@ -177,7 +189,8 @@ def test_port_rows_keep_every_link_on_a_shared_port(tmp_path):
     (tmp_path / "hosts" / "nas.md").write_text(
         '---\nbastet: host\ntype: server\nlinks:\n  - {port: eno1, to: "[[sw]]", to_port: "3"}\n---\n# nas\n')
     (tmp_path / "hardware" / "Supermicro X11.md").write_text(
-        '---\nbastet: hardware\ncategory: server\ninstalled_in: "[[nas]]"\n'
+        '---\nbastet: hardware\ncategory: server\n'
         'links:\n  - {port: bmc, to: "[[sw]]", to_port: "3"}\n---\n# X11\n')
+    write_hw_facts(tmp_path, "Supermicro X11", {"installed_in": "nas"})
     rows = port_rows(load_inventory(tmp_path, TYPES), TYPES, "sw")
     assert sorted((r.port, r.peer, r.peer_port) for r in rows) == [("3", "nas", "bmc"), ("3", "nas", "eno1")]

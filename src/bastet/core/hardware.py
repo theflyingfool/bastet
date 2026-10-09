@@ -3,13 +3,11 @@
 import json
 import re
 from dataclasses import dataclass, field
-from pathlib import Path
 
 from bastet.core.changes import Change
 from bastet.core.facts import SKIP_DISKS, Extracted
-from bastet.core.frontmatter import Document, new_document, set_keys
-from bastet.core.gatherplan import Note, merge_facts
-from bastet.core.gitrepo import GitRepo
+from bastet.core.frontmatter import Document, new_document
+from bastet.core.gatherplan import Note
 from bastet.core.hwparse import (
     base_device, board_subsystem_id, clean, cpus_from_dmi, parse_ethtool, parse_firmware_info, parse_fru,
     parse_mc_info, parse_usb, psus_from_dmi, short_cpu, parse_guest_conf, parse_neigh, has_bmc, machine_from_dmi, pci_id, slot_designations, parse_disk_ids, parse_dmidecode, parse_ipmi_lan, parse_lspci,
@@ -19,7 +17,7 @@ from bastet.core.inventory import Inventory, markdown_files
 from bastet.core.links import link_target, make_link
 from bastet.core.shell import ProbeResult
 from bastet.core.units import format_size
-from bastet.core.views import ensure_page_embed, summary_embed
+from bastet.core.views import summary_embed
 
 DRIVE_TRANSPORTS = {"sata", "sas", "nvme", "ata", "scsi"}
 CARD_CLASSES = {"0300": "gpu", "0302": "gpu", "0380": "gpu", "0100": "hba", "0104": "hba", "0107": "hba", "0200": "nic"}
@@ -50,9 +48,18 @@ class HardwareView:
 
 @dataclass
 class RunState:
-    """Shared across the hosts of one gather run, so two hosts never create the same file."""
+    """Shared across the hosts of one gather run.
+
+    `claimed`/`names` keep two hosts from creating the same file. `hw_facts` is the one accumulator per
+    hardware item's facts note this run (mirrors `FactsAcc` in cli/gather.py): every host that observes
+    the item merges into the same entry, keyed by item name (lowercase) -> (its own-cased name, its
+    accumulated facts dict). `seen` and `checked` feed the end-of-run missing-hardware sweep.
+    """
     claimed: dict[str, str] = field(default_factory=dict)
     names: set[str] = field(default_factory=set)
+    hw_facts: dict[str, tuple[str, dict]] = field(default_factory=dict)
+    seen: set[str] = field(default_factory=set)
+    checked: dict[str, dict[str, bool]] = field(default_factory=dict)
 
 
 def file_name(*parts: str | None) -> str:
@@ -342,33 +349,57 @@ def _parts(host: str, link: str, dmi: list[dict], machine: dict, results: dict[s
     return items
 
 
-HARDWARE_YOURS = {"category", "status", "location", "purchased", "vendor", "price", "warranty_until", "notes"}
-HARDWARE_SPECIAL = {"bastet", "installed_in"}
+# Your hardware note's own fields -- always present (empty when unknown), never written by gather.
+# `category` is yours too, but it isn't here: it's set once, at creation, and never revisited.
+HARDWARE_YOURS = ("price", "vendor", "purchased", "location", "warranty_until", "status", "notes")
+HARDWARE_RETIRED_STATUSES = ("failed", "retired", "sold", "spare")
+_COMPLETE_KEY = {"drive": "drives", "gpu": "cards", "hba": "cards", "nic": "cards", "cpu": "cpus",
+                 "memory": "memory", "psu": "psus", "usb": "usb"}
+
+
+def hw_baseline(inv: Inventory, run: RunState, name: str) -> dict:
+    """What this run has accumulated for `name`'s facts note so far, or the note as last written."""
+    entry = run.hw_facts.get(name.lower())
+    return dict(entry[1]) if entry is not None else dict(inv.facts_for(name))
+
+
+def set_hw_facts(run: RunState, name: str, facts: dict) -> None:
+    run.hw_facts[name.lower()] = (name, facts)
 
 
 def _index(inv: Inventory) -> dict[str, Document]:
+    """Match keys for existing hardware, built from each item's facts note -- falling back to a serial
+    still hand-set on an old (pre-split) hardware note, the way `ssh_host_key` falls back on hosts."""
     index: dict[str, Document] = {}
     for doc in inv.of_kind("hardware"):
-        target = (link_target(doc.data.get("installed_in")) or "").lower()
-        if doc.data.get("serial"):
-            index[f"serial:{str(doc.data['serial']).lower()}"] = doc
-        if doc.data.get("phys_slot") and target:
-            index[f"slot:{target}:{doc.data['phys_slot']}"] = doc
-        if doc.data.get("pci") and target:
-            index.setdefault(f"pci:{target}:{doc.data['pci']}", doc)
+        facts = inv.facts_for(doc.name)
+        serial = facts.get("serial") or doc.data.get("serial")
+        target = (link_target(facts.get("installed_in") or doc.data.get("installed_in")) or "").lower()
+        if serial:
+            index[f"serial:{str(serial).lower()}"] = doc
+        phys_slot = facts.get("phys_slot") or doc.data.get("phys_slot")
+        if phys_slot and target:
+            index[f"slot:{target}:{phys_slot}"] = doc
+        pci = facts.get("pci") or doc.data.get("pci")
+        if pci and target:
+            index.setdefault(f"pci:{target}:{pci}", doc)
         if target and doc.data.get("category") in MACHINE_CATEGORIES:
             index.setdefault(f"machine-any:{target}", doc)
-            if not doc.data.get("serial"):
+            if not serial:
                 index.setdefault(f"machine:{target}", doc)
-        category, serial = doc.data.get("category"), doc.data.get("serial")
-        if category == "usb" and doc.data.get("usb_id"):
+        category = doc.data.get("category")
+        usb_id = facts.get("usb_id") or doc.data.get("usb_id")
+        if category == "usb" and usb_id:
             if serial:
-                index.setdefault(f"usb:{doc.data['usb_id']}:{str(serial).lower()}", doc)
-            elif target and doc.data.get("usb_port"):
-                index.setdefault(f"usb:{target}:{doc.data['usb_id']}:{doc.data['usb_port']}", doc)
+                index.setdefault(f"usb:{usb_id}:{str(serial).lower()}", doc)
+            elif target and (usb_port := facts.get("usb_port") or doc.data.get("usb_port")):
+                index.setdefault(f"usb:{target}:{usb_id}:{usb_port}", doc)
         elif target:
-            fallback = {"cpu": ("cpu", doc.data.get("socket")), "memory": ("dimm", doc.data.get("slot")),
-                        "psu": ("psu", doc.data.get("name") or doc.data.get("model"))}.get(str(category))
+            fallback = {
+                "cpu": ("cpu", facts.get("socket") or doc.data.get("socket")),
+                "memory": ("dimm", facts.get("slot") or doc.data.get("slot")),
+                "psu": ("psu", facts.get("name") or doc.data.get("name") or facts.get("model") or doc.data.get("model")),
+            }.get(str(category))
             if fallback and fallback[1]:
                 index.setdefault(f"{fallback[0]}:{target}:{str(fallback[1]).lower()}", doc)
     return index
@@ -378,19 +409,24 @@ def plan_hardware(
     inv: Inventory,
     host_doc: Document,
     view: HardwareView,
-    repo: GitRepo,
     *,
-    take: set[str],
-    run: RunState | None = None,
-) -> tuple[list[Change], list[Note]]:
+    run: RunState,
+    gathered: str,
+) -> tuple[list[Change], list[Note], bool]:
+    """Plan this host's hardware. Returns (new-item-note Changes, notes, whether anything changed).
+
+    Existing items never get a Change here: their facts are merged into `run.hw_facts`, one accumulator
+    per item's facts note for the whole run (see `RunState`), so gather.py can build exactly one Change
+    per note once every host has been planned. `missing_hardware` does the same for items not seen.
+    """
     host = host_doc.name
-    run = run if run is not None else RunState()
     index = _index(inv)
     if not run.names:
         run.names.update(p.stem.lower() for p in markdown_files(inv.root))
     changes: list[Change] = []
     notes: list[Note] = [Note(host, "warn", n) for n in view.notes] + [Note(host, "info", h) for h in view.hints]
-    seen: set[Path] = set()
+    run.checked[host.lower()] = dict(view.complete)
+    touched = False
 
     for obs in view.items:
         if obs.key in run.claimed and run.claimed[obs.key] != host:
@@ -400,47 +436,71 @@ def plan_hardware(
         doc = index.get(obs.key)
         if doc is None and obs.alt and index.get(obs.alt) is not None:
             candidate = index[obs.alt]
-            if not candidate.data.get("serial") or str(candidate.data["serial"]).lower() == str(obs.data.get("serial")).lower():
+            baseline = hw_baseline(inv, run, candidate.name)
+            candidate_serial = baseline.get("serial") or candidate.data.get("serial")
+            if not candidate_serial or str(candidate_serial).lower() == str(obs.data.get("serial")).lower():
                 doc = candidate
         if doc is None and obs.data.get("category") in MACHINE_CATEGORIES:
             fallback = "machine-any" if obs.key.startswith("machine:") else "machine"
             doc = index.get(f"{fallback}:{host.lower()}")
+
+        observed = {k: v for k, v in obs.data.items() if k not in ("bastet", "category", "status")}
         if doc is None:
             name, n = obs.name, 2
             while name.lower() in run.names:
                 name, n = f"{obs.name} {n}", n + 1
             run.names.add(name.lower())
+            run.seen.add(name.lower())
             body = f"# {name}\n\n{summary_embed(name)}\n"
-            data = {**obs.data, "cssclasses": ["bastet-host"]}
-            changes.append(Change(inv.root / "hardware" / f"{name}.md", None, new_document(data, body)))
+            your_data: dict[str, object] = {
+                "bastet": "hardware", "category": obs.data.get("category", "machine"), "cssclasses": ["bastet-host"]
+            }
+            your_data.update(dict.fromkeys(HARDWARE_YOURS, ""))
+            changes.append(Change(inv.root / "hardware" / f"{name}.md", None, new_document(your_data, body)))
+            set_hw_facts(run, name, observed)
+            touched = True
             continue
-        seen.add(doc.path)
-        observed = {k: v for k, v in obs.data.items() if k not in HARDWARE_YOURS | HARDWARE_SPECIAL | {"cssclasses"}}
-        updates, fact_notes = merge_facts(doc, observed, repo, take=take, nature_of=lambda k: "fact", warn=lambda k: True)
-        notes.extend(fact_notes)
-        current = link_target(doc.data.get("installed_in"))
+
+        run.seen.add(doc.name.lower())
+        baseline = hw_baseline(inv, run, doc.name)
+        merged = dict(observed)
+        merged.pop("missing_since", None)  # seen again: clear any standing "not seen" flag
+        if merged != {k: v for k, v in baseline.items() if k != "missing_since"}:
+            touched = True
+        set_hw_facts(run, doc.name, merged)
+        current = link_target(baseline.get("installed_in"))
         if (current or "").lower() != host.lower():
-            updates["installed_in"] = make_link(host)
             where = f"moved from [[{current}]] to [[{host}]]" if current else f"is now installed in [[{host}]]"
             notes.append(Note(host, "info", f"{doc.name} {where}"))
-        status = doc.data.get("status")
+        status = doc.data.get("status") or None
         if status not in (None, "in-service"):
             notes.append(Note(host, "warn", f"{doc.name} has status '{status}' but is installed in {host}; update it if that's wrong"))
-        if not doc.data.get("cssclasses"):
-            updates["cssclasses"] = ["bastet-host"]
-        text = doc.path.read_text(encoding="utf-8")
-        new_text = set_keys(text, updates, doc.path) if updates else text
-        new_text = ensure_page_embed(new_text, summary_embed(doc.name))
-        if new_text != text:
-            changes.append(Change(doc.path, text, new_text))
 
+    return changes, notes, touched
+
+
+def missing_hardware(inv: Inventory, run: RunState, gathered: str) -> list[Note]:
+    """Once every host this run has been planned: hardware recorded as installed somewhere this run
+    checked, but never seen there. Sets (or keeps) `missing_since` in the item's facts note; clearing
+    happens where the item is actually seen (in `plan_hardware`) or when its status is retired by hand.
+    """
+    notes: list[Note] = []
+    today = gathered[:10]
     for doc in inv.of_kind("hardware"):
-        if doc.path in seen or (link_target(doc.data.get("installed_in")) or "").lower() != host.lower():
+        if doc.name.lower() in run.seen:
             continue
-        category = doc.data.get("category")
-        complete_key = {"drive": "drives", "gpu": "cards", "hba": "cards", "nic": "cards", "cpu": "cpus",
-                        "memory": "memory", "psu": "psus", "usb": "usb"}.get(str(category))
-        checked = bool(complete_key and view.complete.get(complete_key))
-        if checked:
-            notes.append(Note(host, "warn", f"{doc.name} is recorded in {host} but wasn't seen (pulled, failed or moved?); its file is unchanged"))
-    return changes, notes
+        baseline = hw_baseline(inv, run, doc.name)
+        host = link_target(baseline.get("installed_in"))
+        if not host:
+            continue
+        checked = run.checked.get(host.lower())
+        key = _COMPLETE_KEY.get(str(doc.data.get("category")))
+        if not (checked and key and checked.get(key)):
+            continue
+        status = doc.data.get("status") or None
+        if status in HARDWARE_RETIRED_STATUSES:
+            continue
+        if not baseline.get("missing_since"):
+            set_hw_facts(run, doc.name, {**baseline, "missing_since": today})
+        notes.append(Note(host, "warn", f"{doc.name} is recorded in {host} but wasn't seen (pulled, failed or moved?); its file is unchanged"))
+    return notes

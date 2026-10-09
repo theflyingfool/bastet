@@ -14,7 +14,7 @@ from bastet.core.links import make_link
 from bastet.core.views import summary_embed
 
 FACTS_DIR = "_bastet/facts"
-META_KEYS = ("bastet", "host", "gathered", "cssclasses")
+META_KEYS = ("bastet", "host", "item", "gathered", "cssclasses")
 # Keys a host's *own* gather never produces -- they're observed by something else (a Proxmox node
 # seeing a guest's vmid; a UniFi device seeing a host's cabling) -- so a direct gather of the host
 # itself must keep whatever is already there instead of wiping it.
@@ -68,6 +68,44 @@ def facts_change(root: Path, host: str, facts: dict, gathered: str) -> Change | 
         if existing is not None and _facts_only(existing.data) == facts:
             return None
     after = render_facts(host, facts, gathered)
+    if before == after:
+        return None
+    return Change(path, before, after)
+
+
+def hardware_facts_path(root: Path, item: str) -> Path:
+    return root / FACTS_DIR / f"{item} facts.md"
+
+
+def render_hardware_facts(item: str, facts: dict, gathered: str) -> str:
+    data: dict[str, object] = {
+        "bastet": "facts",
+        "item": make_link(item),
+        "gathered": gathered,
+        "cssclasses": ["bastet-facts"],
+    }
+    for key in sorted(facts):
+        data[key] = facts[key]
+    body = (
+        f"# {item} facts\n\n"
+        f"Written by Bastet on every gather; don't edit. Your settings live in [[{item}]].\n\n"
+        f"{summary_embed(item)}\n"
+    )
+    return new_document(data, body)
+
+
+def hardware_facts_change(root: Path, item: str, facts: dict, gathered: str) -> Change | None:
+    """A Change to write `facts` to a hardware item's facts note, or None if only `gathered` would differ."""
+    path = hardware_facts_path(root, item)
+    before = path.read_text(encoding="utf-8") if path.exists() else None
+    if before is not None:
+        try:
+            existing = parse_document(before, path)
+        except BastetError:
+            existing = None
+        if existing is not None and _facts_only(existing.data) == facts:
+            return None
+    after = render_hardware_facts(item, facts, gathered)
     if before == after:
         return None
     return Change(path, before, after)

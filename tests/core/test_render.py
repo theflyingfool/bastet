@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from bastet.core.changes import write_changes
-from bastet.core.factsnote import facts_path, render_facts
+from bastet.core.factsnote import facts_path, hardware_facts_path, render_facts, render_hardware_facts
 from bastet.core.frontmatter import parse_document
 from bastet.core.gitrepo import GitRepo
 from bastet.core.hosttypes import load_host_types
@@ -25,17 +25,13 @@ FILES = {
         "---\nbastet: host\ntype: vps\nprovider: linode\nip: 203.0.113.10\nlocation: \"[[Linode]]\"\n---\n# vps1\n"
     ),
     "hardware/Supermicro SYS-5019C-MR S123456X.md": (
-        "---\nbastet: hardware\ncategory: server\nmake: Supermicro\nmodel: SYS-5019C-MR\nserial: S123456X\nstatus: in-service\n"
-        "installed_in: \"[[pve1]]\"\nboard: Supermicro X11SCM-F\nbios: AMI 3.4 (03/21/2023)\nmemory_slots: 2 of 4 used\n"
-        "memory:\n  - slot: DIMMA1\n    size: 32 GB\n  - slot: DIMMB1\n    size: 32 GB\noob_address: 10.0.10.9\n"
-        "oob:\n  type: ipmi\n  address: 10.0.10.9\n---\n# m\n"
+        "---\nbastet: hardware\ncategory: server\nstatus: in-service\n---\n# m\n"
     ),
     "hardware/WDC WD40EFRX WD-1.md": (
-        "---\nbastet: hardware\ncategory: drive\nmodel: WDC WD40EFRX\nserial: WD-1\nsize: 4 TB\nmedia: hdd\ninterface: sata\n"
-        "health: passed\nfirmware: 82.00A82\npool: tank\nstatus: in-service\ninstalled_in: \"[[pve1]]\"\n---\n# d\n"
+        "---\nbastet: hardware\ncategory: drive\nstatus: in-service\n---\n# d\n"
     ),
     "hardware/Spare WD.md": (
-        "---\nbastet: hardware\ncategory: drive\nmodel: WDC WD40EFRX\nserial: WD-2\nsize: 4 TB\nstatus: spare\n"
+        "---\nbastet: hardware\ncategory: drive\nstatus: spare\n"
         "location: \"[[Closet]]\"\nwarranty_until: 2026-11-01\n---\n# s\n"
     ),
 }
@@ -47,6 +43,19 @@ FACTS = {
     },
     "git1": {"os": "Debian 13"},
     "vps1": {"os": "Arch Linux", "ram": "1 GB", "virtualization": "kvm", "chassis": "vm"},
+}
+
+HW_FACTS = {
+    "Supermicro SYS-5019C-MR S123456X": {
+        "make": "Supermicro", "model": "SYS-5019C-MR", "serial": "S123456X", "installed_in": "pve1",
+        "board": "Supermicro X11SCM-F", "bios": "AMI 3.4 (03/21/2023)", "memory_slots": "2 of 4 used",
+        "memory": [{"slot": "DIMMA1", "size": "32 GB"}, {"slot": "DIMMB1", "size": "32 GB"}],
+        "oob_address": "10.0.10.9", "oob": {"type": "ipmi", "address": "10.0.10.9"},
+    },
+    "WDC WD40EFRX WD-1": {
+        "model": "WDC WD40EFRX", "serial": "WD-1", "size": "4 TB", "media": "hdd", "interface": "sata",
+        "health": "passed", "firmware": "82.00A82", "pool": "tank", "installed_in": "pve1",
+    },
 }
 
 
@@ -64,6 +73,31 @@ def add_facts(root: Path, host: str, extra: dict) -> None:
     write_facts(root, host, {**facts, **extra})
 
 
+def write_hw_facts(root: Path, item: str, facts: dict) -> Path:
+    """A hardware item's facts note -- the gathered side of a hardware item, paired with its own note.
+
+    `installed_in`, if present, is a plain host name; it's linked for you, the way gather itself does.
+    """
+    from bastet.core.links import make_link
+
+    data = dict(facts)
+    if "installed_in" in data:
+        data["installed_in"] = make_link(data["installed_in"]) if not str(data["installed_in"]).startswith("[[") else data["installed_in"]
+    path = hardware_facts_path(root, item)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(render_hardware_facts(item, data, "2026-10-06T10:00:00Z"))
+    return path
+
+
+def add_hw_facts(root: Path, item: str, extra: dict) -> None:
+    """Merge `extra` into a hardware item's existing facts note."""
+    from bastet.core.factsnote import META_KEYS
+
+    current = parse_document(hardware_facts_path(root, item).read_text(), hardware_facts_path(root, item))
+    facts = {k: v for k, v in current.data.items() if k not in META_KEYS}
+    write_hw_facts(root, item, {**facts, **extra})
+
+
 @pytest.fixture
 def repo(tmp_path) -> GitRepo:
     for rel, text in FILES.items():
@@ -74,6 +108,8 @@ def repo(tmp_path) -> GitRepo:
     for host, facts in FACTS.items():
         write_facts(tmp_path, host, facts)
         fact_paths.append(facts_path(tmp_path, host))
+    for item, facts in HW_FACTS.items():
+        fact_paths.append(write_hw_facts(tmp_path, item, facts))
     r = GitRepo(tmp_path)
     r.init()
     subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
@@ -193,11 +229,13 @@ def test_installed_snippet_is_kept_current(repo):
 
 
 def test_ports_shown_on_host_and_machine_pages(repo):
-    m = repo.root / "hardware" / "Supermicro SYS-5019C-MR S123456X.md"
-    m.write_text(m.read_text().replace("oob_address:", "interfaces:\n  - name: eno1\n    mac: aa:aa:aa:aa:aa:01\n  - name: eno2\n    mac: aa:aa:aa:aa:aa:02\noob_address:"))
-    (repo.root / "hardware" / "pve1 X710.md").write_text(
-        '---\nbastet: hardware\ncategory: nic\nmodel: X710-2\nports:\n  - name: enp1s0f0\n  - name: enp1s0f1\n'
-        'status: in-service\ninstalled_in: "[[pve1]]"\n---\n# c\n')
+    add_hw_facts(repo.root, "Supermicro SYS-5019C-MR S123456X", {
+        "interfaces": [{"name": "eno1", "mac": "aa:aa:aa:aa:aa:01"}, {"name": "eno2", "mac": "aa:aa:aa:aa:aa:02"}],
+    })
+    (repo.root / "hardware" / "pve1 X710.md").write_text('---\nbastet: hardware\ncategory: nic\nstatus: in-service\n---\n# c\n')
+    write_hw_facts(repo.root, "pve1 X710", {
+        "model": "X710-2", "ports": [{"name": "enp1s0f0"}, {"name": "enp1s0f1"}], "installed_in": "pve1",
+    })
     i = inv(repo)
     host = host_summary(i, i.get("pve1"), TYPES, [])
     assert "[!stat] Ports" in host and "**4**" in host and "eno1, eno2, enp1s0f0, enp1s0f1" in host
@@ -206,13 +244,18 @@ def test_ports_shown_on_host_and_machine_pages(repo):
 
 
 def test_new_category_summaries_and_cards(repo):
-    (repo.root / "hardware" / "cpu.md").write_text('---\nbastet: hardware\ncategory: cpu\nmodel: AMD Ryzen 9 5950X 16-Core Processor\ncores: 16\nthreads: 32\nsocket: AM4\nstatus: in-service\ninstalled_in: "[[pve1]]"\n---\n')
-    (repo.root / "hardware" / "psu.md").write_text('---\nbastet: hardware\ncategory: psu\nmodel: PWS-504P-1R\nmax_power: 500 W\nstatus: in-service\ninstalled_in: "[[pve1]]"\n---\n')
-    (repo.root / "hardware" / "dimm.md").write_text('---\nbastet: hardware\ncategory: memory\nmodel: M391A4G43MB1-CTD\nsize: 32 GB\ntype: DDR4\nslot: DIMMA1\nstatus: in-service\ninstalled_in: "[[pve1]]"\n---\n')
-    (repo.root / "hardware" / "stick.md").write_text('---\nbastet: hardware\ncategory: usb\nmodel: ConBee II\nusb_id: 1cf1:0030\nstatus: in-service\ninstalled_in: "[[pve1]]"\n---\n')
+    (repo.root / "hardware" / "cpu.md").write_text('---\nbastet: hardware\ncategory: cpu\nstatus: in-service\n---\n')
+    write_hw_facts(repo.root, "cpu", {
+        "model": "AMD Ryzen 9 5950X 16-Core Processor", "cores": 16, "threads": 32, "socket": "AM4", "installed_in": "pve1",
+    })
+    (repo.root / "hardware" / "psu.md").write_text('---\nbastet: hardware\ncategory: psu\nstatus: in-service\n---\n')
+    write_hw_facts(repo.root, "psu", {"model": "PWS-504P-1R", "max_power": "500 W", "installed_in": "pve1"})
+    (repo.root / "hardware" / "dimm.md").write_text('---\nbastet: hardware\ncategory: memory\nstatus: in-service\n---\n')
+    write_hw_facts(repo.root, "dimm", {"model": "M391A4G43MB1-CTD", "size": "32 GB", "type": "DDR4", "slot": "DIMMA1", "installed_in": "pve1"})
+    (repo.root / "hardware" / "stick.md").write_text('---\nbastet: hardware\ncategory: usb\nstatus: in-service\n---\n')
+    write_hw_facts(repo.root, "stick", {"model": "ConBee II", "usb_id": "1cf1:0030", "installed_in": "pve1"})
     add_facts(repo.root, "pve1", {"bridges": [{"name": "vmbr0", "ports": ["eno1"]}]})
-    m = repo.root / "hardware" / "Supermicro SYS-5019C-MR S123456X.md"
-    m.write_text(m.read_text().replace("oob_address:", "boot: uefi\ntpm: TPM 2.0\nsecure_boot: disabled\noob_address:"))
+    add_hw_facts(repo.root, "Supermicro SYS-5019C-MR S123456X", {"boot": "uefi", "tpm": "TPM 2.0", "secure_boot": "disabled"})
     i = inv(repo)
     cpu = hardware_summary(i, i.get("cpu"))
     assert "[!stat] CPU" in cpu and "AMD Ryzen 9 5950X 16-Core" in cpu and "16 cores · 32 threads" in cpu
@@ -275,7 +318,8 @@ def test_generated_group_removed_when_user_note_takes_the_name(repo):
 
 def test_dashboard_lists_every_machine_spares_and_embeds_maps(repo):
     (repo.root / "hardware" / "HP Spectre 5CD.md").write_text(
-        '---\nbastet: hardware\ncategory: laptop\nmake: HP\nmodel: Spectre x360\nstatus: in-service\ninstalled_in: "[[vps1]]"\n---\n# x\n')
+        '---\nbastet: hardware\ncategory: laptop\nstatus: in-service\n---\n# x\n')
+    write_hw_facts(repo.root, "HP Spectre 5CD", {"make": "HP", "model": "Spectre x360", "installed_in": "vps1"})
     (repo.root / "hosts" / "nas.md").write_text(
         '---\nbastet: host\ntype: server\nlinks:\n  - {port: eno1, to: "[[pve1]]", to_port: "3"}\n---\n# nas\n')
     text = dashboard(inv(repo), TYPES, {}, [])
@@ -292,9 +336,11 @@ def test_where_map_is_generated(repo):
 
 def test_hardware_table_includes_network_devices_without_repeating_the_make(repo):
     (repo.root / "hardware" / "Ubiquiti Gateway Fiber X.md").write_text(
-        '---\nbastet: hardware\ncategory: gateway\nmake: Ubiquiti\nmodel: Gateway Fiber\nstatus: in-service\n---\n# g\n')
+        '---\nbastet: hardware\ncategory: gateway\nstatus: in-service\n---\n# g\n')
+    write_hw_facts(repo.root, "Ubiquiti Gateway Fiber X", {"make": "Ubiquiti", "model": "Gateway Fiber"})
     (repo.root / "hardware" / "HP Spectre 5CD.md").write_text(
-        '---\nbastet: hardware\ncategory: laptop\nmake: HP\nmodel: HP Spectre x360\nstatus: in-service\n---\n# x\n')
+        '---\nbastet: hardware\ncategory: laptop\nstatus: in-service\n---\n# x\n')
+    write_hw_facts(repo.root, "HP Spectre 5CD", {"make": "HP", "model": "HP Spectre x360"})
     hardware = dashboard(inv(repo), TYPES, {}, [])
     hardware = hardware[hardware.index("## Hardware"):]
     assert "[[Ubiquiti Gateway Fiber X]]" in hardware and "| HP Spectre x360 |" in hardware

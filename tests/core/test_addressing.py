@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from bastet.core.addressing import suggest_address, used_addresses
+from bastet.core.factsnote import render_hardware_facts
 from bastet.core.hosttypes import load_host_types
 from bastet.core.inventory import load_inventory
 
@@ -30,8 +31,11 @@ def test_exhausted_returns_none():
 def test_used_addresses_strip_prefix_length(tmp_path: Path):
     (tmp_path / "a.md").write_text("---\nbastet: host\ntype: server\nip: 10.0.10.11/24\n---\n")
     (tmp_path / "c.md").write_text("---\nbastet: host\ntype: laptop\nip: dhcp\n---\n")
-    (tmp_path / "b.md").write_text(
-        "---\nbastet: hardware\ncategory: server\noob:\n  type: ipmi\n  address: 10.0.10.9\n---\n"
+    (tmp_path / "b.md").write_text("---\nbastet: hardware\ncategory: server\n---\n")
+    facts_dir = tmp_path / "_bastet" / "facts"
+    facts_dir.mkdir(parents=True)
+    (facts_dir / "b facts.md").write_text(
+        render_hardware_facts("b", {"oob": {"type": "ipmi", "address": "10.0.10.9"}}, "2026-10-06T10:00:00Z")
     )
     inv = load_inventory(tmp_path, load_host_types())
     assert used_addresses(inv) == {"10.0.10.11", "10.0.10.9"}

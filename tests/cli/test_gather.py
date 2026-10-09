@@ -207,13 +207,6 @@ def test_host_fact_on_note_is_silently_overwritten_no_attribution(runner, laptop
     assert "Tester" not in result.output and "--take ram" not in result.output
 
 
-def test_take_on_a_host_fact_is_a_no_op_note(runner, laptop):
-    result = runner.invoke(app, ["run", "-g", "--take", "ram", "-y"])
-    assert result.exit_code == 0, result.output
-    assert "--take ram: host facts are always taken now; nothing to do" in result.output
-    assert "ram: 16 GB" in facts(laptop, "hp-13")
-
-
 def test_vps_first_contact_refused_with_yes(runner, vps):
     result = runner.invoke(app, ["run", "-g", "vps1", "-y"])
     assert result.exit_code == 0 and "first contact" in result.output
@@ -534,8 +527,8 @@ def test_missing_tools_installed_when_confirmed_and_recorded(runner, inventory, 
     assert result.exit_code == 0, result.output
     assert "install ipmitool" in result.output and len(fake.installs) == 1
     assert "bastet_tools:\n  - ipmitool\n" in facts(inventory, "pve3")
-    machine = next((inventory / "hardware").glob("ASRockRack*.md")).read_text()
-    assert "oob_address: 10.0.10.9" in machine
+    name = next((inventory / "hardware").glob("ASRockRack*.md")).stem
+    assert "oob_address: 10.0.10.9" in facts(inventory, name)
 
 
 def test_tools_not_installed_with_yes_by_default_or_when_host_opts_out(runner, inventory, monkeypatch):

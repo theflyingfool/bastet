@@ -542,7 +542,6 @@ def run(
     gather: bool = typer.Option(False, "--gather", "-g", help="Collect facts from hosts and write them into their files, after showing the diff."),
     apply_: bool = typer.Option(False, "--apply", "-a", help="With --gather, also apply (in the same run) after gathering."),
     exclude: list[str] = typer.Option([], "--exclude", help="Exclude hosts (same forms as the selector). Repeatable."),
-    take: list[str] = typer.Option([], "--take", help="Gather only: accept the observed value of this field even if you set it. Repeatable."),
     accept_new_hostkey: bool = typer.Option(False, "--accept-new-hostkey", help="Trust a new or changed host key (e.g. after a reinstall)."),
     yes: bool = typer.Option(False, "--yes", "-y", help="Don't ask; go ahead with the defaults."),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show compliant items for every host."),
@@ -558,7 +557,7 @@ def run(
     with guard_prompts():
         if gather:
             try:
-                gather_mod._gather(hosts, take, accept_new_hostkey, yes, jobs, exclude=exclude)
+                gather_mod._gather(hosts, accept_new_hostkey, yes, jobs, exclude=exclude)
             except KeyboardInterrupt:
                 typer.secho("interrupted; nothing written", fg="yellow")
                 raise typer.Exit(1) from None
