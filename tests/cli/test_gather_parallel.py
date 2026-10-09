@@ -70,7 +70,7 @@ def test_collect_runs_at_once_with_dash_j_3(runner, three_hosts, monkeypatch):
     monkeypatch.setattr(
         gather_mod, "ssh_runner", lambda target: BlockingRunner(dict(LAPTOP, hostname=target.address), barrier)
     )
-    result = runner.invoke(app, ["gather", "h1", "h2", "h3", "-y", "-j", "3"])
+    result = runner.invoke(app, ["run", "-g", "h1", "h2", "h3", "-y", "-j", "3"])
     assert result.exit_code == 0, result.output
     for name in ("h1", "h2", "h3"):
         assert "os: Arch Linux" in facts(three_hosts, name)
@@ -83,7 +83,7 @@ def test_collect_runs_serially_with_dash_j_1(runner, three_hosts, monkeypatch):
     monkeypatch.setattr(
         gather_mod, "ssh_runner", lambda target: BlockingRunner(dict(LAPTOP, hostname=target.address), barrier)
     )
-    result = runner.invoke(app, ["gather", "h1", "h2", "h3", "-y", "-j", "1"])
+    result = runner.invoke(app, ["run", "-g", "h1", "h2", "h3", "-y", "-j", "1"])
     assert result.exit_code == 0, result.output
     assert result.output.count("unexpected error") == 3
     for name in ("h1", "h2", "h3"):
@@ -151,7 +151,7 @@ def test_prompts_all_asked_on_main_thread(runner, inventory, secret_keys, monkey
 
     monkeypatch.setattr(__import__("typer"), "confirm", spy_confirm)
 
-    result = runner.invoke(app, ["gather", "first", "setup", "tools"], input="y\ny\ny\ny\n")
+    result = runner.invoke(app, ["run", "-g", "first", "setup", "tools"], input="y\ny\ny\ny\n")
     assert result.exit_code == 0, result.output
     assert "first contact" in result.output
     assert "not set up" in result.output
@@ -186,7 +186,7 @@ def test_one_host_unexpected_error_does_not_stop_others(runner, three_hosts, mon
         return OkRunner(target.address)
 
     monkeypatch.setattr(gather_mod, "ssh_runner", ssh_runner)
-    result = runner.invoke(app, ["gather", "h1", "h2", "h3", "-y"])
+    result = runner.invoke(app, ["run", "-g", "h1", "h2", "h3", "-y"])
     assert result.exit_code == 0, result.output
     assert "unexpected error: ValueError: disk on fire" in result.output
     assert facts(three_hosts, "h1") == ""
@@ -273,7 +273,7 @@ def test_dash_j_1_and_dash_j_3_give_identical_results(runner, tmp_path, monkeypa
         gather_mod, "ssh_runner",
         lambda target: FakeRunner(dict(LAPTOP, hostname=target.address), f"{target.user}@{target.address}"),
     )
-    result_a = runner.invoke(app, ["gather", "-y", "-j", "1"])
+    result_a = runner.invoke(app, ["run", "-g", "-y", "-j", "1"])
     assert result_a.exit_code == 0, result_a.output
     refresh_a = runner.invoke(app, ["refresh"])
     assert refresh_a.exit_code == 0, refresh_a.output
@@ -286,7 +286,7 @@ def test_dash_j_1_and_dash_j_3_give_identical_results(runner, tmp_path, monkeypa
             dict(LAPTOP, hostname=target.address), f"{target.user}@{target.address}", target.address
         ),
     )
-    result_b = runner.invoke(app, ["gather", "-y", "-j", "3"])
+    result_b = runner.invoke(app, ["run", "-g", "-y", "-j", "3"])
     assert result_b.exit_code == 0, result_b.output
     refresh_b = runner.invoke(app, ["refresh"])
     assert refresh_b.exit_code == 0, refresh_b.output
@@ -321,7 +321,7 @@ def test_ctrl_c_prints_interrupted_nothing_written_and_exits_nonzero(runner, thr
 
     monkeypatch.setattr(gather_mod, "_echo_outcome", flaky_echo_outcome)
 
-    result = runner.invoke(app, ["gather", "h1", "h2", "h3", "-y", "-j", "1"])
+    result = runner.invoke(app, ["run", "-g", "h1", "h2", "h3", "-y", "-j", "1"])
 
     assert result.exit_code == 1
     assert "interrupted; nothing written" in result.output

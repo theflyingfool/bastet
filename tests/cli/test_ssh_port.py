@@ -55,7 +55,7 @@ def test_gather_pins_and_connects_on_the_port(inventory, monkeypatch):
     _ssh_role(inventory, "[2200]")
     from typer.testing import CliRunner
     from bastet.cli.app import app
-    CliRunner().invoke(app, ["gather", "pve1", "-y"])
+    CliRunner().invoke(app, ["run", "-g", "pve1", "-y"])
     assert seen["scan"] == 2200
 
 

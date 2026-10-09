@@ -53,7 +53,7 @@ def facts(root: Path, name: str) -> str:
 
 
 def test_gather_unifi_writes_facts_hardware_and_links(runner, unifi_lab, tmp_path):
-    result = runner.invoke(app, ["gather", "uxg", "ap", "sw", "-y"])
+    result = runner.invoke(app, ["run", "-g", "uxg", "ap", "sw", "-y"])
     assert result.exit_code == 0, result.output
     uxg = facts(unifi_lab, "uxg")
     assert "firmware: 6.0.10" in uxg and "mac: 02:00:00:00:00:01" in uxg and "media: SFP+" in uxg
@@ -70,13 +70,13 @@ def test_gather_unifi_writes_facts_hardware_and_links(runner, unifi_lab, tmp_pat
     assert "links" not in nas_note
     snaps = list((tmp_path / "data" / "bastet" / "snapshots" / "uxg").glob("*.json"))
     assert snaps and "SECRET-AUTHKEY" not in snaps[0].read_text()
-    again = runner.invoke(app, ["gather", "uxg", "ap", "sw", "-y"])
+    again = runner.invoke(app, ["run", "-g", "uxg", "ap", "sw", "-y"])
     assert again.exit_code == 0 and (unifi_lab / "hosts" / "nas.md").read_text() == nas_note
 
 
 def test_device_without_mca_dump_is_an_error(runner, unifi_lab):
     (unifi_lab / "hosts" / "odd.md").write_text(f"---\nbastet: host\ntype: unifi-switch\nip: 10.10.0.9\ngather: true\nssh_host_key: {REC}\n---\n# odd\n")
-    result = runner.invoke(app, ["gather", "odd", "uxg", "-y"])
+    result = runner.invoke(app, ["run", "-g", "odd", "uxg", "-y"])
     assert "odd: mca-dump" in result.output and "firmware: 6.0.10" in facts(unifi_lab, "uxg")
 
 
@@ -84,7 +84,7 @@ def test_link_conflict_is_a_warning_and_the_file_wins(runner, unifi_lab):
     nas = unifi_lab / "hosts" / "nas.md"
     nas.write_text(nas.read_text().replace(
         "gather: false\n", 'gather: false\nlinks:\n  - port: eno1\n    to: "[[uxg]]"\n    to_port: "9"\n  - just a note\n'))
-    result = runner.invoke(app, ["gather", "sw", "-y"])
+    result = runner.invoke(app, ["run", "-g", "sw", "-y"])
     assert result.exit_code == 0, result.output
     assert "⚠ nas: link eno1: seen on [[sw]] port 2" in result.output
     text = nas.read_text()
@@ -94,7 +94,7 @@ def test_link_conflict_is_a_warning_and_the_file_wins(runner, unifi_lab):
 def test_links_survive_a_direct_gather_of_the_host(runner, unifi_lab, monkeypatch):
     """`links` in a facts note comes from something else's gather (a UniFi device seeing the host's
     cabling), never the host's own -- a direct gather of the host itself must keep it."""
-    result = runner.invoke(app, ["gather", "sw", "-y"])
+    result = runner.invoke(app, ["run", "-g", "sw", "-y"])
     assert result.exit_code == 0, result.output
     assert 'to: "[[sw]]"' in facts(unifi_lab, "nas")
 
@@ -108,7 +108,7 @@ def test_links_survive_a_direct_gather_of_the_host(runner, unifi_lab, monkeypatc
             return CommandResult(stdout_for(dict(LAPTOP, hostname="nas"), match.group(1)), "", 0)
 
     monkeypatch.setattr(gather_mod, "ssh_runner", lambda target: NasRunner())
-    result = runner.invoke(app, ["gather", "nas", "-y", "--accept-new-hostkey"])
+    result = runner.invoke(app, ["run", "-g", "nas", "-y", "--accept-new-hostkey"])
     assert result.exit_code == 0, result.output
     note = facts(unifi_lab, "nas")
     assert 'to: "[[sw]]"' in note and "os: Arch Linux" in note
@@ -119,7 +119,7 @@ def test_unifi_gather_replaces_links_not_merges_them(runner, unifi_lab, monkeypa
     """The UniFi path always writes what it currently sees for a host's `links` -- it doesn't keep
     yesterday's entry once the cabling has moved, unlike the keep-if-not-observed rule a host's own
     gather uses for OBSERVED_BY_OTHERS keys."""
-    result = runner.invoke(app, ["gather", "sw", "-y"])
+    result = runner.invoke(app, ["run", "-g", "sw", "-y"])
     assert result.exit_code == 0, result.output
     assert 'to_port: "2"' in facts(unifi_lab, "nas")
 
@@ -138,7 +138,7 @@ def test_unifi_gather_replaces_links_not_merges_them(runner, unifi_lab, monkeypa
             return CommandResult(moved, "", 0)
 
     monkeypatch.setattr(gather_mod, "ssh_runner", lambda target: MovedRunner(target.address))
-    result = runner.invoke(app, ["gather", "sw", "-y"])
+    result = runner.invoke(app, ["run", "-g", "sw", "-y"])
     assert result.exit_code == 0, result.output
     after = facts(unifi_lab, "nas")
     assert 'to_port: "8"' in after and 'to_port: "2"' not in after
@@ -176,11 +176,11 @@ def test_links_seen_by_another_device_survive_a_regather_of_just_one(runner, uni
     real_dumps = dict(DUMPS, **{address: dump})
     monkeypatch.setattr(gather_mod, "ssh_runner", lambda target: _MultiDumpRunner(target.address, real_dumps))
 
-    result = runner.invoke(app, ["gather", "sw2", "-y"])
+    result = runner.invoke(app, ["run", "-g", "sw2", "-y"])
     assert result.exit_code == 0, result.output
     assert 'to_port: "5"' in facts(unifi_lab, "nas") and "seen_by: sw2" in facts(unifi_lab, "nas")
 
-    result = runner.invoke(app, ["gather", "sw", "-y"])
+    result = runner.invoke(app, ["run", "-g", "sw", "-y"])
     assert result.exit_code == 0, result.output
     after = facts(unifi_lab, "nas")
     assert 'to_port: "2"' in after and "sw" in after  # sw's own, freshly observed
@@ -190,7 +190,7 @@ def test_links_seen_by_another_device_survive_a_regather_of_just_one(runner, uni
 def test_unplugged_link_disappears_when_its_device_is_regathered(runner, unifi_lab, monkeypatch):
     """A host that's no longer cabled to a switch: that switch's own regather must drop the stale
     entry it used to see, not keep reporting cabling that's gone."""
-    result = runner.invoke(app, ["gather", "sw", "-y"])
+    result = runner.invoke(app, ["run", "-g", "sw", "-y"])
     assert result.exit_code == 0, result.output
     assert 'to_port: "2"' in facts(unifi_lab, "nas")
 
@@ -208,7 +208,7 @@ def test_unplugged_link_disappears_when_its_device_is_regathered(runner, unifi_l
             return CommandResult(unplugged, "", 0)
 
     monkeypatch.setattr(gather_mod, "ssh_runner", lambda target: UnpluggedRunner(target.address))
-    result = runner.invoke(app, ["gather", "sw", "-y"])
+    result = runner.invoke(app, ["run", "-g", "sw", "-y"])
     assert result.exit_code == 0, result.output
     after = facts(unifi_lab, "nas")
     assert "links" not in after or '"[[sw]]"' not in after
@@ -218,6 +218,6 @@ def test_no_lab_networks_means_no_gateway_network_warnings(runner, unifi_lab):
     lab = unifi_lab / "Homelab.md"
     lab.write_text("---\nbastet: lab\n---\n# Homelab\n")
     git(unifi_lab, "commit", "-qam", "no networks")
-    result = runner.invoke(app, ["gather", "uxg", "-y"])
+    result = runner.invoke(app, ["run", "-g", "uxg", "-y"])
     assert result.exit_code == 0, result.output
     assert "is on the gateway but not" not in result.output

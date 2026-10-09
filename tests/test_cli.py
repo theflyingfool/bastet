@@ -38,7 +38,7 @@ def test_core_does_not_import_cli_or_typer():
 def test_no_arguments_prints_help_and_succeeds():
     result = runner.invoke(app, [])
     assert result.exit_code == 0
-    assert "Usage" in result.stdout and "gather" in result.stdout
+    assert "Usage" in result.stdout and "run" in result.stdout
 
 
 def test_help_command_prints_the_main_help():
@@ -48,8 +48,19 @@ def test_help_command_prints_the_main_help():
 
 
 def test_help_command_prints_a_commands_help():
-    assert runner.invoke(app, ["help", "gather"]).stdout == runner.invoke(app, ["gather", "--help"]).stdout
+    assert runner.invoke(app, ["help", "run"]).stdout == runner.invoke(app, ["run", "--help"]).stdout
     assert runner.invoke(app, ["help", "secret", "set"]).stdout == runner.invoke(app, ["secret", "set", "--help"]).stdout
+
+
+def test_refresh_is_hidden_from_the_main_help():
+    result = runner.invoke(app, ["--help"])
+    assert result.exit_code == 0 and "refresh" not in result.stdout
+
+
+def test_map_check_apply_and_gather_no_longer_exist():
+    for name in ("map", "check", "apply", "gather"):
+        result = runner.invoke(app, [name, "--help"])
+        assert result.exit_code != 0
 
 
 def test_help_for_an_unknown_command_fails():

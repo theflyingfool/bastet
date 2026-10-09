@@ -50,19 +50,12 @@ app.add_typer(add_app, name="add")
 from bastet.cli.init import init  # noqa: E402
 
 app.command()(init)
-from bastet.cli.gather import gather  # noqa: E402
-
-app.command()(gather)
 from bastet.cli.refresh import refresh  # noqa: E402
 
-app.command()(refresh)
-from bastet.cli.run import apply, check  # noqa: E402
+app.command(hidden=True)(refresh)
+from bastet.cli.run import run  # noqa: E402
 
-app.command()(check)
-app.command()(apply)
-from bastet.cli.map import map_  # noqa: E402
-
-app.command(name="map")(map_)
+app.command()(run)
 from bastet.cli.secret import secret_app  # noqa: E402
 
 app.add_typer(secret_app, name="secret")

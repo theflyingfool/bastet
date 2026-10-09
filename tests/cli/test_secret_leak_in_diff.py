@@ -64,7 +64,7 @@ def box_with_secret_dropin(inventory, secret_keys, monkeypatch, tmp_path) -> Pat
 
 
 def test_check_never_shows_old_or_new_multiline_secret_in_a_dropin(runner, box_with_secret_dropin):
-    result = runner.invoke(app, ["check", "box"])
+    result = runner.invoke(app, ["run", "-c", "box"])
     assert result.exit_code == 0, result.output
     assert "Hunter2-OLD" not in result.output
     assert "Hunter2-NEW" not in result.output

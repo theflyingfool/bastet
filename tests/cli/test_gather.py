@@ -78,7 +78,7 @@ def vps(inventory, monkeypatch):
 
 
 def test_gather_local_laptop_writes_facts(runner, laptop, tmp_path):
-    result = runner.invoke(app, ["gather", "hp-13", "-y"])
+    result = runner.invoke(app, ["run", "-g", "hp-13", "-y"])
     assert result.exit_code == 0, result.output
     host = (laptop / "hosts" / "hp-13.md").read_text()
     assert host == f"---\nbastet: host\ntype: laptop\nip: dhcp\nconnection: local\nssh_host_key: {LAPTOP_HOST_KEY}\n---\n# hp-13\n"
@@ -92,9 +92,9 @@ def test_gather_local_laptop_writes_facts(runner, laptop, tmp_path):
 
 
 def test_second_gather_changes_nothing(runner, laptop):
-    runner.invoke(app, ["gather", "-y"])
+    runner.invoke(app, ["run", "-g", "-y"])
     head = git(laptop, "rev-parse", "HEAD")
-    result = runner.invoke(app, ["gather", "-y"])
+    result = runner.invoke(app, ["run", "-g", "-y"])
     assert result.exit_code == 0 and "up to date" in result.output
     assert git(laptop, "rev-parse", "HEAD") == head
 
@@ -118,7 +118,7 @@ def test_gather_never_writes_host_notes_only_facts_notes(runner, laptop, monkeyp
         return FakeRunner(VPS, f"{target.user}@{target.address}")
 
     monkeypatch.setattr(gather_mod, "ssh_runner", ssh_runner)
-    result = runner.invoke(app, ["gather", "-y", "--accept-new-hostkey"])
+    result = runner.invoke(app, ["run", "-g", "-y", "--accept-new-hostkey"])
     assert result.exit_code == 0, result.output
     after = {p.name: p.read_text() for p in (laptop / "hosts").glob("*.md")}
     assert after == before
@@ -173,7 +173,7 @@ def test_gather_guard_node_with_guest_and_unifi_link(runner, inventory, monkeypa
         return FakeRunner(SERVER, f"{target.user}@{target.address}")
 
     monkeypatch.setattr(gather_mod, "ssh_runner", ssh_runner)
-    result = runner.invoke(app, ["gather", "pve1", "sw", "-y", "--accept-new-hostkey"])
+    result = runner.invoke(app, ["run", "-g", "pve1", "sw", "-y", "--accept-new-hostkey"])
     assert result.exit_code == 0, result.output
 
     after = {p.name: p.read_text() for p in (inventory / "hosts").glob("*.md")}
@@ -196,11 +196,11 @@ def test_gather_guard_node_with_guest_and_unifi_link(runner, inventory, monkeypa
 def test_host_fact_on_note_is_silently_overwritten_no_attribution(runner, laptop):
     """Host facts have no attribution or --take any more: a hand-set value in the note is simply
     replaced by the observed one in the facts note, with no warning."""
-    runner.invoke(app, ["gather", "-y"])
+    runner.invoke(app, ["run", "-g", "-y"])
     p = laptop / "hosts" / "hp-13.md"
     p.write_text(p.read_text().replace("ip: dhcp", "ip: dhcp\nram: 32 GB"))
     git(laptop, "commit", "-q", "-am", "upgraded ram")
-    result = runner.invoke(app, ["gather", "-y"])
+    result = runner.invoke(app, ["run", "-g", "-y"])
     assert result.exit_code == 0
     assert "ram: 32 GB" in p.read_text()
     assert "ram: 16 GB" in facts(laptop, "hp-13")
@@ -208,20 +208,20 @@ def test_host_fact_on_note_is_silently_overwritten_no_attribution(runner, laptop
 
 
 def test_take_on_a_host_fact_is_a_no_op_note(runner, laptop):
-    result = runner.invoke(app, ["gather", "--take", "ram", "-y"])
+    result = runner.invoke(app, ["run", "-g", "--take", "ram", "-y"])
     assert result.exit_code == 0, result.output
     assert "--take ram: host facts are always taken now; nothing to do" in result.output
     assert "ram: 16 GB" in facts(laptop, "hp-13")
 
 
 def test_vps_first_contact_refused_with_yes(runner, vps):
-    result = runner.invoke(app, ["gather", "vps1", "-y"])
+    result = runner.invoke(app, ["run", "-g", "vps1", "-y"])
     assert result.exit_code == 0 and "first contact" in result.output
     assert "os:" not in (vps / "hosts" / "vps1.md").read_text()
 
 
 def test_vps_accept_hostkey_falls_back_to_own_login(runner, vps):
-    result = runner.invoke(app, ["gather", "vps1", "-y", "--accept-new-hostkey"])
+    result = runner.invoke(app, ["run", "-g", "vps1", "-y", "--accept-new-hostkey"])
     assert result.exit_code == 0, result.output
     text = facts(vps, "vps1")
     assert f"ssh_host_key: ssh-ed25519 {KEYS[0].fingerprint}" in text
@@ -231,7 +231,7 @@ def test_vps_accept_hostkey_falls_back_to_own_login(runner, vps):
 
 
 def test_vps_interactive_trust(runner, vps):
-    result = runner.invoke(app, ["gather", "vps1"], input="y\ny\n")
+    result = runner.invoke(app, ["run", "-g", "vps1"], input="y\ny\n")
     assert result.exit_code == 0, result.output
     assert "ssh_host_key:" in facts(vps, "vps1")
 
@@ -241,7 +241,7 @@ def test_changed_hostkey_stops(runner, vps):
     p.write_text(p.read_text().replace("ip: 203.0.113.10\n", "ip: 203.0.113.10\nssh_host_key: ssh-ed25519 SHA256:old\n"))
     git(vps, "commit", "-q", "-am", "key")
     before = p.read_text()
-    result = runner.invoke(app, ["gather", "vps1", "-y"])
+    result = runner.invoke(app, ["run", "-g", "vps1", "-y"])
     assert "host key changed" in result.output and "--accept-new-hostkey" in result.output
     assert p.read_text() == before
     assert facts(vps, "vps1") == ""
@@ -249,17 +249,17 @@ def test_changed_hostkey_stops(runner, vps):
 
 def test_changed_key_in_the_facts_note_is_refused_then_accepted(runner, vps, monkeypatch):
     monkeypatch.setattr(gather_mod, "scan_keys", lambda address, recorded=None, port=22: KEYS)
-    runner.invoke(app, ["gather", "vps1", "-y", "--accept-new-hostkey"])
+    runner.invoke(app, ["run", "-g", "vps1", "-y", "--accept-new-hostkey"])
     recorded = facts(vps, "vps1")
     assert f"ssh_host_key: ssh-ed25519 {KEYS[0].fingerprint}" in recorded
 
     evil = parse_keyscan(f"h ssh-rsa {base64.b64encode(b'new-key').decode()}\n")
     monkeypatch.setattr(gather_mod, "scan_keys", lambda address, recorded=None, port=22: evil)
-    result = runner.invoke(app, ["gather", "vps1", "-y"])
+    result = runner.invoke(app, ["run", "-g", "vps1", "-y"])
     assert "host key changed" in result.output and "--accept-new-hostkey" in result.output
     assert facts(vps, "vps1") == recorded  # the facts note is untouched by the refusal
 
-    result = runner.invoke(app, ["gather", "vps1", "-y", "--accept-new-hostkey"])
+    result = runner.invoke(app, ["run", "-g", "vps1", "-y", "--accept-new-hostkey"])
     assert result.exit_code == 0, result.output
     assert f"ssh_host_key: ssh-rsa {evil[0].fingerprint}" in facts(vps, "vps1")
 
@@ -268,11 +268,11 @@ def test_facts_note_key_wins_over_a_stale_host_note_key(runner, vps, monkeypatch
     """A fallback-only use case: once the facts note has the key, a leftover (and now wrong)
     ssh_host_key on the host note must not cause a false 'changed' refusal."""
     monkeypatch.setattr(gather_mod, "scan_keys", lambda address, recorded=None, port=22: KEYS)
-    runner.invoke(app, ["gather", "vps1", "-y", "--accept-new-hostkey"])
+    runner.invoke(app, ["run", "-g", "vps1", "-y", "--accept-new-hostkey"])
     p = vps / "hosts" / "vps1.md"
     p.write_text(p.read_text().replace("ip: 203.0.113.10\n", "ip: 203.0.113.10\nssh_host_key: ssh-ed25519 SHA256:old\n"))
     git(vps, "commit", "-q", "-am", "stale key")
-    result = runner.invoke(app, ["gather", "vps1", "-y"])
+    result = runner.invoke(app, ["run", "-g", "vps1", "-y"])
     assert result.exit_code == 0, result.output
     assert "host key changed" not in result.output
     assert "os:" in facts(vps, "vps1")
@@ -287,7 +287,7 @@ def test_unreachable_host_does_not_stop_others(runner, laptop, monkeypatch):
         raise Unreachable(f"{address}: no SSH host keys")
 
     monkeypatch.setattr(gather_mod, "scan_keys", down)
-    result = runner.invoke(app, ["gather", "-y"])
+    result = runner.invoke(app, ["run", "-g", "-y"])
     assert result.exit_code == 0, result.output
     assert "vps1" in result.output and "no SSH host keys" in result.output
     assert "os: Arch Linux" in facts(laptop, "hp-13")
@@ -295,36 +295,36 @@ def test_unreachable_host_does_not_stop_others(runner, laptop, monkeypatch):
 
 def test_dhcp_host_without_address_is_reported(runner, inventory):
     add_host(inventory, "roamer", "---\nbastet: host\ntype: laptop\nip: dhcp\n---\n# roamer\n")
-    result = runner.invoke(app, ["gather", "roamer", "-y"])
+    result = runner.invoke(app, ["run", "-g", "roamer", "-y"])
     assert result.exit_code == 0 and "no address" in result.output
 
 
 def test_unknown_host_name(runner, inventory):
-    result = runner.invoke(app, ["gather", "nope"])
+    result = runner.invoke(app, ["run", "-g", "nope"])
     assert result.exit_code == 1 and "no host named 'nope'" in result.output
 
 
 def test_jobs_zero_is_a_usage_error(runner, inventory):
-    result = runner.invoke(app, ["gather", "nope", "-j", "0"])
+    result = runner.invoke(app, ["run", "-g", "nope", "-j", "0"])
     assert result.exit_code == 2
     assert "no host named 'nope'" not in result.output
 
 
 def test_jobs_option_is_accepted(runner, inventory):
-    result = runner.invoke(app, ["gather", "nope", "-j", "2"])
+    result = runner.invoke(app, ["run", "-g", "nope", "-j", "2"])
     assert result.exit_code == 1 and "no host named 'nope'" in result.output
 
 
 def test_gather_malformed_host_file_reports_problem(runner, laptop):
     (laptop / "hosts" / "broken.md").write_text("---\nbastet: host\n")
-    result = runner.invoke(app, ["gather", "hp-13", "-y"])
+    result = runner.invoke(app, ["run", "-g", "hp-13", "-y"])
     assert result.exit_code == 0, result.output
     assert "broken.md" in result.output and "ignored" in result.output
 
 
 def test_gather_named_broken_host_explains_error(runner, laptop):
     (laptop / "hosts" / "broken.md").write_text("---\nbastet: host\n")
-    result = runner.invoke(app, ["gather", "broken", "-y"])
+    result = runner.invoke(app, ["run", "-g", "broken", "-y"])
     assert result.exit_code == 1
     assert "no host named 'broken'" in result.output
     assert "frontmatter is not closed" in result.output
@@ -344,7 +344,7 @@ def test_accepted_key_replaces_recorded_and_pins_only_one(runner, vps, monkeypat
     p = vps / "hosts" / "vps1.md"
     p.write_text(p.read_text().replace("ip: 203.0.113.10\n", "ip: 203.0.113.10\nssh_host_key: ssh-ed25519 SHA256:old\n"))
     git(vps, "commit", "-q", "-am", "old key")
-    result = runner.invoke(app, ["gather", "vps1", "-y", "--accept-new-hostkey"])
+    result = runner.invoke(app, ["run", "-g", "vps1", "-y", "--accept-new-hostkey"])
     assert result.exit_code == 0, result.output
     assert seen["keys"] == KEYS
     assert f"ssh_host_key: ssh-ed25519 {KEYS[0].fingerprint}" in facts(vps, "vps1")
@@ -359,7 +359,7 @@ def test_unexpected_error_on_one_host_does_not_stop_others(runner, laptop, monke
         raise RuntimeError("something odd")
 
     monkeypatch.setattr(gather_mod, "scan_keys", boom)
-    result = runner.invoke(app, ["gather", "-y"])
+    result = runner.invoke(app, ["run", "-g", "-y"])
     assert result.exit_code == 0, result.output
     assert "something odd" in result.output
     assert "os: Arch Linux" in facts(laptop, "hp-13")
@@ -387,7 +387,7 @@ def server(inventory, monkeypatch):
 
 
 def test_gather_server_creates_hardware_files(runner, server):
-    result = runner.invoke(app, ["gather", "pve1", "-y", "--accept-new-hostkey"])
+    result = runner.invoke(app, ["run", "-g", "pve1", "-y", "--accept-new-hostkey"])
     assert result.exit_code == 0, result.output
     hw = sorted(p.name for p in (server / "hardware").glob("*.md"))
     assert "Supermicro SYS-5019C-MR S123456X.md" in hw and len(hw) == 10
@@ -402,13 +402,13 @@ def test_gather_server_creates_hardware_files(runner, server):
 def test_root_skipped_note(runner, server, monkeypatch):
     monkeypatch.setattr(gather_mod, "ssh_runner", lambda target: FakeRunner(
         dict(SERVER, privilege="none", dmidecode=(126, ""), smart=(126, ""), ipmi=(126, ""), pve_guests=(126, "")), "x"))
-    result = runner.invoke(app, ["gather", "pve1", "-y", "--accept-new-hostkey"])
+    result = runner.invoke(app, ["run", "-g", "pve1", "-y", "--accept-new-hostkey"])
     assert result.exit_code == 0, result.output
     assert "root-only" in result.output
 
 
 def test_local_host_writes_hardware_file(runner, laptop):
-    result = runner.invoke(app, ["gather", "hp-13", "-y"])
+    result = runner.invoke(app, ["run", "-g", "hp-13", "-y"])
     assert result.exit_code == 0, result.output
     assert (laptop / "hardware" / "HP Spectre x360 Convertible 13-ae0xx 5CD1234XYZ.md").exists()
 
@@ -417,7 +417,7 @@ def test_local_host_with_no_recorded_key_goes_through_first_contact(runner, inve
     add_host(inventory, "hp-13", "---\nbastet: host\ntype: laptop\nip: dhcp\nconnection: local\n---\n# hp-13\n")
     monkeypatch.setattr(gather_mod, "scan_keys", lambda address, recorded=None, port=22: KEYS)
     monkeypatch.setattr(gather_mod, "ssh_runner", lambda target: FakeRunner(LAPTOP, f"{target.user}@{target.address}"))
-    result = runner.invoke(app, ["gather", "hp-13"], input="y\ny\n")
+    result = runner.invoke(app, ["run", "-g", "hp-13"], input="y\ny\n")
     assert result.exit_code == 0, result.output
     assert "first contact" in result.output
     assert f"ssh_host_key: ssh-ed25519 {KEYS[0].fingerprint}" in facts(inventory, "hp-13")
@@ -430,7 +430,7 @@ def test_local_host_nothing_answering_reports_sshd_hint(runner, inventory, monke
         raise Unreachable(f"{address}: offline in tests")
 
     monkeypatch.setattr(gather_mod, "scan_keys", no_sshd)
-    result = runner.invoke(app, ["gather", "hp-13", "-y"])
+    result = runner.invoke(app, ["run", "-g", "hp-13", "-y"])
     assert result.exit_code == 0, result.output
     assert "nothing answered on 127.0.0.1:22" in result.output
     assert "start sshd" in result.output
@@ -446,7 +446,7 @@ def test_local_host_with_custom_address_nothing_answering_reports_that_address(r
         raise Unreachable(f"{address}: offline in tests")
 
     monkeypatch.setattr(gather_mod, "scan_keys", no_sshd)
-    result = runner.invoke(app, ["gather", "hp-13", "-y"])
+    result = runner.invoke(app, ["run", "-g", "hp-13", "-y"])
     assert result.exit_code == 0, result.output
     assert "nothing answered on 10.0.0.5:22" in result.output
 
@@ -458,7 +458,7 @@ def test_guests_on_other_nodes_ignored_and_names_quoted(runner, server, monkeypa
         {"vmid": 201, "name": "my box", "type": "qemu", "node": "pve1", "status": "running"},
     ])
     monkeypatch.setattr(gather_mod, "ssh_runner", lambda target: FakeRunner(dict(SERVER, pve_guests=guests), "x"))
-    result = runner.invoke(app, ["gather", "pve1", "-y", "--accept-new-hostkey"])
+    result = runner.invoke(app, ["run", "-g", "pve1", "-y", "--accept-new-hostkey"])
     assert "elsewhere" not in result.output
     assert "bastet add host 'my box'" in result.output
 
@@ -467,7 +467,7 @@ def test_guests_on_other_nodes_ignored_and_names_quoted(runner, server, monkeypa
 def test_gather_stores_warnings_in_summary_and_refresh_keeps_them(runner, server, monkeypatch):
     monkeypatch.setattr(gather_mod, "ssh_runner", lambda target: FakeRunner(
         dict(SERVER, privilege="none", dmidecode=(126, ""), smart=(126, ""), ipmi=(126, ""), pve_guests=(126, "")), "x"))
-    runner.invoke(app, ["gather", "pve1", "-y", "--accept-new-hostkey"])
+    runner.invoke(app, ["run", "-g", "pve1", "-y", "--accept-new-hostkey"])
     summary = (server / "_bastet" / "summary" / "pve1 summary.md").read_text()
     assert "warnings:" in summary and "root-only" in summary and "[!warning]" in summary
     runner.invoke(app, ["refresh"])
@@ -477,7 +477,7 @@ def test_gather_stores_warnings_in_summary_and_refresh_keeps_them(runner, server
 
 
 def test_found_guests_added_when_confirmed(runner, server):
-    result = runner.invoke(app, ["gather", "pve1", "--accept-new-hostkey"], input="y\ny\n")
+    result = runner.invoke(app, ["run", "-g", "pve1", "--accept-new-hostkey"], input="y\ny\n")
     assert result.exit_code == 0, result.output
     assert "Add all 4" in result.output and "bastet add host git1 --type lxc --on pve1" in result.output
     git1 = (server / "hosts" / "git1.md").read_text()
@@ -497,10 +497,10 @@ def test_found_guests_added_when_confirmed(runner, server):
 
 
 def test_found_guests_not_added_on_no_or_yes_flag(runner, server):
-    result = runner.invoke(app, ["gather", "pve1", "--accept-new-hostkey"], input="n\ny\n")
+    result = runner.invoke(app, ["run", "-g", "pve1", "--accept-new-hostkey"], input="n\ny\n")
     assert result.exit_code == 0, result.output
     assert not (server / "hosts" / "git1.md").exists()
-    result = runner.invoke(app, ["gather", "pve1", "-y"])
+    result = runner.invoke(app, ["run", "-g", "pve1", "-y"])
     assert "Add all" not in result.output and not (server / "hosts" / "git1.md").exists()
 
 
@@ -530,7 +530,7 @@ def test_missing_tools_installed_when_confirmed_and_recorded(runner, inventory, 
     fake = InstallingRunner(dict(RACK, pkg_mgr="apt-get"), dict(RACK, pkg_mgr="apt-get", ipmi=SERVER["ipmi"]))
     monkeypatch.setattr(gather_mod, "scan_keys", lambda address, recorded=None, port=22: KEYS)
     monkeypatch.setattr(gather_mod, "ssh_runner", lambda target: fake)
-    result = runner.invoke(app, ["gather", "pve3", "--accept-new-hostkey"], input="y\ny\n")
+    result = runner.invoke(app, ["run", "-g", "pve3", "--accept-new-hostkey"], input="y\ny\n")
     assert result.exit_code == 0, result.output
     assert "install ipmitool" in result.output and len(fake.installs) == 1
     assert "bastet_tools:\n  - ipmitool\n" in facts(inventory, "pve3")
@@ -544,12 +544,12 @@ def test_tools_not_installed_with_yes_by_default_or_when_host_opts_out(runner, i
     fake = InstallingRunner(dict(RACK, pkg_mgr="apt-get"), dict(RACK, pkg_mgr="apt-get"))
     monkeypatch.setattr(gather_mod, "scan_keys", lambda address, recorded=None, port=22: KEYS)
     monkeypatch.setattr(gather_mod, "ssh_runner", lambda target: fake)
-    runner.invoke(app, ["gather", "pve3", "-y", "--accept-new-hostkey"])
+    runner.invoke(app, ["run", "-g", "pve3", "-y", "--accept-new-hostkey"])
     assert fake.installs == []
     p = inventory / "hosts" / "pve3.md"
     p.write_text(p.read_text().replace("type: proxmox-node\n", "type: proxmox-node\ninstall_tools: false\n"))
     git(inventory, "commit", "-q", "-am", "no tools here")
-    runner.invoke(app, ["gather", "pve3"], input="y\n")
+    runner.invoke(app, ["run", "-g", "pve3"], input="y\n")
     assert fake.installs == []
 
 
@@ -562,7 +562,7 @@ def test_config_always_installs_unattended(runner, inventory, monkeypatch, tmp_p
     fake = InstallingRunner(dict(RACK, pkg_mgr="apt-get"), dict(RACK, pkg_mgr="apt-get", ipmi=SERVER["ipmi"]))
     monkeypatch.setattr(gather_mod, "scan_keys", lambda address, recorded=None, port=22: KEYS)
     monkeypatch.setattr(gather_mod, "ssh_runner", lambda target: fake)
-    result = runner.invoke(app, ["gather", "pve3", "-y", "--accept-new-hostkey"])
+    result = runner.invoke(app, ["run", "-g", "pve3", "-y", "--accept-new-hostkey"])
     assert result.exit_code == 0, result.output
     assert len(fake.installs) == 1
 
@@ -571,9 +571,9 @@ def test_gather_false_skipped_unless_named(runner, laptop):
     p = laptop / "hosts" / "hp-13.md"
     p.write_text(p.read_text().replace("type: laptop\n", "type: laptop\ngather: false\n"))
     git(laptop, "commit", "-q", "-am", "not ready")
-    result = runner.invoke(app, ["gather", "-y"])
+    result = runner.invoke(app, ["run", "-g", "-y"])
     assert "hp-13: skipped (gather: false)" in result.output and not facts(laptop, "hp-13")
-    runner.invoke(app, ["gather", "hp-13", "-y"])
+    runner.invoke(app, ["run", "-g", "hp-13", "-y"])
     assert "os: Arch Linux" in facts(laptop, "hp-13")
 
 
@@ -583,7 +583,7 @@ def _git1(inventory, extra=""):
 
 def test_guest_drift_reported_inline_on_page_and_dashboard_not_adopted(runner, server):
     _git1(server, "vmid: 104\n")
-    result = runner.invoke(app, ["gather", "pve1", "-y", "--accept-new-hostkey"])
+    result = runner.invoke(app, ["run", "-g", "pve1", "-y", "--accept-new-hostkey"])
     assert result.exit_code == 0, result.output
     assert "git1: drift" in result.output and "10.0.20.99/24" in result.output and "10.0.20.21/24" in result.output
     assert "ip: 10.0.20.99/24" in (server / "hosts" / "git1.md").read_text()
@@ -600,7 +600,7 @@ def test_guest_drift_clears_when_they_agree_and_vmid_added(runner, server):
     p = server / "hosts" / "git1.md"
     p.write_text(p.read_text().replace("10.0.20.99/24", "10.0.20.21/24"))
     git(server, "commit", "-q", "-am", "fix ip")
-    result = runner.invoke(app, ["gather", "pve1", "-y", "--accept-new-hostkey"])
+    result = runner.invoke(app, ["run", "-g", "pve1", "-y", "--accept-new-hostkey"])
     assert "git1: drift" not in result.output
     assert "vmid: 104" in facts(server, "git1")
     assert "vmid" not in p.read_text()
@@ -613,13 +613,13 @@ def test_guest_on_another_node_is_drift(runner, server):
     p = server / "hosts" / "git1.md"
     p.write_text(p.read_text().replace('runs_on: "[[pve1]]"', 'runs_on: "[[pve9]]"'))
     git(server, "commit", "-q", "-am", "moved?")
-    result = runner.invoke(app, ["gather", "pve1", "-y", "--accept-new-hostkey"])
+    result = runner.invoke(app, ["run", "-g", "pve1", "-y", "--accept-new-hostkey"])
     assert "git1: drift" in result.output and "pve9" in result.output and "pve1" in result.output
 
 
 def test_renamed_guest_matched_by_vmid_is_not_offered_as_new(runner, server):
     add_host(server, "oldname", '---\nbastet: host\ntype: lxc\nruns_on: "[[pve1]]"\nip: 10.0.20.21/24\nvmid: 104\n---\n# oldname\n')
-    result = runner.invoke(app, ["gather", "pve1", "--accept-new-hostkey"], input="n\ny\n")
+    result = runner.invoke(app, ["run", "-g", "pve1", "--accept-new-hostkey"], input="n\ny\n")
     assert "git1 (lxc 104" not in result.output
 
 
@@ -628,7 +628,7 @@ def test_recreated_guest_vmid_is_overwritten_not_kept(runner, server):
     the node still reports it by name, so the stale vmid already in its facts note must be replaced,
     not kept just because something is already there."""
     _git1(server, "vmid: 999\n")
-    result = runner.invoke(app, ["gather", "pve1", "-y", "--accept-new-hostkey"])
+    result = runner.invoke(app, ["run", "-g", "pve1", "-y", "--accept-new-hostkey"])
     assert result.exit_code == 0, result.output
     note = facts(server, "git1")
     assert "vmid: 104" in note and "vmid: 999" not in note
@@ -643,7 +643,7 @@ def test_guest_matched_by_name_even_when_its_old_vmid_now_belongs_to_another_gue
         {"id": "qemu/104", "vmid": 104, "name": "media", "type": "qemu", "node": "pve1", "status": "running"},
     ])
     monkeypatch.setattr(gather_mod, "ssh_runner", lambda target: FakeRunner(dict(SERVER, pve_guests=guests), "x"))
-    result = runner.invoke(app, ["gather", "pve1", "-y", "--accept-new-hostkey"])
+    result = runner.invoke(app, ["run", "-g", "pve1", "-y", "--accept-new-hostkey"])
     assert result.exit_code == 0, result.output
     assert "vmid: 110" in facts(server, "git1")
 
@@ -652,7 +652,7 @@ def test_guest_vmid_preserved_through_its_own_direct_gather(runner, server, monk
     """vmid is never observed by a guest's own gather (only the node sees it) -- a direct gather of
     the guest itself must keep whatever is already in its facts note."""
     _git1(server)
-    result = runner.invoke(app, ["gather", "pve1", "-y", "--accept-new-hostkey"])
+    result = runner.invoke(app, ["run", "-g", "pve1", "-y", "--accept-new-hostkey"])
     assert result.exit_code == 0, result.output
     assert "vmid: 104" in facts(server, "git1")
 
@@ -664,7 +664,7 @@ def test_guest_vmid_preserved_through_its_own_direct_gather(runner, server, monk
         return real_ssh_runner(target)
 
     monkeypatch.setattr(gather_mod, "ssh_runner", ssh_runner)
-    result = runner.invoke(app, ["gather", "git1", "-y", "--accept-new-hostkey"])
+    result = runner.invoke(app, ["run", "-g", "git1", "-y", "--accept-new-hostkey"])
     assert result.exit_code == 0, result.output
     note = facts(server, "git1")
     assert "vmid: 104" in note and "os: Arch Linux" in note
@@ -683,7 +683,7 @@ def _gather_node_and_guest(runner, server, monkeypatch, order):
         return real(target)
 
     monkeypatch.setattr(gather_mod, "ssh_runner", ssh_runner)
-    result = runner.invoke(app, ["gather", *order, "-y", "--accept-new-hostkey"])
+    result = runner.invoke(app, ["run", "-g", *order, "-y", "--accept-new-hostkey"])
     assert result.exit_code == 0, result.output
     return facts(server, "git1")
 

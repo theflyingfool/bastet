@@ -35,46 +35,46 @@ def box(inventory, monkeypatch, tmp_path):
 
 
 def test_check_reports_and_changes_nothing(runner, box):
-    result = runner.invoke(app, ["check", "box"])
+    result = runner.invoke(app, ["run", "-c", "box"])
     assert result.exit_code == 0, result.output
     assert "HOST: box" in result.output and "(absent) → create" in result.output and "1 to change" in result.output
     assert not (box / "motd").exists()
 
 
 def test_apply_yes_then_check_is_clean(runner, box):
-    result = runner.invoke(app, ["apply", "box", "-y"])
+    result = runner.invoke(app, ["run", "box", "-y"])
     assert result.exit_code == 0, result.output
     assert (box / "motd").read_text() == "hi\n" and "1 changed" in result.output
-    again = runner.invoke(app, ["check", "box"])
+    again = runner.invoke(app, ["run", "-c", "box"])
     assert "✓ compliant" in again.output and "0 to change" in again.output
 
 
 def test_apply_asks_and_respects_no(runner, box):
-    result = runner.invoke(app, ["apply", "box"], input="n\n")
+    result = runner.invoke(app, ["run", "box"], input="n\n")
     assert result.exit_code == 0 and "nothing applied" in result.output and not (box / "motd").exists()
 
 
 def test_check_jobs_zero_is_a_usage_error(runner, inventory):
-    result = runner.invoke(app, ["check", "nope", "-j", "0"])
+    result = runner.invoke(app, ["run", "-c", "nope", "-j", "0"])
     assert result.exit_code == 2
     assert "no host named 'nope'" not in result.output
 
 
 def test_apply_jobs_zero_is_a_usage_error(runner, inventory):
-    result = runner.invoke(app, ["apply", "nope", "-j", "0"])
+    result = runner.invoke(app, ["run", "nope", "-j", "0"])
     assert result.exit_code == 2
     assert "no host named 'nope'" not in result.output
 
 
 def test_check_jobs_option_is_accepted(runner, inventory):
-    result = runner.invoke(app, ["check", "nope", "-j", "2"])
+    result = runner.invoke(app, ["run", "-c", "nope", "-j", "2"])
     assert result.exit_code == 1 and "no host named 'nope'" in result.output
 
 
 def test_role_error_exit_1(runner, box, inventory):
     (inventory / "_roles" / "hosts" / "box" / "files.md").write_text(
         '---\nbastet: role\nrole: files\napplies_to: "[[box]]"\nfile:\n  /x: {}\n---\n')
-    result = runner.invoke(app, ["check", "box"])
+    result = runner.invoke(app, ["run", "-c", "box"])
     assert result.exit_code == 1 and "files has no option 'file'" in result.output
 
 
@@ -90,14 +90,14 @@ def test_unreachable_host_reported_and_others_continue(runner, box, inventory, m
         return AsRootLocally(), None
 
     monkeypatch.setattr(run_mod, "connect", connect)
-    result = runner.invoke(app, ["apply", "box", "box2", "-y"])
+    result = runner.invoke(app, ["run", "box", "box2", "-y"])
     assert result.exit_code == 1 and "nothing answered" in result.output and (box / "two").read_text() == "2"
 
 
 def test_host_without_roles(runner, inventory, monkeypatch):
     (inventory / "hosts" / "plain.md").write_text("---\nbastet: host\ntype: laptop\nconnection: local\n---\n# plain\n")
     monkeypatch.setattr(run_mod, "connect", lambda ctx, doc, tmp, yes: (AsRootLocally(), None))
-    result = runner.invoke(app, ["check", "plain"])
+    result = runner.invoke(app, ["run", "-c", "plain"])
     assert result.exit_code == 0 and "plain: no roles" in result.output
 
 
@@ -111,18 +111,18 @@ def test_connect_requires_gathered_key(inventory):
 
 
 def test_roles_named_and_empty_role_explained(runner, box, inventory):
-    result = runner.invoke(app, ["check", "box"])
+    result = runner.invoke(app, ["run", "-c", "box"])
     assert "box: roles: files (host box)" in result.output
     (inventory / "_roles" / "hosts" / "box" / "files.md").write_text(
         '---\nbastet: role\nrole: files\napplies_to: "[[box]]"\n---\n')
-    result = runner.invoke(app, ["check", "box"])
+    result = runner.invoke(app, ["run", "-c", "box"])
     assert "box: files (host box): nothing to manage yet" in result.output and "no roles" not in result.output
 
 
 def test_options_in_page_text_warned(runner, box, inventory):
     f = inventory / "_roles" / "hosts" / "box" / "files.md"
     f.write_text(f.read_text() + "# files for box\n\nlinks:\n  /a: /b\n")
-    result = runner.invoke(app, ["check", "box"])
+    result = runner.invoke(app, ["run", "-c", "box"])
     assert "links:" in result.output and "page text" in result.output
 
 
@@ -135,14 +135,14 @@ def test_apply_updates_flag_reaches_roles(runner, box, monkeypatch):
         return real(ctx, doc, updates=updates)
 
     monkeypatch.setattr(run_mod, "host_info", spy)
-    runner.invoke(app, ["apply", "box", "--updates", "-y"])
+    runner.invoke(app, ["run", "box", "--updates", "-y"])
     assert seen["updates"] is True
 
 
 def test_role_file_pointing_nowhere_is_reported(runner, box, inventory):
     (inventory / "_roles" / "hosts" / "box" / "stray.md").write_text(
         '---\nbastet: role\nrole: packages\napplies_to: "[[web-servrs]]"\n---\n')
-    result = runner.invoke(app, ["check", "box"])
+    result = runner.invoke(app, ["run", "-c", "box"])
     assert "web-servrs" in result.output and "stray.md" in result.output
 
 
@@ -157,7 +157,7 @@ def test_unifi_devices_are_not_role_managed(runner, box, inventory, monkeypatch)
         return AsRootLocally(), None
 
     monkeypatch.setattr(run_mod, "connect", connect)
-    result = runner.invoke(app, ["check", "ap1", "box"])
+    result = runner.invoke(app, ["run", "-c", "ap1", "box"])
     assert "ap1: configured through the UniFi controller" in result.output
 
 
@@ -177,7 +177,7 @@ def test_apply_reports_reboot_on_local_host(runner, box, inventory, monkeypatch)
         '---\nbastet: role\nrole: packages\napplies_to: "[[box]]"\nreboot: auto\nreport_unaccounted: false\n---\n')
     monkeypatch.setattr(reboot_mod, "reboot_needed", lambda runner, host, reboots: (True, "kernel"))
     monkeypatch.setattr(run_mod, "run_host", _no_updates(run_mod.run_host))
-    result = runner.invoke(app, ["apply", "box", "-y"])
+    result = runner.invoke(app, ["run", "box", "-y"])
     assert "box: reboot needed (kernel); reboot this machine yourself" in result.output
 
 
@@ -190,7 +190,7 @@ def test_check_never_reboots(runner, box, inventory, monkeypatch):
     (inventory / "_roles" / "hosts" / "box" / "packages.md").write_text(
         '---\nbastet: role\nrole: packages\napplies_to: "[[box]]"\nreboot: auto\nreport_unaccounted: false\n---\n')
     monkeypatch.setattr(run_mod, "run_host", _no_updates(run_mod.run_host))
-    assert runner.invoke(app, ["check", "box"]).exit_code == 0
+    assert runner.invoke(app, ["run", "-c", "box"]).exit_code == 0
 
 
 def test_failed_apply_tells_reboot_step(runner, box, inventory, monkeypatch):
@@ -206,7 +206,7 @@ def test_failed_apply_tells_reboot_step(runner, box, inventory, monkeypatch):
     (inventory / "_roles" / "hosts" / "box" / "packages.md").write_text(
         '---\nbastet: role\nrole: packages\napplies_to: "[[box]]"\nreboot: auto\nreport_unaccounted: false\n---\n')
     monkeypatch.setattr(run_mod, "run_host", _no_updates(run_mod.run_host))
-    runner.invoke(app, ["apply", "box", "-y"])
+    runner.invoke(app, ["run", "box", "-y"])
     assert seen == {"failed": True}
 
 
@@ -218,8 +218,8 @@ def test_apply_runs_lynis_check_does_not(runner, box, inventory, monkeypatch):
     (inventory / "_roles" / "hosts" / "box" / "harden.md").write_text(
         '---\nbastet: role\nrole: harden\napplies_to: "[[box]]"\nlynis: true\nvulnerable_packages: false\n'
         'service_exposure: false\nlistening_ports: false\napparmor_status: false\nsysctl_defaults: false\n---\n')
-    assert runner.invoke(app, ["check", "box"]).exit_code == 0 and calls == []
-    result = runner.invoke(app, ["apply", "box", "-y"])
+    assert runner.invoke(app, ["run", "-c", "box"]).exit_code == 0 and calls == []
+    result = runner.invoke(app, ["run", "box", "-y"])
     assert result.exit_code == 0, result.output
     assert calls == ["box"]
 
@@ -236,7 +236,7 @@ def test_failed_audit_is_a_warning_not_a_failure(runner, box, inventory, monkeyp
     (inventory / "_roles" / "hosts" / "box" / "harden.md").write_text(
         '---\nbastet: role\nrole: harden\napplies_to: "[[box]]"\nlynis: true\nvulnerable_packages: false\n'
         'service_exposure: false\nlistening_ports: false\napparmor_status: false\nsysctl_defaults: false\n---\n')
-    result = runner.invoke(app, ["apply", "box", "-y"])
+    result = runner.invoke(app, ["run", "box", "-y"])
     assert result.exit_code == 0 and "lynis audit failed" in result.output
 
 
@@ -251,7 +251,7 @@ def test_check_writes_security_note(runner, box, inventory, monkeypatch):
     (inventory / "_roles" / "hosts" / "box" / "harden.md").write_text(
         '---\nbastet: role\nrole: harden\napplies_to: "[[box]]"\nvulnerable_packages: false\n'
         'service_exposure: false\nlistening_ports: false\nsysctl_defaults: false\n---\n')
-    result = runner.invoke(app, ["check", "box"])
+    result = runner.invoke(app, ["run", "-c", "box"])
     assert result.exit_code == 0, result.output
     note = inventory / "_bastet" / "reports" / "box reports.md"
     assert note.exists() and "## AppArmor\n\nnot enabled" in note.read_text()
@@ -273,9 +273,9 @@ def test_security_note_not_recommitted_when_only_time_changes(runner, box, inven
     import types
     times = iter([real_dt.datetime(2026, 10, 2, 10, 0), real_dt.datetime(2026, 10, 2, 11, 30)])
     monkeypatch.setattr(run_mod, "dt", types.SimpleNamespace(datetime=types.SimpleNamespace(now=lambda: next(times))))
-    runner.invoke(app, ["check", "box"])
+    runner.invoke(app, ["run", "-c", "box"])
     first = git(inventory, "log", "--format=%s").count("security note box")
-    runner.invoke(app, ["check", "box"])
+    runner.invoke(app, ["run", "-c", "box"])
     assert first == 1 and git(inventory, "log", "--format=%s").count("security note box") == 1
 
 
@@ -292,7 +292,7 @@ def test_security_note_failure_never_stops_the_check(runner, box, inventory, mon
     (inventory / "_roles" / "hosts" / "box" / "harden.md").write_text(
         '---\nbastet: role\nrole: harden\napplies_to: "[[box]]"\nvulnerable_packages: false\n'
         'service_exposure: false\nlistening_ports: false\nsysctl_defaults: false\n---\n')
-    result = runner.invoke(app, ["check", "box"])
+    result = runner.invoke(app, ["run", "-c", "box"])
     assert result.exit_code == 0 and "security note not written" in result.output
 
 
@@ -321,12 +321,12 @@ def test_secret_reference_is_resolved_and_redacted(runner, box, inventory):
         f'---\nbastet: role\nrole: files\napplies_to: "[[box]]"\nfiles:\n  {box}/motd:\n    content: "secret:motd"\n'
         f'links:\n  {box}/motdlink: "secret:link_target"\n---\n')
 
-    result = runner.invoke(app, ["check", "box"])
+    result = runner.invoke(app, ["run", "-c", "box"])
     assert result.exit_code == 0, result.output
     assert "SENTINEL-4242" not in result.output
     assert not (box / "motd").exists()
 
-    applied = runner.invoke(app, ["apply", "box", "-y"])
+    applied = runner.invoke(app, ["run", "box", "-y"])
     assert applied.exit_code == 0, applied.output
     assert "SENTINEL-4242" not in applied.output
     assert (box / "motd").read_text() == "SENTINEL-4242"
@@ -339,7 +339,7 @@ def test_secret_reference_is_resolved_and_redacted(runner, box, inventory):
 def test_missing_secret_fails_that_host_and_continues(runner, box, inventory):
     (inventory / "_roles" / "hosts" / "box" / "files.md").write_text(
         f'---\nbastet: role\nrole: files\napplies_to: "[[box]]"\nfiles:\n  {box}/motd:\n    content: "secret:motd"\n---\n')
-    result = runner.invoke(app, ["check", "box"])
+    result = runner.invoke(app, ["run", "-c", "box"])
     assert result.exit_code == 1
     assert "missing secret box/files/motd (bastet secret set box files motd)" in result.output
 
@@ -348,7 +348,7 @@ def test_missing_secret_fails_that_host_and_continues(runner, box, inventory):
 
 
 def test_check_reports_would_generate_missing_secret(runner, secret_keys, inventory, box, test_role):
-    result = runner.invoke(app, ["check", "box"])
+    result = runner.invoke(app, ["run", "-c", "box"])
     assert result.exit_code == 0, result.output
     assert "would generate box/testsecret/" in result.output
     assert not (inventory / "_secrets" / "box" / "testsecret" / "admin_password.md").exists()
@@ -367,7 +367,7 @@ def test_apply_generates_all_missing_before_any_run_host(runner, secret_keys, in
     monkeypatch.setattr(run_mod, "run_host", recording)
     before = git(inventory, "log", "--format=%H").strip().splitlines()
 
-    result = runner.invoke(app, ["apply", "box", "-y"])
+    result = runner.invoke(app, ["run", "box", "-y"])
     assert result.exit_code == 0, result.output
 
     after = git(inventory, "log", "--format=%H").strip().splitlines()
@@ -393,7 +393,7 @@ def test_apply_asks_for_nongenerated_missing_secret_when_interactive(runner, sec
     git(inventory, "add", ".")
     git(inventory, "commit", "-q", "-m", "implied")
 
-    result = runner.invoke(app, ["apply", "box"], input="SENTINEL-API\nSENTINEL-API\ny\n")
+    result = runner.invoke(app, ["run", "box"], input="SENTINEL-API\nSENTINEL-API\ny\n")
     assert result.exit_code == 0, result.output
     assert "SENTINEL-API" not in result.output
     assert "Enter value, or e to fill it in yourself" in result.output
@@ -409,7 +409,7 @@ def test_apply_yes_fails_host_for_nongenerated_missing_secret(runner, secret_key
     git(inventory, "add", ".")
     git(inventory, "commit", "-q", "-m", "implied")
 
-    result = runner.invoke(app, ["apply", "box", "-y"])
+    result = runner.invoke(app, ["run", "box", "-y"])
     assert result.exit_code == 1
     assert "missing secret box/impliedsecret/api_key (bastet secret set box impliedsecret api_key)" in result.output
 

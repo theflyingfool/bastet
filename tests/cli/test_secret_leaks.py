@@ -64,7 +64,7 @@ def test_security_note_write_failure_is_masked(runner, box, inventory, monkeypat
     monkeypatch.setattr(run_mod, "security_note", boom)
     monkeypatch.setattr(run_mod, "security_items", lambda items: True)
 
-    result = runner.invoke(app, ["check", "box"])
+    result = runner.invoke(app, ["run", "-c", "box"])
 
     assert result.exit_code == 0, result.output
     assert SENTINEL not in result.output
@@ -89,7 +89,7 @@ def test_run_audit_warning_is_masked(runner, box, inventory, monkeypatch, secret
     git(inventory, "add", ".")
     git(inventory, "commit", "-q", "-m", "harden")
 
-    result = runner.invoke(app, ["apply", "box", "-y"])
+    result = runner.invoke(app, ["run", "box", "-y"])
 
     assert result.exit_code == 0, result.output
     assert SENTINEL not in result.output
@@ -101,7 +101,7 @@ def test_handle_reboot_note_is_masked(runner, box, inventory, monkeypatch):
     ACTIVE.add(SENTINEL)
     monkeypatch.setattr(run_mod, "reboot_decision", lambda *a, **k: f"box: rebooted with token {SENTINEL}")
 
-    result = runner.invoke(app, ["apply", "box", "-y"])
+    result = runner.invoke(app, ["run", "box", "-y"])
 
     assert result.exit_code == 0, result.output
     assert SENTINEL not in result.output

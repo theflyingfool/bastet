@@ -10,11 +10,11 @@ from pathlib import Path
 
 import typer
 
+import bastet.cli.gather as gather_mod
 import bastet.cli.secret as secret_mod
 from bastet.cli.common import (
     confirm_upstream_secrets,
     Context,
-    find_named_host,
     guard_prompts,
     handles_errors,
     load_context,
@@ -33,6 +33,7 @@ from bastet.core.hostview import host_data
 from bastet.core.links import link_target
 from bastet.core.parallel import HostFailed, HostLog, Outcome, break_cycles, run_parallel, stopping
 from bastet.core.remote import SshTarget, close_master, control_path
+from bastet.core.selectors import select_hosts
 from bastet.cli.reboot import RebootPlan, perform_reboot, reboot_decision
 from bastet.engine.packages import Reboot
 from bastet.core.changes import Change, write_changes
@@ -198,10 +199,8 @@ def _prepare_secrets(ctx: Context, docs: list[Document], *, yes: bool) -> None:
     _ask_missing(ctx, others, yes=yes)
 
 
-def _hosts(ctx: Context, names: list[str] | None) -> list[Document]:
-    if names:
-        return [find_named_host(ctx, name) for name in names]
-    return [d for d in ctx.inventory.of_kind("host") if d.data.get("state", "present") != "destroyed"]
+def _hosts(ctx: Context, selectors: list[str] | None, exclude: list[str] | None) -> list[Document]:
+    return select_hosts(ctx.inventory, ctx.types, selectors or [], exclude or [])
 
 
 @dataclass
@@ -279,8 +278,8 @@ def _print_outcome_log(outcome: Outcome) -> None:
         typer.secho(ACTIVE.mask(text), fg=fg)
 
 
-def _run(names: list[str] | None, *, apply_changes: bool, yes: bool, verbose: bool, updates: bool = False,
-         jobs: int | None = None) -> None:
+def _run(selectors: list[str] | None, exclude: list[str] | None, *, apply_changes: bool, yes: bool, verbose: bool,
+         updates: bool = False, jobs: int | None = None) -> None:
     ctx = load_context()
     run_jobs = resolve_jobs(jobs, ctx.config)
     print_problems(ctx)
@@ -289,7 +288,7 @@ def _run(names: list[str] | None, *, apply_changes: bool, yes: bool, verbose: bo
             raise typer.Exit(1)
         confirm_upstream_secrets(ctx)
     roles = load_roles()
-    docs = _hosts(ctx, names)
+    docs = _hosts(ctx, selectors, exclude)
     if apply_changes:
         _prepare_secrets(ctx, docs, yes=yes)
     full = verbose or len(docs) == 1
@@ -535,25 +534,37 @@ def _run(names: list[str] | None, *, apply_changes: bool, yes: bool, verbose: bo
 
 
 @handles_errors
-def check(
-    hosts: list[str] | None = typer.Argument(None, help="Hosts to check (default: all hosts)."),
+def run(
+    hosts: list[str] | None = typer.Argument(
+        None, help="Hosts to run on: a name, '@type', '@group', '@lab', or a glob. Default: every host that isn't destroyed."
+    ),
+    check: bool = typer.Option(False, "--check", "-c", help="Show what would change. Changes nothing."),
+    gather: bool = typer.Option(False, "--gather", "-g", help="Collect facts from hosts and write them into their files, after showing the diff."),
+    apply_: bool = typer.Option(False, "--apply", "-a", help="With --gather, also apply (in the same run) after gathering."),
+    exclude: list[str] = typer.Option([], "--exclude", help="Exclude hosts (same forms as the selector). Repeatable."),
+    take: list[str] = typer.Option([], "--take", help="Gather only: accept the observed value of this field even if you set it. Repeatable."),
+    accept_new_hostkey: bool = typer.Option(False, "--accept-new-hostkey", help="Trust a new or changed host key (e.g. after a reinstall)."),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Don't ask; go ahead with the defaults."),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show compliant items for every host."),
-    yes: bool = typer.Option(False, "--yes", "-y", help="Don't ask to confirm a new host key."),
-    jobs: int | None = typer.Option(None, "--jobs", "-j", min=1, help="How many hosts to check at once (default: the config value)."),
+    updates: bool = typer.Option(False, "--updates", help="Apply only: also install pending updates on hosts whose policy is manual."),
+    jobs: int | None = typer.Option(None, "--jobs", "-j", min=1, help="How many hosts to run at once (default: the config value)."),
 ) -> None:
-    """Show what differs between each host and the desired state its roles describe. Changes nothing."""
-    with guard_prompts():
-        _run(hosts, apply_changes=False, yes=yes, verbose=verbose, jobs=jobs)
+    """Make each host match its roles: shows every plan, asks once, applies, verifies, and reboots per policy.
 
-
-@handles_errors
-def apply(
-    hosts: list[str] | None = typer.Argument(None, help="Hosts to apply to (default: all hosts)."),
-    yes: bool = typer.Option(False, "--yes", "-y", help="Don't ask; apply every change."),
-    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show compliant items for every host."),
-    updates: bool = typer.Option(False, "--updates", help="Also install pending updates on hosts whose policy is manual."),
-    jobs: int | None = typer.Option(None, "--jobs", "-j", min=1, help="How many hosts to apply to at once (default: the config value)."),
-) -> None:
-    """Make each host match its roles: shows the check first, asks, applies, and verifies."""
+    `-c`/`--check` only checks; `-g`/`--gather` only gathers; `-g -a` gathers then applies, in one run.
+    """
+    if check and apply_:
+        raise BastetError("check or apply, not both")
     with guard_prompts():
-        _run(hosts, apply_changes=True, yes=yes, verbose=verbose, updates=updates, jobs=jobs)
+        if gather:
+            try:
+                gather_mod._gather(hosts, take, accept_new_hostkey, yes, jobs, exclude=exclude)
+            except KeyboardInterrupt:
+                typer.secho("interrupted; nothing written", fg="yellow")
+                raise typer.Exit(1) from None
+            if check:
+                _run(hosts, exclude, apply_changes=False, yes=yes, verbose=verbose, jobs=jobs)
+            elif apply_:
+                _run(hosts, exclude, apply_changes=True, yes=yes, verbose=verbose, updates=updates, jobs=jobs)
+            return
+        _run(hosts, exclude, apply_changes=not check, yes=yes, verbose=verbose, updates=updates, jobs=jobs)

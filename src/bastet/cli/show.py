@@ -9,6 +9,7 @@ from bastet.core.factsnote import facts_path
 from bastet.core.hosttypes import HostType
 from bastet.core.hostview import host_data
 from bastet.core.inventory import Inventory
+from bastet.core.selectors import is_selector, select_hosts
 from bastet.core.yamlstyle import dump_frontmatter
 
 
@@ -17,14 +18,20 @@ def _table(rows: list[list[str]]) -> list[str]:
     return ["  " + "  ".join(c.ljust(w) for c, w in zip(r, widths)).rstrip() for r in rows]
 
 
-def _show_all(inv: Inventory, types: dict[str, HostType]) -> None:
-    hosts = inv.of_kind("host")
+def _host_rows(inv: Inventory, types: dict[str, HostType], hosts: list) -> list[list[str]]:
+    return [[d.name, str(d.data.get("type", "?")), str(d.data.get("ip", "")), str(host_data(inv, d, types).get("os", ""))]
+            for d in hosts]
+
+
+def _show_hosts(inv: Inventory, types: dict[str, HostType], hosts: list) -> None:
     typer.echo(f"Hosts ({len(hosts)})")
     if hosts:
-        rows = [[d.name, str(d.data.get("type", "?")), str(d.data.get("ip", "")), str(host_data(inv, d, types).get("os", ""))]
-                for d in hosts]
-        for line in _table(rows):
+        for line in _table(_host_rows(inv, types, hosts)):
             typer.echo(line)
+
+
+def _show_all(inv: Inventory, types: dict[str, HostType]) -> None:
+    _show_hosts(inv, types, inv.of_kind("host"))
     hardware = inv.of_kind("hardware")
     counts = Counter(str(d.data.get("status", "in-service")) for d in hardware)
     summary = ", ".join(f"{n} {s}" for s, n in sorted(counts.items()))
@@ -64,12 +71,18 @@ def _show_one(inv: Inventory, root: Path, name: str) -> None:
 
 
 @handles_errors
-def show(name: str | None = typer.Argument(None, help="Show one host, hardware item, group or location.")) -> None:
-    """List the inventory and any problems, or show one object."""
+def show(
+    names: list[str] | None = typer.Argument(
+        None, help="A name (shows that object), or selectors ('@type', '@group', '@lab', a glob) to list matching hosts."
+    ),
+) -> None:
+    """List the inventory and any problems, or show one object, or a table of hosts matching a selector."""
     ctx = load_context()
     inv = ctx.inventory
-    if name:
-        _show_one(inv, ctx.root, name)
+    if names and len(names) == 1 and not is_selector(names[0]):
+        _show_one(inv, ctx.root, names[0])
+    elif names:
+        _show_hosts(inv, ctx.types, select_hosts(inv, ctx.types, names, []))
     else:
         _show_all(inv, ctx.types)
     if inv.problems:

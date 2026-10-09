@@ -19,6 +19,17 @@ def test_refresh_writes_summaries_and_dashboard_once(runner, inventory):
     assert log(inventory)[0].startswith("Bastet refresh:") and log(inventory)[1] == "Tester seed"
 
 
+def test_refresh_writes_maps_too(runner, inventory):
+    (inventory / "hosts" / "nas.md").write_text(
+        '---\nbastet: host\ntype: server\nip: 10.0.20.30\nlinks:\n  - {port: eno1, to: "[[pve1]]", to_port: "3"}\n---\n# nas\n')
+    subprocess.run(["git", "-C", str(inventory), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(inventory), "commit", "-q", "-m", "nas"], check=True)
+    result = runner.invoke(app, ["refresh"])
+    assert result.exit_code == 0 and "```mermaid" not in result.output
+    assert (inventory / "_bastet" / "maps" / "Cabling.md").exists()
+    assert (inventory / "_bastet" / "maps" / "Networks.md").exists()
+
+
 def test_show_does_not_refresh_generated_notes(runner, inventory):
     result = runner.invoke(app, ["show"])
     assert result.exit_code == 0, result.output

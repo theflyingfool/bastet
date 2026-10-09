@@ -99,7 +99,7 @@ def test_check_runs_hosts_concurrently(runner, three_hosts, monkeypatch):
     monkeypatch.setattr(run_mod, "connect", connect_stub(barrier))
     monkeypatch.setattr(run_mod, "run_host", lambda runner_, host, batches, **kw: _check_run(host, 0))
 
-    result = runner.invoke(app, ["check", "-j", "3"])
+    result = runner.invoke(app, ["run", "-c", "-j", "3"])
 
     assert result.exit_code == 0, result.output
     for host in ("pve1", "pve2", "git1"):
@@ -125,7 +125,7 @@ def _apply_setup(monkeypatch, pending, calls):
 def test_question_yes_applies_all(runner, three_hosts, monkeypatch):
     calls: list[str] = []
     _apply_setup(monkeypatch, {"pve1": 2, "pve2": 1, "git1": 1}, calls)
-    result = runner.invoke(app, ["apply"], input="y\n")
+    result = runner.invoke(app, ["run"], input="y\n")
     assert result.exit_code == 0, result.output
     assert set(calls) == {"pve1", "pve2", "git1"}
 
@@ -133,7 +133,7 @@ def test_question_yes_applies_all(runner, three_hosts, monkeypatch):
 def test_question_no_applies_none(runner, three_hosts, monkeypatch):
     calls: list[str] = []
     _apply_setup(monkeypatch, {"pve1": 2, "pve2": 1, "git1": 1}, calls)
-    result = runner.invoke(app, ["apply"], input="n\n")
+    result = runner.invoke(app, ["run"], input="n\n")
     assert result.exit_code == 0, result.output
     assert calls == []
     assert "nothing applied" in result.output
@@ -143,7 +143,7 @@ def test_question_numbers_applies_only_those(runner, three_hosts, monkeypatch):
     # inventory order is alphabetical: git1, pve1, pve2 -- 1,3 picks git1 and pve2.
     calls: list[str] = []
     _apply_setup(monkeypatch, {"pve1": 2, "pve2": 1, "git1": 1}, calls)
-    result = runner.invoke(app, ["apply"], input="1,3\n")
+    result = runner.invoke(app, ["run"], input="1,3\n")
     assert result.exit_code == 0, result.output
     assert set(calls) == {"git1", "pve2"}
     assert "pve1: nothing applied" in result.output
@@ -153,7 +153,7 @@ def test_question_bad_input_then_valid(runner, three_hosts, monkeypatch):
     # inventory order is alphabetical: git1, pve1, pve2 -- "2" picks pve1.
     calls: list[str] = []
     _apply_setup(monkeypatch, {"pve1": 2, "pve2": 1, "git1": 1}, calls)
-    result = runner.invoke(app, ["apply"], input="bogus\n2\n")
+    result = runner.invoke(app, ["run"], input="bogus\n2\n")
     assert result.exit_code == 0, result.output
     assert calls == ["pve1"]
 
@@ -161,7 +161,7 @@ def test_question_bad_input_then_valid(runner, three_hosts, monkeypatch):
 def test_question_dash_y_applies_all_without_asking(runner, three_hosts, monkeypatch):
     calls: list[str] = []
     _apply_setup(monkeypatch, {"pve1": 2, "pve2": 1, "git1": 1}, calls)
-    result = runner.invoke(app, ["apply", "-y"])
+    result = runner.invoke(app, ["run", "-y"])
     assert result.exit_code == 0, result.output
     assert set(calls) == {"pve1", "pve2", "git1"}
     assert "Changes to apply" not in result.output
@@ -195,7 +195,7 @@ def test_guest_starts_after_its_node(runner, node_and_guest, monkeypatch):
         return _apply_run(host, pending[host])
 
     monkeypatch.setattr(run_mod, "run_host", run_host)
-    result = runner.invoke(app, ["apply", "-y"])
+    result = runner.invoke(app, ["run", "-y"])
     assert result.exit_code == 0, result.output
     assert order.index("pve1-end") < order.index("guest1-start")
 
@@ -213,7 +213,7 @@ def test_guest_skipped_when_node_fails(runner, node_and_guest, monkeypatch):
         raise AssertionError("guest1 must not run after its node failed")
 
     monkeypatch.setattr(run_mod, "run_host", run_host)
-    result = runner.invoke(app, ["apply", "-y"])
+    result = runner.invoke(app, ["run", "-y"])
     assert result.exit_code == 1
     assert "its node pve1 failed" in result.output
 
@@ -233,7 +233,7 @@ def test_guest_skipped_when_node_apply_has_failed_items(runner, node_and_guest, 
         raise AssertionError("guest1 must not run after its node failed")
 
     monkeypatch.setattr(run_mod, "run_host", run_host)
-    result = runner.invoke(app, ["apply", "-y"])
+    result = runner.invoke(app, ["run", "-y"])
     assert result.exit_code == 1
     assert "its node pve1 failed" in result.output
     assert "HOST: pve1" in result.output and "1 failed" in result.output
@@ -257,7 +257,7 @@ def test_unexpected_error_reported_others_continue(runner, three_hosts, monkeypa
         return _apply_run(host, pending[host])
 
     monkeypatch.setattr(run_mod, "run_host", run_host)
-    result = runner.invoke(app, ["apply", "-y"])
+    result = runner.invoke(app, ["run", "-y"])
     assert result.exit_code == 1
     assert "pve2: unexpected error: ValueError: kaboom" in result.output
     assert set(calls) == {"pve1", "git1"}
@@ -297,7 +297,7 @@ def test_reboot_asks_serially_and_node_waits_for_guest(runner, node_and_guest, m
 
     monkeypatch.setattr(run_mod, "perform_reboot", perform_reboot)
 
-    result = runner.invoke(app, ["apply"])
+    result = runner.invoke(app, ["run"])
 
     assert result.exit_code == 0, result.output
     assert len(asked) == 2  # one per host, in inventory order, both on the main thread
@@ -333,7 +333,7 @@ def test_ctrl_c_reports_not_started_closes_masters_and_still_refreshes(runner, t
 
     monkeypatch.setattr(run_mod, "render_host", render_host)
 
-    result = runner.invoke(app, ["check", "-j", "1"])
+    result = runner.invoke(app, ["run", "-c", "-j", "1"])
 
     assert result.exit_code == 1
     not_started = [line for line in result.output.splitlines() if "not started" in line]
@@ -373,7 +373,7 @@ def test_ctrl_c_during_apply_stops_later_items_on_that_host(runner, inventory, t
         lambda ctx, doc, tmp, *, yes: (StoppingRunner(), SimpleNamespace(control_path=None)),
     )
 
-    result = runner.invoke(app, ["apply", "pve1", "-y"])
+    result = runner.invoke(app, ["run", "pve1", "-y"])
 
     assert result.exit_code == 1, result.output
     assert a.read_text() == "1"
@@ -414,7 +414,7 @@ def test_reboot_decision_error_is_one_hosts_red_line_others_still_reboot(runner,
     refreshed = []
     monkeypatch.setattr(run_mod, "refresh_generated", lambda ctx, **kw: refreshed.append(True) or 0)
 
-    result = runner.invoke(app, ["apply", "-y"])
+    result = runner.invoke(app, ["run", "-y"])
 
     assert result.exit_code == 1  # pve1 failed
     assert "pve1: couldn't tell whether a reboot is needed: boom" in result.output
@@ -442,7 +442,7 @@ def test_runs_on_loop_warns_and_does_not_hang(runner, inventory, monkeypatch):
     captured: dict = {}
 
     def target():
-        captured["result"] = runner.invoke(app, ["apply", "ct-a", "ct-b", "-y"])
+        captured["result"] = runner.invoke(app, ["run", "ct-a", "ct-b", "-y"])
 
     t = threading.Thread(target=target)
     t.start()
@@ -462,7 +462,7 @@ def test_roles_line_is_per_host_inside_its_check_block_with_dash_j_2(runner, thr
     monkeypatch.setattr(run_mod, "connect", connect_stub())
     monkeypatch.setattr(run_mod, "run_host", lambda runner_, host, batches, **kw: _check_run(host, 0))
 
-    result = runner.invoke(app, ["check", "pve2", "git1", "-j", "2"])
+    result = runner.invoke(app, ["run", "-c", "pve2", "git1", "-j", "2"])
 
     assert result.exit_code == 0, result.output
     for host in ("pve2", "git1"):

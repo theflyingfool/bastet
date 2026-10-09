@@ -11,9 +11,6 @@ import typer
 
 from bastet.cli.common import (
     Context,
-    find_named_host,
-    guard_prompts,
-    handles_errors,
     load_context,
     print_problems,
     refresh_generated,
@@ -27,6 +24,7 @@ from bastet.core.hostview import host_data
 from bastet.core.links import link_target
 from bastet.core.render import lab_embed_changes
 from bastet.core.scaffold import new_host
+from bastet.core.selectors import select_hosts
 from bastet.core.tools import install_script, needed_tools
 from bastet.core import hostkeys
 from bastet.core.bootstrap import setup_command
@@ -367,39 +365,23 @@ def _offer_guests(ctx: Context, found: list[tuple[str, dict]], yes: bool, facts_
     return drafts
 
 
-@handles_errors
-def gather(
-    hosts: list[str] | None = typer.Argument(None, help="Hosts to gather (default: all hosts)."),
-    take: list[str] = typer.Option([], "--take", help="Accept the observed value of this field even if you set it. Repeatable."),
-    accept_new_hostkey: bool = typer.Option(False, "--accept-new-hostkey", help="Trust a new or changed host key (e.g. after a reinstall)."),
-    yes: bool = typer.Option(False, "--yes", "-y", help="Don't ask; write and commit."),
-    jobs: int | None = typer.Option(None, "--jobs", "-j", min=1, help="How many hosts to gather at once (default: the config value)."),
-) -> None:
-    """Collect facts from hosts and write them into their files, after showing the diff."""
-    with guard_prompts():
-        try:
-            _gather(hosts, take, accept_new_hostkey, yes, jobs)
-        except KeyboardInterrupt:
-            typer.secho("interrupted; nothing written", fg="yellow")
-            raise typer.Exit(1) from None
-
-
 def _gather(
-    hosts: list[str] | None, take: list[str], accept_new_hostkey: bool, yes: bool, jobs: int | None
+    hosts: list[str] | None, take: list[str], accept_new_hostkey: bool, yes: bool, jobs: int | None,
+    exclude: list[str] | None = None,
 ) -> None:
     ctx = load_context()
     run_jobs = resolve_jobs(jobs, ctx.config)
     print_problems(ctx)
     inv = ctx.inventory
-    if hosts:
-        docs = [find_named_host(ctx, name) for name in hosts]
-    else:
-        docs = []
-        for doc in inv.of_kind("host"):
+    docs = select_hosts(inv, ctx.types, hosts or [], exclude or [])
+    if not hosts:
+        kept = []
+        for doc in docs:
             if doc.data.get("gather") is False:
                 typer.echo(f"{doc.name}: skipped (gather: false)")
             else:
-                docs.append(doc)
+                kept.append(doc)
+        docs = kept
     if not docs:
         typer.echo("No hosts yet. Add one with `bastet add host`.")
         return
