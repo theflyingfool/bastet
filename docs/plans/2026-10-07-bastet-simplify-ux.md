@@ -10,6 +10,7 @@
 - **A templates folder replaces `add hardware`.**
 - **`bastet doctor [--fix]`** finds and fixes problems.
 - **Smaller UX fixes:** lenient yes/no and numbers, "did you mean", next-step hints, tab completion, clear push messages.
+- **User documentation lives in the vault,** linked from `Homelab.md` and from the notes where it helps.
 
 **Architecture:** this is mostly CLI reshaping on top of the existing engine and parallel runner. The note model extends subplan 1's `factsnote`/`hostview` pattern to hardware, and merges the summary and reports notes into the facts note. No new subsystems.
 
@@ -340,7 +341,7 @@ def diagnose(ctx) -> list[Problem]
 ### Task 9: Docs
 
 **Files:**
-- `README.md`: the command table, as agreed (`init`, `run`, `show`, `add host|role`, `role`, `secret`, `doctor`, plus `refresh`/`help`); selectors; `doctor`; templates; who writes what; completion.
+- `README.md`: install and quick start, plus the command table, as agreed (`init`, `run`, `show`, `add host|role`, `role`, `secret`, `doctor`, plus `refresh`/`help`); selectors; `doctor`; templates; who writes what; completion.
 - The guide note.
 - `docs/specs/2026-09-30-bastet-design.md` §5.3 (hardware fields and split), §7 (attribution removed; gather writes only Bastet's notes), §12 (commands).
 - `docs/specs/2026-10-06-bastet-roles-design.md` §2 (the hardware row, the one-note rule), §13 (`role check` → `doctor <dir>`).
@@ -348,6 +349,42 @@ def diagnose(ctx) -> list[Problem]
 - `docs/ROADMAP.md`: this plan in "Now"; mark it done after the merge.
 
 **Behaviour:** docs only. `scripts/privacy-check` must be clean.
+
+### Task 10: User documentation lives in the vault
+
+**Files:**
+- Create `src/bastet/data/docs/*.md`, the single source of user documentation, replacing `src/bastet/data/guide/guide.md`.
+- `src/bastet/core/render.py` (refresh writes them to `_bastet/docs/`).
+- `src/bastet/core/scaffold.py`, `src/bastet/core/templates.py`, `src/bastet/roles/pages.py` (contextual links).
+- `src/bastet/core/initialize.py` (the `Homelab.md` link).
+- `README.md` (shortened to install and quick start, linking to the docs).
+- Tests.
+
+**Behaviour:**
+- **The docs are written once,** as Markdown notes in the package, and shipped into every inventory by `refresh` as `_bastet/docs/<Title>.md` (Bastet's own, `generated: true`). They always match the installed version. GitHub renders the same files from the repo. The notes:
+  - `Bastet guide` (start here: who writes what, the daily loop);
+  - `Commands` (every command and option, the selectors, `-y`);
+  - `Hosts and facts` (host notes, the facts notes, drift, stale keys);
+  - `Hardware` (your fields, missing hardware, templates);
+  - `Roles` (role files, precedence, presets once they exist, the library once it exists);
+  - `Secrets`;
+  - `Troubleshooting` (`doctor`, skipped refreshes, push failures);
+  - `Writing roles` (filled in by roles subplan 2).
+- **Developer docs** (specs, plans, research) stay in the repo, and are never copied into a vault.
+- **`Homelab.md`** gets one line under its title, `Docs: [[Bastet guide]]`, added by `init` (and offered by `doctor --fix` on existing inventories, since `Homelab.md` is your note).
+- **The dashboard** links the guide, as today.
+- **Contextual links**, where they help:
+  - role files written by `add role`: `Docs: [[Roles]] · Options: [[<role> role#Options]]`;
+  - templates: the matching doc (`[[Hardware]]`, `[[Hosts and facts]]`, `[[Roles]]`);
+  - every Bastet facts note: `[[Hosts and facts]]`;
+  - `doctor` output and errors: the relevant doc note's name, so it can be opened in Obsidian (as a clickable link once milestone 3b's output layer exists).
+- **Old notes:** `refresh` deletes the old `_bastet/Bastet guide.md` (generated) when it writes the new docs.
+
+**Tests:**
+- Every doc ships to `_bastet/docs/` and is regenerated when the package version changes.
+- Each contextual link is present in a new role file, a template and a facts note.
+- The `Homelab.md` line from `init`, and the `doctor --fix` offer for an existing lab.
+- No dangling `[[…]]` targets in the shipped docs (every link resolves to a doc, a generated note or a heading).
 
 ---
 
