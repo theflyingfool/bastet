@@ -4,7 +4,7 @@
 
 **Goal:** a host runs by phase across all roles (not role by role), and two roles, `pacman` and a new `apt`, are straight Markdown with no Python, proving both ways the `files` block can turn options into config. Then we stop for hard testing.
 
-**Architecture:** every resource belongs to a block slot (repositories, packages, users, files, systemd, commands, reports). `run_host` orders all items from all roles by slot, runs the triggers once at the end (with a health check after restarts), and an entry can move itself with `before`/`after`/`in` or by `provides`-ing something a block `wants`. A Markdown role (`<name> role.md`, draft contract `api: 0`) is read by a loader into the existing `RoleDef` and built by one generic builder; the old `role.yml` roles keep their Python builders until they are converted.
+**Architecture:** every resource belongs to a block slot (repositories, packages, users, files, systemd, commands, reports). `run_host` orders all items from all roles by slot, runs the triggers once at the end (with a health check after restarts), and an entry can move itself with `before`/`after` or by `provides`-ing something a block `wants`. A Markdown role (`<name> role.md`, draft contract `api: 0`) is read by a loader into the existing `RoleDef` and built by one generic builder; the old `role.yml` roles keep their Python builders until they are converted.
 
 **Tech Stack:** Python ≥3.12, PyYAML, pytest. Podman for the opt-in contract tests.
 
@@ -14,12 +14,16 @@
 
 ## Decisions made while planning (details the spec left open)
 
-1. **The AUR bootstrap forces an `in:` knob.** The legacy `packages` role builds, in one batch, a build user, a sudoers file, `base-devel`, `git`, and a `yay` install command, which must run in exactly that order and before the AUR packages. Under slots the user and sudoers would land after packages, and the command after all packages. So an entry can also say `in: <block>` (treat it as belonging to that block's slot, ordered by role order within the slot). The bootstrap becomes: user and sudoers `before: packages`, the `yay` command `in: packages`. This is a stopgap until AUR becomes a `packages` block feature.
-2. **Engine field names differ from contract keys.** In a role's contract an entry says `before:`, `after:`, `in:`. On the resource they are `run_before`, `run_after`, `run_in`, because `Line` already has an `after` field (a regex).
+1. **The AUR is out of scope for now.** Nothing in this plan touches the AUR code (the `aur` package option and its bootstrap in the legacy `packages` role). See "Known limitation" below.
+2. **Engine field names differ from contract keys.** In a role's contract an entry says `before:` or `after:`. On the resource they are `run_before` and `run_after`, because `Line` already has an `after` field (a regex).
 3. **Failure rules in the new loop.** The first failed step skips every later item on that host (`earlier failure on this host: <what>`). Triggers still run for what changed before the failure. A failed trigger stops the remaining triggers. Verify still runs. This replaces today's per-batch rules; the tests that pin the old rules are updated (listed in Task 2).
 4. **Health check scope.** Only restarts get a check (the unit must be `active` within a few seconds). Reloads and other triggers do not. `restart(unit, check=False)` is the opt-out for one-shot units.
 5. **apt is a curated option list for now.** apt has hundreds of settings; this slice ships about a dozen common ones, marked as incomplete in the role's body. Generating the full list from `apt-config dump` is a later task (spec §3.1).
 6. **The apt role writes a whole drop-in file** (`/etc/apt/apt.conf.d/90-bastet`), validated with `apt-config` before it replaces the old one. Pacman edits lines in place. Together they prove both modes.
+
+## Known limitation: the AUR
+
+The AUR option of the legacy `packages` role (a build user, sudoers file, `base-devel`, `git`, a `yay` install, then the AUR packages) depends on running in exactly that order. The new block order will not respect it, so an AUR install can fail at apply time on Arch hosts. That is accepted for now: the AUR is slated for a local-repository design of its own (roadmap, roles table item 8). The plan neither fixes nor guards it; the hard-testing checklist does not cover it.
 
 ## Global Constraints
 
@@ -40,9 +44,9 @@
 ## Review Focus
 
 1. **Equivalence.** The Markdown pacman produces resources equal to the old builder's for every option and for each error case (golden tests written before anything changes).
-2. **No ordering regressions in the legacy roles.** The AUR bootstrap (user, sudoers, `base-devel`/`git`, `yay`, AUR packages), ssh (include command, drop-in, reload at the end), proxmox (repositories, tools, patch), harden (package, config, unit), and systemd (package, config, unit) still work in the new order.
+2. **No ordering regressions in the legacy roles** (the AUR excepted, see above): ssh (include command, drop-in, reload at the end), proxmox (repositories, tools, patch), harden (package, config, unit), and systemd (package, config, unit) still work in the new order.
 3. **Triggers.** Once per host, in `order`, `daemon-reload` before restarts, a changed item's triggers still run when a later item fails, and the health check does not give false failures (one-shot units, units that take a moment to start).
-4. **The entry knobs.** An unknown block name in `before`/`after`/`in` is an error at plan time (also in check). `provides` only ever moves an entry earlier. Two roles giving the same entry different placements is a conflict.
+4. **The entry knobs.** An unknown block name in `before`/`after` is an error at plan time (also in check). `provides` only ever moves an entry earlier. Two roles giving the same entry different placements is a conflict.
 5. **The draft contract.** Unknown top-level keys are an error; a folder with both `role.yml` and a Markdown role is an error; `api` other than 0 is refused; options keep their order (golden tests depend on it).
 
 ## File structure
@@ -50,13 +54,13 @@
 | File | Responsibility |
 |---|---|
 | `src/bastet/engine/slots.py` (new) | `SLOTS`, `WANTS`, `rank`, `apply_order` |
-| `src/bastet/engine/model.py` | `Resource` gains `slot` (ClassVar) and `run_before`/`run_after`/`run_in`/`provides`; `Trigger` gains the health-check fields |
+| `src/bastet/engine/model.py` | `Resource` gains `slot` (ClassVar) and `run_before`/`run_after`/`provides`; `Trigger` gains the health-check fields |
 | `src/bastet/engine/*.py` | each resource class sets its `slot` |
 | `src/bastet/engine/run.py` | the apply loop over `apply_order`, triggers once at the end, health check |
 | `src/bastet/engine/systemd.py` | `restart()` carries a check |
 | `src/bastet/roles/contract.py` | option keys (`key`, `section`, `as`, `min`, `max`, `single_line`), `RoleDef` fields, `parse_role`, `load_roles` for both formats |
 | `src/bastet/roles/declarative.py` (new) | the generic builder: `edit: ini`, `render: apt` |
-| `src/bastet/roles/builtin.py` | `batches_for` uses the generic builder for Markdown roles; the AUR bootstrap gets its knobs |
+| `src/bastet/roles/builtin.py` | `batches_for` uses the generic builder for Markdown roles |
 | `src/bastet/data/roles/pacman/pacman role.md` | pacman as Markdown (replaces `role.yml`) |
 | `src/bastet/data/roles/apt/apt role.md` | the new apt role |
 
@@ -68,7 +72,7 @@
 - Create: `tests/roles/test_pacman_role.py`
 - Create (not committed): a "before" snapshot, described in Step 4
 
-**Behaviour:** golden tests that describe what the *current* Python pacman builder produces, written against `batches_for` so they keep working unchanged after the conversion in Task 7.
+**Behaviour:** golden tests that describe what the *current* Python pacman builder produces, written against `batches_for` so they keep working unchanged after the conversion in Task 6.
 
 - [ ] **Step 1: Write the tests.** Create `tests/roles/test_pacman_role.py`:
 
@@ -173,7 +177,7 @@ def test_a_value_option_must_be_one_non_empty_line(bad):
 
 - [ ] **Step 2: Run to verify they pass.** `uv run pytest tests/roles/test_pacman_role.py -q`. They describe today's behaviour, so they must pass against the current Python builder. If one fails, the test (not the code) is wrong: fix the test to match what the builder really does and say so in your report. (For example, whether the multi-line check raises at `check_values` time or at build time is the same here because both calls are inside the `pytest.raises` block.)
 - [ ] **Step 3: Commit** `tests/roles/test_pacman_role.py` as `tests: pin pacman's behaviour before the role is converted`.
-- [ ] **Step 4: Take a "before" snapshot of the user-visible output** (not committed; this is for Task 7's comparison). Follow the `run-bastet` skill to make a sandbox, then: add a local host `box` (`type: laptop`, `connection: local`) with a role file `_roles/hosts/box/pacman.md` containing `role: pacman`, `applies_to: "[[box]]"` and `parallel_downloads: 8`; drive `bastet run -c box` with the connection patched to run commands locally (the scratch `drive.py` pattern from `tests/cli/test_run_recording.py`: `AsRootLocally`); save the output without timing to `.superpowers/sdd/2026-10-10-bastet-roles-arch-1-slice/before-check.txt`. Note in your report whether this machine's `/etc/pacman.conf` was Arch.
+- [ ] **Step 4: Take a "before" snapshot of the user-visible output** (not committed; this is for Task 6's comparison). Follow the `run-bastet` skill to make a sandbox, then: add a local host `box` (`type: laptop`, `connection: local`) with a role file `_roles/hosts/box/pacman.md` containing `role: pacman`, `applies_to: "[[box]]"` and `parallel_downloads: 8`; drive `bastet run -c box` with the connection patched to run commands locally (the scratch `drive.py` pattern from `tests/cli/test_run_recording.py`: `AsRootLocally`); save the output without timing to `.superpowers/sdd/2026-10-10-bastet-roles-arch-1-slice/before-check.txt`. Note in your report whether this machine's `/etc/pacman.conf` was Arch.
 
 ---
 
@@ -190,14 +194,14 @@ WANTS = {"repositories": ("package-manager",), "packages": ("package-manager",)}
 def rank(res: Resource) -> float                        # position of an entry in the run
 def apply_order(planned: list[tuple[Batch, list[Item]]]) -> list[Item]   # all items, in run order
 ```
-`Resource` gains: `slot: ClassVar[str] = "commands"`, and keyword fields `run_before: str | None = None`, `run_after: str | None = None`, `run_in: str | None = None`, `provides: tuple[str, ...] = ()`.
+`Resource` gains: `slot: ClassVar[str] = "commands"`, and keyword fields `run_before: str | None = None`, `run_after: str | None = None`, `provides: tuple[str, ...] = ()`.
 
 **Behaviour:**
 - **Each resource class sets its slot:** `Repository`, `StraySources` → `repositories`; `Package`, `Updates` → `packages`; `Unaccounted`, `Reboot` and every report class (`_Report` subclasses) → `reports`; `User`, `Group`, `AuthorizedKey` → `users`; `File`, `Directory`, `Symlink`, `_Edit` (so `Line` and `Block`) → `files`; `Unit`, `Hostname`, `Locale`, `TimeSettings` → `systemd`; `Command` → `commands`.
-- **`rank(res)`:** the base is the position of `res.run_in` (if set) or `res.slot` in `SLOTS`. `run_before: X` gives the position of X minus 0.5; `run_after: X` gives it plus 0.5 (these override the base). An entry that `provides` something a slot `wants` is moved to just before the earliest wanting slot (it only ever moves earlier). A name that is not in `SLOTS` raises `BastetError("<what>: unknown block 'x' (known: …)")`.
+- **`rank(res)`:** the base is the position of `res.slot` in `SLOTS`. `run_before: X` gives the position of X minus 0.5; `run_after: X` gives it plus 0.5 (these override the base). An entry that `provides` something a slot `wants` is moved to just before the earliest wanting slot (it only ever moves earlier). A name in `run_before`/`run_after` that is not in `SLOTS` raises `BastetError("<what>: unknown block 'x' (known: …)")`.
 - **`apply_order`:** sort by `(rank, batch index, position in batch)`. Stable, so within a slot roles keep today's `ORDER` and a role's own order.
 - **`run_host`:** compute `apply_order` right after `collect_items` (so an unknown block name is an error in check too). In apply mode, walk that one sequence instead of batch by batch. Keep grouping of adjacent items with the same `group_key`, the `touches` re-read, `should_stop`, the events, and the verify phase exactly as they are. Failure rule: the first failed step sets `broken`; every later would-change item becomes `skipped` with `earlier failure on this host: <label>`. Collect each changed item's triggers into one list (no duplicates); after the loop run them once, ordered by `Trigger.order` (stable), recording a `TriggerRun` and emitting `trigger_fired` for each. A failed trigger stops the remaining triggers.
-- **`_merge`:** treat `provides` like `on_change` (union, never a clash); `run_before`, `run_after`, `run_in` clash if two sources differ.
+- **`_merge`:** treat `provides` like `on_change` (union, never a clash); `run_before` and `run_after` clash if two sources differ.
 
 **Tests that change** (they pin the old per-batch rules; update only what the new rules require, and say so in the commit):
 - `tests/engine/test_run.py::test_failure_skips_rest_of_batch_and_later_batches`: the same-batch skip message becomes `earlier failure on this host: <bad>`.
@@ -256,8 +260,6 @@ def test_entry_knobs_move_an_entry(tmp_path):
     assert sequence(Batch("x", [Pkg(path=b, value="2"), early])) == [a, b]
     late = Pkg(path=a, value="1", run_after="systemd")
     assert sequence(Batch("x", [late, Svc(path=b, value="2")])) == [b, a]
-    inside = Flag(path=a, value="1", run_in="packages")               # treated as a packages entry
-    assert sequence(Batch("x", [Pkg(path=b, value="2")]), Batch("y", [inside])) == [b, a]
 
 
 def test_provides_moves_an_entry_before_the_blocks_that_want_it(tmp_path):
@@ -345,7 +347,7 @@ def _position(name: str, what: str) -> int:
 
 def rank(res) -> float:
     what = res.label
-    base = float(_position(res.run_in, f"{what}: in") if res.run_in else SLOTS.index(res.slot))
+    base = float(SLOTS.index(res.slot))
     if res.run_before:
         return _position(res.run_before, f"{what}: before") - 0.5
     if res.run_after:
@@ -442,40 +444,7 @@ Then add `slot = "..."` ClassVars to the resource classes as listed.
 
 ---
 
-### Task 3: The entry knobs on the legacy roles (AUR bootstrap) and `provides`
-
-**Files:**
-- Modify: `src/bastet/roles/builtin.py` (`_aur_bootstrap`)
-- Test: `tests/roles/test_aur_order.py`
-
-**Behaviour:** the AUR bootstrap keeps its meaning under slots: the build user and its sudoers file run before packages, `base-devel`/`git` and the `yay` install run inside the packages slot in their old relative order, and the AUR packages come after.
-
-- [ ] **Step 1: Write the failing test.** Create `tests/roles/test_aur_order.py` (copy the `ap`/`info` helpers from `tests/roles/test_builtin.py`; use an Arch host `info(os="Arch Linux")`):
-
-```python
-from bastet.engine.run import collect_items
-from bastet.engine.slots import apply_order
-from bastet.roles.builtin import batches_for
-
-
-def test_aur_bootstrap_runs_user_and_sudoers_before_packages_and_yay_between_git_and_the_aur_packages():
-    applied = ap("packages", {"install": [{"name": "tree"}, {"name": "visual-studio-code-bin", "aur": True}]})
-    seq = apply_order(collect_items(batches_for([applied], info(os="Arch Linux"))))
-    names = [(type(i.resource).__name__, getattr(i.resource, "name", getattr(i.resource, "path", ""))) for i in seq]
-    pos = {n: k for k, n in enumerate(names)}
-    assert pos[("User", "bastet-aur")] < pos[("File", "/etc/sudoers.d/bastet-aur")] < pos[("Package", "base-devel")]
-    assert pos[("Package", "git")] < pos[("Command", "yay")] < pos[("Package", "visual-studio-code-bin")]
-    assert pos[("Package", "base-devel")] < pos[("Command", "yay")]
-```
-Adjust the sudoers path/names to what `sudoer(user, user=..., ...)` really produces (read `engine/users.py:sudoer`); the intent is the three ordering assertions.
-
-- [ ] **Step 2: Run to verify it fails**, then **Step 3: implement:** in `_aur_bootstrap`, build `User(..., run_before="packages")`, `replace(sudoer(...), run_before="packages")`, `Command(..., run_in="packages")`. Import `replace` (already imported in `builtin.py`).
-- [ ] **Step 4: Run** `uv run pytest tests/roles tests/engine -q`.
-- [ ] **Step 5: Commit** (`packages role: the AUR bootstrap keeps its order under block slots`).
-
----
-
-### Task 4: A health check after restarts
+### Task 3: A health check after restarts
 
 **Files:**
 - Modify: `src/bastet/engine/model.py` (`Trigger`), `src/bastet/engine/systemd.py` (`restart`), `src/bastet/engine/run.py` (trigger loop)
@@ -509,7 +478,7 @@ Adjust the sudoers path/names to what `sudoer(user, user=..., ...)` really produ
 
 ---
 
-### Task 5: The Markdown role loader and the draft contract
+### Task 4: The Markdown role loader and the draft contract
 
 **Files:**
 - Modify: `src/bastet/roles/contract.py`
@@ -527,7 +496,7 @@ def load_roles(directory=None)             # now: <name>/<name> role.md if prese
 
 **Behaviour:**
 - **Option keys** `key`, `section`, `as` (one of `flag`, `value`, `list`), `min`, `max` (only on `int`/`number`), `single_line` (only on `string`) join `OPTION_KEYS`. `check_value` enforces them with these messages: `{where}: must be {min} or more`, `{where}: must be {max} or less`, `{where}: needs a single non-empty line`.
-- **`parse_role`** reads the note with `parse_document`. Required frontmatter: `bastet: role-definition`, `name` equal to the folder name, `version` (`X.Y.Z`), `api` in `API_VERSIONS`, `description`. Optional: `os`, `provides` (flat lists of text), `options`, `examples`, `files`. Reserved keys (`uses`, `needs`, `contributes`, `collects`, `requires`, `tags`, `cssclasses`, `types`, `not_types`, `os_min`, `data`, `vars`, `presets`, `packages`, `templates`, `units`, `hooks`, `source`, `source_hash`) are accepted, stored in `raw`, and do nothing. Any other top-level key is an error naming it. A `files` entry is a map with `path` and exactly one of `edit` (`ini`) or `render` (`apt`); optional `mode`, `owner`, `group`, `validate`, `before`, `after`, `in`; anything else is an error naming the key. Errors name the file and key like the existing parser.
+- **`parse_role`** reads the note with `parse_document`. Required frontmatter: `bastet: role-definition`, `name` equal to the folder name, `version` (`X.Y.Z`), `api` in `API_VERSIONS`, `description`. Optional: `os`, `provides` (flat lists of text), `options`, `examples`, `files`. Reserved keys (`uses`, `needs`, `contributes`, `collects`, `requires`, `tags`, `cssclasses`, `types`, `not_types`, `os_min`, `data`, `vars`, `presets`, `packages`, `templates`, `units`, `hooks`, `source`, `source_hash`) are accepted, stored in `raw`, and do nothing. Any other top-level key is an error naming it. A `files` entry is a map with `path` and exactly one of `edit` (`ini`) or `render` (`apt`); optional `mode`, `owner`, `group`, `validate`, `before`, `after`; anything else is an error naming the key. Errors name the file and key like the existing parser.
 - **`load_roles`** keeps returning the same shape; a folder with both formats is an error.
 
 - [ ] **Step 1: Write the failing tests** in `tests/roles/test_markdown_roles.py`: write small role folders under `tmp_path` and assert: a minimal valid role parses (`markdown=True`, `api == 0`); each required-field error; `api: 1` refused; unknown top-level key; reserved keys accepted and ignored; `files` entry errors (neither `edit` nor `render`, both, unknown key); option keys `key`/`section`/`as`/`min`/`max`/`single_line` accepted on the right types and rejected on the wrong ones; `check_value` min/max/single_line messages; both formats in one folder is an error; option order is preserved; and `load_roles()` (the bundled set) still returns the same nine names.
@@ -535,7 +504,7 @@ def load_roles(directory=None)             # now: <name>/<name> role.md if prese
 
 ---
 
-### Task 6: The generic builder
+### Task 5: The generic builder
 
 **Files:**
 - Create: `src/bastet/roles/declarative.py`
@@ -548,7 +517,7 @@ def load_roles(directory=None)             # now: <name>/<name> role.md if prese
 - **OS check:** if `role.os` is set and the host matches none of them, raise `BastetError(f"{role.name} role: {host.name} isn't {Label}-based ({host.data.get('os') or 'OS unknown'}); aim it at [[{family}]]")` for the first family. `arch` matches `host.os_id in ARCH_LIKE` (Label `Arch`); `debian` matches `host.debian_like` (Label `Debian`); any other name matches `host.os_id == name` (Label capitalised).
 - **`edit: ini`** (in place): for each option with a `key` whose value is not `None`, in contract order, one `Line(path, line, match=rf"^#?\s*{re.escape(key)}\s*(=.*)?$", after=rf"^\[{re.escape(section)}\]\s*$" or None, unique=True)`. The kind is the option's `as`, else `flag` for `bool`, `list` for `list`, `value` otherwise: `flag` → `Key` or `#Key`; `list` → `Key = a b c` or `#Key =` when empty; `value` → `Key = v`.
 - **`render: apt`** (whole file): one `File(path, content, mode, owner, group, validate)` whose content is `# Managed by Bastet (apt role). Edit the role file, not this file.` followed by one line per option with a `key` and a value, in contract order: a bool → `Key "true";`/`Key "false";`; a list → `Key { "a"; "b"; };` (`Key { };` when empty); anything else → `Key "value";`. Backslashes and double quotes in values are escaped.
-- **Placement:** every resource gets `run_before`/`run_after`/`run_in` from the entry's `before`/`after`/`in`, and `provides` from the role.
+- **Placement:** every resource gets `run_before`/`run_after` from the entry's `before`/`after`, and `provides` from the role.
 - **`batches_for`:** a role with `markdown=True` is built by `declarative.build`; other roles use their old builder (unchanged, including `ORDER`).
 
 - [ ] **Step 1: Write the failing tests** in `tests/roles/test_declarative_roles.py` with synthetic Markdown roles in `tmp_path`: the ini kinds (flag true and false, list, empty list, value, an option with no key skipped, `None` skipped), the section anchor and match regexes (compare against the exact strings in Task 1), an apt-style render of each value type including escaping and an empty list, `provides` and `before` reaching the resources, the OS error text for `arch` and `debian`, and that a Markdown role through `batches_for` returns one `Batch` named after the role.
@@ -556,7 +525,7 @@ def load_roles(directory=None)             # now: <name>/<name> role.md if prese
 
 ---
 
-### Task 7: pacman becomes Markdown-only
+### Task 6: pacman becomes Markdown-only
 
 **Files:**
 - Create: `src/bastet/data/roles/pacman/pacman role.md`
@@ -570,7 +539,7 @@ def load_roles(directory=None)             # now: <name>/<name> role.md if prese
 
 ---
 
-### Task 8: The apt role
+### Task 7: The apt role
 
 **Files:**
 - Create: `src/bastet/data/roles/apt/apt role.md`, `tests/roles/test_apt_role.py`
@@ -602,16 +571,16 @@ No defaults (unset leaves apt alone). Include two `examples` (a proxy; no recomm
 
 ---
 
-### Task 9: Docs, roadmap, and the stop for hard testing
+### Task 8: Docs, roadmap, and the stop for hard testing
 
-**Files:** `docs/specs/2026-10-10-bastet-roles-architecture-design.md` (add the `in:` knob and the field names; the failure rules), `docs/ROADMAP.md` (step 1 done, the roles table notes, the blocks table), `src/bastet/data/docs/writing_roles.md` (a short "Markdown roles (draft)" section: the format, `api: 0` is a draft, the two file modes, the entry knobs), `docs/roles.md`.
+**Files:** `docs/specs/2026-10-10-bastet-roles-architecture-design.md` (add the field names `run_before`/`run_after`, and the failure rules), `docs/ROADMAP.md` (step 1 done, the roles table notes, the blocks table), `src/bastet/data/docs/writing_roles.md` (a short "Markdown roles (draft)" section: the format, `api: 0` is a draft, the two file modes, the entry knobs), `docs/roles.md`.
 
 - [ ] **Step 1:** make the doc edits (plain text, example data only; `tests/core/test_docs.py` must stay green, every `[[link]]` must resolve). **Step 2:** `uv run pytest -q` (the full suite) and `scripts/privacy-check`. **Step 3: Commit** (`docs: roles architecture first slice`).
 
 **STOP HERE. Hard testing, before any more roles are converted.** The controller reports and waits. The checklist the user (or the controller on request) works through:
 1. The full suite, then the contract tests: `BASTET_CONTRACT=1 uv run pytest tests/contract -q` (needs podman; runs the Debian and Arch containers, including the new apt and the existing pacman, ssh, packages and harden contract tests).
 2. A real `bastet run -c` against this Arch machine's inventory role files, comparing with the "before" snapshot: nothing may change apart from timing.
-3. Every legacy role through the new order on a real host if one is available: AUR install (the user, sudoers, `yay` order), an ssh change (include command, drop-in, reload at the end), a harden run, a systemd change that restarts a unit (health check), and a proxmox run.
+3. Every legacy role through the new order on a real host if one is available (the AUR excepted): an ssh change (include command, drop-in, reload at the end), a harden run, a systemd change that restarts a unit (health check), and a proxmox run.
 4. Failure cases: a deliberately failing fix mid-run (later items skipped, earlier triggers still fire), a restart of a unit that fails to start (the health check reports it), and a one-shot unit.
 5. Ctrl-C mid-apply, and `bastet run -c -vv` to read the new phase order in the live view.
 6. Look for surprises in ordering: anything that used to work because a role ran as a whole before the next one.
