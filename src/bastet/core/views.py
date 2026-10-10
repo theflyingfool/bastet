@@ -12,15 +12,43 @@ def _yaml_list(items: tuple[str, ...], indent: str = "      ") -> str:
     return "".join(f"{indent}- {item}\n" for item in items)
 
 
-def _base(filter_exprs: str | list[str], views: list[tuple[str, str, tuple[str, ...]]], *, group_by: str | None = None) -> str:
-    """A .base file: one or more `and`-ed filters, then views in order (the first is the one shown by default)."""
+def _view_text(view_type, name, columns, *, group_by=None, filters=None, sort=None) -> str:
+    text = f"  - type: {view_type}\n    name: {name}\n"
+    if filters:
+        key, exprs = ("or", filters) if isinstance(filters, tuple) else ("and", filters)
+        text += f"    filters:\n      {key}:\n" + "".join(f"        - {e}\n" for e in exprs)
+    if group_by:
+        text += f"    groupBy:\n      property: {group_by}\n      direction: ASC\n"
+    text += "    order:\n" + _yaml_list(columns)
+    if sort:
+        text += f"    sort:\n      - property: {sort[0]}\n        direction: {sort[1]}\n"
+    return text
+
+
+def _base(
+    filter_exprs: str | list[str],
+    views: list,
+    *,
+    group_by: str | None = None,
+    formulas: dict[str, str] | None = None,
+) -> str:
+    """A .base file: one or more `and`-ed filters, then views in order (the first is the one shown by default).
+
+    A view is `(type, name, columns)` or a dict with those as `type`, `name`, `columns` plus optional
+    `filters` (a list is and-ed, a tuple or-ed), `sort` (property, direction) and `group_by`."""
     exprs = [filter_exprs] if isinstance(filter_exprs, str) else filter_exprs
-    text = "filters:\n  and:\n" + "".join(f"    - {expr}\n" for expr in exprs) + "views:\n"
-    for view_type, name, columns in views:
-        text += f"  - type: {view_type}\n    name: {name}\n"
-        if group_by:
-            text += f"    groupBy: {group_by}\n"
-        text += "    order:\n" + _yaml_list(columns)
+    text = "filters:\n  and:\n" + "".join(f"    - {expr}\n" for expr in exprs)
+    if formulas:
+        text += "formulas:\n" + "".join(f"  {k}: {v}\n" for k, v in formulas.items())
+    text += "views:\n"
+    for view in views:
+        if isinstance(view, dict):
+            text += _view_text(
+                view["type"], view["name"], view["columns"],
+                group_by=view.get("group_by", group_by), filters=view.get("filters"), sort=view.get("sort"),
+            )
+        else:
+            text += _view_text(*view, group_by=group_by)
     return text
 
 
@@ -41,7 +69,43 @@ SECRETS_BASE = _base(
     [("table", "Table", SECRETS_LIST_COLUMNS), ("cards", "Cards", SECRETS_LIST_COLUMNS)],
     group_by="role",
 )
-VIEWS = {HARDWARE_BASE_PATH: HARDWARE_BASE, ROLES_BASE_PATH: ROLES_BASE, SECRETS_BASE_PATH: SECRETS_BASE}
+
+RUNS_BASE_PATH = "_bastet/runs.base"
+RUNS_HERE_BASE_PATH = "_bastet/runs-here.base"
+RUNS_BOARD_PATH = "_bastet/runs-board.base"
+RUNS_BOARD_HERE_PATH = "_bastet/runs-board-here.base"
+BOARD_VIEW_TYPE = "kanban"  # the one constant to change if Obsidian names the board view differently
+RUNS_COLUMNS = ("file.name", "mode", "status", "started", "changed", "failed", "hosts")
+_NEWEST_FIRST = ("started", "DESC")
+_RUNS_FILTER = 'bastet == "run"'
+_HERE_FILTER = "hosts.contains(this.host)"
+_RUNS_VIEWS = [
+    {"type": "table", "name": "Changes", "columns": RUNS_COLUMNS, "sort": _NEWEST_FIRST,
+     "filters": ('mode == "apply"', 'mode == "gather"', 'status == "failed"')},
+    {"type": "table", "name": "Checks", "columns": RUNS_COLUMNS, "sort": _NEWEST_FIRST, "filters": ['mode == "check"']},
+    {"type": "table", "name": "Failures", "columns": RUNS_COLUMNS, "sort": _NEWEST_FIRST, "filters": ['status == "failed"']},
+    {"type": "table", "name": "All runs", "columns": RUNS_COLUMNS, "sort": _NEWEST_FIRST},
+]
+# The board groups by a formula, not by `status`, so dragging a card cannot rewrite the recorded status.
+_BOARD_VIEWS = [
+    {"type": BOARD_VIEW_TYPE, "name": "Board", "columns": RUNS_COLUMNS, "sort": _NEWEST_FIRST, "group_by": "formula.outcome"}
+]
+_BOARD_FORMULAS = {"outcome": "note.status"}
+RUNS_BASE = _base([_RUNS_FILTER], _RUNS_VIEWS)
+RUNS_HERE_BASE = _base([_RUNS_FILTER, _HERE_FILTER], _RUNS_VIEWS)
+RUNS_BOARD_BASE = _base([_RUNS_FILTER], _BOARD_VIEWS, formulas=_BOARD_FORMULAS)
+RUNS_BOARD_HERE_BASE = _base([_RUNS_FILTER, _HERE_FILTER], _BOARD_VIEWS, formulas=_BOARD_FORMULAS)
+VIEWS = {
+    HARDWARE_BASE_PATH: HARDWARE_BASE,
+    ROLES_BASE_PATH: ROLES_BASE,
+    SECRETS_BASE_PATH: SECRETS_BASE,
+    RUNS_BASE_PATH: RUNS_BASE,
+    RUNS_HERE_BASE_PATH: RUNS_HERE_BASE,
+    RUNS_BOARD_PATH: RUNS_BOARD_BASE,
+    RUNS_BOARD_HERE_PATH: RUNS_BOARD_HERE_BASE,
+}
+RUNS_SECTION = "\n## Runs\n\n![[runs.base]]\n\n![[runs-board.base]]\n"
+RUNS_HERE_SECTION = "\n## Runs\n\n![[runs-here.base]]\n\n![[runs-board-here.base]]\n"
 ROLES_SECTION = "\n## Roles\n\n![[roles-here.base]]\n"
 SECRETS_SECTION = "\n## Secrets\n\n![[secrets-here.base]]\n"
 

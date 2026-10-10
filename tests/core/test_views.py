@@ -6,8 +6,8 @@ from bastet.core.views import (
 
 def test_ensure_views_creates_all_then_nothing(tmp_path):
     changes = ensure_views(tmp_path)
-    assert {c.path for c in changes} == {tmp_path / HARDWARE_BASE_PATH, tmp_path / ROLES_BASE_PATH,
-                                          tmp_path / SECRETS_BASE_PATH}
+    assert {c.path for c in changes} == {tmp_path / rel for rel in VIEWS}
+    assert {HARDWARE_BASE_PATH, ROLES_BASE_PATH, SECRETS_BASE_PATH} <= set(VIEWS)
     for c in changes:
         c.path.parent.mkdir(parents=True, exist_ok=True)
         c.path.write_text(c.after)
@@ -53,7 +53,7 @@ def test_roles_base_excludes_secret_notes_sharing_applies_to():
 def test_secrets_base_groups_by_role_and_filters_to_secrets():
     text = VIEWS[SECRETS_BASE_PATH]
     assert "applies_to == this" in text and 'bastet == "secret"' in text
-    assert "groupBy: role" in text
+    assert "groupBy:\n      property: role\n      direction: ASC\n" in text
     assert text.index("type: table") < text.index("type: cards")
 
 

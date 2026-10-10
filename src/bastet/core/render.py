@@ -22,7 +22,7 @@ from bastet.core.hwparse import short_cpu
 from bastet.core.inventory import Inventory, markdown_files
 from bastet.core.links import link_target, make_link
 from bastet.core.units import format_size, parse_size
-from bastet.core.views import ensure_page_embed, ensure_views
+from bastet.core.views import RUNS_HERE_SECTION, RUNS_SECTION, ensure_page_embed, ensure_views
 from bastet.core.yamlstyle import dump_frontmatter
 
 DASHBOARD_NAME = "bastet dashboard"
@@ -195,7 +195,7 @@ def host_summary(
             body += f"| {_cell(r.port)} | {peer}{arrow} | {_cell(r.speed)} | {_cell(r.vlans)} | {_cell(r.note)} |\n"
     if roles_table:
         body += "\n" + roles_table
-    return body
+    return body + RUNS_HERE_SECTION
 
 
 def _memory_total(memory: object) -> str | None:
@@ -370,6 +370,7 @@ def dashboard(
 
     if recent:
         out.append("\n## Recent changes\n\n" + "".join(f"- {r}\n" for r in recent))
+    out.append(RUNS_SECTION)
     if inv.secrets:
         from bastet.core.secrets import health  # lazy: core.secrets builds on core
 

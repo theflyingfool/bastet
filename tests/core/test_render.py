@@ -558,3 +558,19 @@ def test_a_user_group_named_like_a_type_is_an_error_but_the_generated_one_is_not
     (repo.root / "groups").mkdir()
     (repo.root / "groups" / "proxmox.md").write_text("---\nbastet: group\n---\n# proxmox\n")
     assert [p for p in inv(repo).problems if "is a host type" in str(p.error)]
+
+
+def test_dashboard_and_host_notes_embed_the_runs_bases_but_hardware_notes_do_not(repo):
+    i = inv(repo)
+    assert "![[runs.base]]" in dashboard(i, TYPES, {}, []) and "![[runs-board.base]]" in dashboard(i, TYPES, {}, [])
+    host = host_summary(i, i.get("pve1"), TYPES, [])
+    assert "![[runs-here.base]]" in host and "![[runs-board-here.base]]" in host
+    hw = hardware_summary(i, i.get("WDC WD40EFRX WD-1"))
+    assert "runs-here.base" not in hw and "runs-board" not in hw
+
+
+def test_refresh_with_runs_sections_is_idempotent(repo):
+    first = generated_changes(inv(repo), TYPES, repo)
+    write_changes(first)
+    repo.commit([c.path for c in first], "refresh: views")
+    assert generated_changes(inv(repo), TYPES, repo) == []
