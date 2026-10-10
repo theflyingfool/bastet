@@ -16,3 +16,9 @@ def _clear_active_redactor():
     ACTIVE.clear()
     yield
     ACTIVE.clear()
+
+
+@pytest.fixture(autouse=True)
+def _isolated_data_dir(tmp_path_factory, monkeypatch):
+    """Run records go under `$XDG_DATA_HOME/bastet/runs`; no test may write to the real one."""
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path_factory.mktemp("xdg_data")))
