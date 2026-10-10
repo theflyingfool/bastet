@@ -182,3 +182,29 @@ def test_reveal_prints_a_secret_unmasked_while_echo_masks_it():
     c.echo("hunter2-value")
     c.reveal("hunter2-value")
     assert o.getvalue() == "\n".join([ACTIVE.mask("hunter2-value"), "hunter2-value", ""])
+
+
+from bastet.engine.model import FieldChange  # noqa: E402
+from bastet.engine.report import host_block  # noqa: E402
+from bastet.engine.run import HostRun, Item  # noqa: E402
+from engine_fakes import Flag  # noqa: E402
+
+
+def _run():
+    def it(path, status, changes=(), error=None, diff=None):
+        return Item(Flag(path=path, value="v", secret=False), ["lab"], [], status, list(changes), {}, error, diff)
+
+    return HostRun("pve1", False, [
+        it("/etc/motd", "would-change", [FieldChange("content", "old", "new")], diff="@@ -1 +1 @@\n-old\n+new"),
+        it("/etc/bad", "failed", error="boom"),
+        it("/etc/ok", "compliant"),
+    ])
+
+
+@pytest.mark.parametrize("width", [60, 80, 120])
+def test_a_host_report_is_stable_at_common_widths(width):
+    c, o, _ = make(color=True, width=width)
+    c.block(host_block(_run(), full=True))
+    plain = ANSI.sub("", o.getvalue())
+    assert plain == host_block(_run(), full=True).plain() + "\n"  # soft wrap: the terminal wraps, Bastet never reflows
+    assert "\x1b[31m" in o.getvalue() and "\x1b[33m" in o.getvalue() and "\x1b[1m" in o.getvalue()

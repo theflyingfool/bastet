@@ -18,6 +18,8 @@ work in `docs/plans/`. Update this file whenever a plan lands.
 
 ## Now
 
+**Console primitives** (plan 1 of the run-logs work) are done; the next plan is plan 2, events and the JSONL log.
+
 **Simplification and UX** (`docs/plans/2026-10-07-bastet-simplify-ux.md`) is merged: `bastet run`, selectors, `doctor`,
 the hardware split, one Bastet note per object, `_templates/`, user docs in `_bastet/docs/`, type groups and the
 `other` type. Left from it: rename the memory facts key `type` → `memory_type` (clashes with host `type`); the
@@ -48,6 +50,10 @@ built in the order of the roles table below.
 ## Run logs (milestone 3b)
 
 Needed before the Proxmox and ZFS roles, to see what a run did, in the order it did it.
+
+Plan 1 of 3, the console primitives, is done (`docs/specs/2026-10-10-bastet-console-output-design.md`): colour,
+width-fitting tables, coloured diffs and status marks, plain when piped or `NO_COLOR` is set. Plan 2 (events and
+JSONL) and plan 3 (run notes) are not started.
 
 - **Structured output:**
   - **One event stream:** every command emits events, not pre-formatted strings, and they're rendered three ways: the terminal (Rich, width-aware), the run note (Markdown) and the JSONL.
