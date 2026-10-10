@@ -341,3 +341,36 @@ def test_a_close_that_raises_still_clears_the_active_recorder(monkeypatch):
         with recording("run", [ListSink()]):
             pass
     assert recorder_mod._active is None
+
+
+def test_memory_sink_keeps_events_up_to_its_level_as_dicts_without_output():
+    from bastet.events.recorder import MemorySink
+
+    sink = MemorySink(max_level=3)
+    with recording("run", [sink]):
+        events.emit("note", None, message="kept")
+        events.emit("phase_started", "pve1", phase="read")      # level 2: kept at 3
+        events.emit("command_run", "pve1", phase="read", command="cat x", exit=0, duration=0.1,
+                    stdout="secret-ish output", stderr="e", error=None, hidden=False)
+    kept = {e["kind"] for e in sink.events}
+    assert {"note", "phase_started", "command_run"} <= kept and isinstance(sink.events[0], dict)
+    command = next(e for e in sink.events if e["kind"] == "command_run")
+    assert "stdout" not in command["data"] and "stderr" not in command["data"]
+    low = MemorySink(max_level=1)
+    with recording("run", [low]):
+        events.emit("phase_started", "pve1", phase="read")
+    assert "phase_started" not in {e["kind"] for e in low.events}
+
+
+def test_note_change_is_none_outside_a_recording_or_without_a_memory_sink(tmp_path):
+    assert events.note_change(tmp_path, 1) is None
+    with recording("run", [ListSink()]):
+        assert events.note_change(tmp_path, 1) is None
+
+
+def test_forced_flush_waits_even_without_a_live_sink():
+    sink = ListSink()
+    with recording("run", [sink]) as rec:
+        events.emit("note", None, message="x")
+        rec.flush(force=True)
+        assert any(e.kind == "note" for e in sink.events)

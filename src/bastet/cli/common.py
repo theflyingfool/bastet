@@ -1,11 +1,13 @@
 import contextlib
 import functools
+import getpass
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import typer
 
+from bastet import events
 from bastet.core.changes import Change, render_diff, write_changes
 from bastet.core.config import Config, config_path, data_dir, inventory_dir, load_config
 from bastet.core.errors import BastetError
@@ -36,11 +38,12 @@ def _refuse_while_in_worker(fn):
 
 
 @contextlib.contextmanager
-def recorded_run(command: str, verbose: int = 0):
+def recorded_run(command: str, verbose: int = 0, *, mode: str | None = None):
     """The record of this run: a JSONL file on the controller, plus the live view from -vv."""
     from bastet.core.config import RunsConfig
-    from bastet.events import new_run_id, recording
+    from bastet.events import MemorySink, new_run_id, recording
     from bastet.events.jsonl import JsonlSink, prune, runs_dir
+    from bastet.events.runnote import infer_mode
     from bastet.events.terminal import TerminalSink
 
     try:
@@ -61,7 +64,8 @@ def recorded_run(command: str, verbose: int = 0):
             out.secho(f"warning: could not remove old run records: {exc}", fg="yellow", err=True)
     if verbose >= 2:
         sinks.append(TerminalSink(min(verbose, 4)))
-    with recording(command, sinks, run_id=run_id) as recorder:
+    sinks.append(MemorySink(max_level=runs_cfg.note_detail))
+    with recording(command, sinks, run_id=run_id, mode=mode or infer_mode(command), user=getpass.getuser()) as recorder:
         yield recorder
 
 
@@ -403,6 +407,13 @@ def finish(
     ctx.written = set()
     if not paths:
         return False
+    try:
+        note = events.note_change(ctx.root, ctx.config.runs.note_detail)
+        if note is not None:
+            write_changes([note])
+            paths = paths | {note.path}
+    except Exception as exc:  # the note is best-effort: the command's own changes still get committed
+        out.secho(f"warning: could not write the run note: {exc}", fg="yellow", err=True)
     full_message = f"{message} (+{len(generated)} generated)" if generated else message
     if not ctx.repo.commit(sorted(paths), full_message):
         return False

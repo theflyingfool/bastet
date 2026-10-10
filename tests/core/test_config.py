@@ -180,3 +180,12 @@ def test_an_empty_runs_section_loads_as_the_defaults(tmp_path):
     p = write(tmp_path, "inventory:\n  path: ~/Homelab\nruns:\n")
     cfg = load_config(p)
     assert cfg.runs.keep_runs is None and cfg.runs.keep_days is None
+
+
+def test_note_detail_defaults_to_one_and_is_limited_to_one_to_three():
+    from bastet.core.config import RunsConfig
+
+    assert RunsConfig().note_detail == 1 and RunsConfig(note_detail=3).note_detail == 3
+    for bad in (0, 4, -1):
+        with pytest.raises(Exception):
+            RunsConfig(note_detail=bad)

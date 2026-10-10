@@ -602,7 +602,8 @@ def run(
         raise BastetError("check or apply, not both")
     command = " ".join(["run", *(["-g"] if gather else []), *(["-c"] if check else []), *(["-a"] if apply_ else []),
                         *[arg for x in exclude for arg in ("--exclude", x)], *(hosts or [])])
-    with guard_prompts(), recorded_run(command, verbose) as rec:
+    mode = "apply" if apply_ else "check" if check else "gather" if gather else "apply"
+    with guard_prompts(), recorded_run(command, verbose, mode=mode) as rec:
         try:
             if gather:
                 combo = check or apply_  # one run, one commit: gather hands its context straight to check/apply

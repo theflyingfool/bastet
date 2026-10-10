@@ -9,10 +9,14 @@ import time
 import uuid
 from collections.abc import Iterator
 from datetime import datetime, timezone
-from typing import Protocol
+from pathlib import Path
+from typing import TYPE_CHECKING, Protocol
 
 from bastet.events.model import SCHEMA, Event, make_event, mask_event
 from bastet.ui import out
+
+if TYPE_CHECKING:
+    from bastet.core.changes import Change
 
 _STOP = object()
 DRAIN_SECONDS = 10
@@ -44,6 +48,27 @@ class ListSink:
 
     def handle(self, event: Event) -> None:
         self.events.append(event)
+
+    def close(self) -> None:
+        pass
+
+
+class MemorySink:
+    """Keeps the events a command's own run note needs, as dicts, without command output."""
+
+    name = "memory"
+
+    def __init__(self, max_level: int = 1) -> None:
+        self.max_level = max_level
+        self.events: list[dict] = []
+
+    def handle(self, event: Event) -> None:
+        if event.level > self.max_level:
+            return
+        d = event.to_dict()
+        if event.kind == "command_run":
+            d["data"] = {k: v for k, v in d["data"].items() if k not in ("stdout", "stderr")}
+        self.events.append(d)
 
     def close(self) -> None:
         pass
@@ -126,14 +151,14 @@ class Recorder:
                     self.sinks.remove(sink)
                 self._complain(f"sink:{sink.name}", f"{sink.name} output stopped: {exc}")
 
-    def flush(self) -> None:
+    def flush(self, *, force: bool = False) -> None:
         """Wait (briefly) until every event emitted so far has reached the live view.
 
         This puts a host's own live lines before its report. It does not order other hosts' lines
         when hosts run in parallel: those keep printing while this host's report does.
-        Without a sink that shows events live there is nothing to wait for.
+        Without a sink that shows events live there is nothing to wait for, unless `force` is set.
         """
-        if not self._thread.is_alive() or not any(getattr(s, "live", False) for s in self.sinks):
+        if not self._thread.is_alive() or not (force or any(getattr(s, "live", False) for s in self.sinks)):
             return
         marker = _Flush()
         self._queue.put(marker)
@@ -159,6 +184,25 @@ def flush() -> None:
     recorder = _active
     if recorder is not None:
         recorder.flush()
+
+
+def note_change(root: Path, detail: int) -> "Change | None":
+    """The run note for the active run at `detail`, as a change to write; None when nothing is recording one."""
+    recorder = _active
+    sink = next((s for s in recorder.sinks if isinstance(s, MemorySink)), None) if recorder else None
+    if recorder is None or sink is None:
+        return None
+    recorder.flush(force=True)
+    from bastet.core.changes import Change
+    from bastet.events.runnote import RUNS_DIR, note_name, render_run_note, summarize
+
+    events = list(sink.events)
+    if not events:
+        return None
+    s = summarize(events)
+    path = root / RUNS_DIR / f"{note_name(s.started, s.mode, s.run_id)}.md"
+    before = path.read_text(encoding="utf-8") if path.exists() else None
+    return Change(path, before, render_run_note(events, detail, recorder.status))
 
 
 def set_status(status: str) -> None:

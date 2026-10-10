@@ -85,6 +85,14 @@ class RunsConfig(BaseModel):
 
     keep_runs: int | None = None  # None: keep every run
     keep_days: int | None = None
+    note_detail: int = 1  # how much a run note shows: 1 summary, 2 per phase, 3 with commands
+
+    @field_validator("note_detail")
+    @classmethod
+    def _one_to_three(cls, value: int) -> int:
+        if not 1 <= value <= 3:
+            raise ValueError("must be 1, 2 or 3")
+        return value
 
     @field_validator("keep_runs", "keep_days")
     @classmethod

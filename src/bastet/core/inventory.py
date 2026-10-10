@@ -11,7 +11,7 @@ from bastet.core.frontmatter import Document, parse_document
 from bastet.core.hosttypes import HostType
 from bastet.core.links import link_target
 
-KINDS = ("lab", "host", "hardware", "group", "location", "role", "secret", "facts")
+KINDS = ("lab", "host", "hardware", "group", "location", "role", "secret", "facts", "run")
 SKIP_DIRS = {".git", ".obsidian", ".trash", ".bastet", "_templates"}
 LINK_FIELDS = {
     "host": ("runs_on", "location", "groups"),

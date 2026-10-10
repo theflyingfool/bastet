@@ -308,3 +308,11 @@ def test_an_empty_link_field_is_unset_not_an_error(tmp_path, value):
     put(tmp_path, "hardware/disk1.md", f"---\nbastet: hardware\ncategory: drive\nlocation: {value}\n---\n# disk1\n")
     inv = load_inventory(tmp_path, load_host_types())
     assert not [p for p in inv.problems if "expected a link" in p.error.message]
+
+
+def test_a_run_note_loads_without_problems(tmp_path):
+    put(tmp_path, "Homelab.md", "---\nbastet: lab\nname: Homelab\n---\n# Lab\n")
+    put(tmp_path, "_bastet/runs/2026-10-10 1218 apply 22d326.md",
+        '---\nbastet: run\ngenerated: true\nrun: 20261010-121800-22d326\nmode: apply\nhosts:\n  - "[[pve1]]"\n---\n# apply\n')
+    inv = load_inventory(tmp_path, TYPES)
+    assert not inv.problems and len(inv.of_kind("run")) == 1
