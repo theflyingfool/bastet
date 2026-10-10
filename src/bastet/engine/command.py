@@ -9,6 +9,7 @@ from bastet.engine.model import FieldChange, Read, Resource
 @dataclass(frozen=True, kw_only=True)
 class Command(Resource):
     family: ClassVar[str] = "Commands"
+    slot: ClassVar[str] = "commands"
     name: str
     run: str
     unless: str

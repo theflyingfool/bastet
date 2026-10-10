@@ -31,6 +31,7 @@ def _joined(values) -> str:
 @dataclass(frozen=True, kw_only=True)
 class User(Resource):
     family: ClassVar[str] = "Users"
+    slot: ClassVar[str] = "users"
     name: str
     uid: int | None = None
     group: str | None = None
@@ -192,6 +193,7 @@ class User(Resource):
 @dataclass(frozen=True, kw_only=True)
 class Group(Resource):
     family: ClassVar[str] = "Users"
+    slot: ClassVar[str] = "users"
     name: str
     gid: int | None = None
     system: bool = False
@@ -260,6 +262,7 @@ SUDOERS_NAME = re.compile(r"^[A-Za-z0-9_-]+$")
 @dataclass(frozen=True, kw_only=True)
 class AuthorizedKey(Resource):
     family: ClassVar[str] = "Users"
+    slot: ClassVar[str] = "users"
     user: str
     key: str
     options: str | None = None

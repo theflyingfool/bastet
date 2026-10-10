@@ -49,6 +49,7 @@ UP = {"active", "reloading", "activating"}
 @dataclass(frozen=True, kw_only=True)
 class Unit(Resource):
     family: ClassVar[str] = "Services"
+    slot: ClassVar[str] = "systemd"
     name: str
     enabled: bool | None = None
     state: str | None = None
@@ -109,6 +110,7 @@ class TimeSettings(Resource):
     """Timezone, NTP on/off and hardware clock through timedatectl; timezone only without systemd."""
 
     family: ClassVar[str] = "System"
+    slot: ClassVar[str] = "systemd"
     timezone: str | None = None
     ntp: bool | None = None
     rtc_local: bool | None = None
@@ -161,6 +163,7 @@ class TimeSettings(Resource):
 @dataclass(frozen=True, kw_only=True)
 class Hostname(Resource):
     family: ClassVar[str] = "System"
+    slot: ClassVar[str] = "systemd"
     name: str
 
     @property
@@ -191,6 +194,7 @@ class Hostname(Resource):
 @dataclass(frozen=True, kw_only=True)
 class Locale(Resource):
     family: ClassVar[str] = "System"
+    slot: ClassVar[str] = "systemd"
     lang: str | None = None
     keymap: str | None = None
 

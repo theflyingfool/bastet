@@ -28,7 +28,7 @@ class Read:
 
 @dataclass(frozen=True)
 class Trigger:
-    """An action run once after a batch when a resource that names it changed (restart, reload…)."""
+    """An action run once at the end of a host's run when a resource that names it changed (restart, reload…)."""
 
     label: str
     command: str
@@ -61,9 +61,13 @@ class Resource(ABC):
     """The desired state of one thing on one host."""
 
     family: ClassVar[str] = "Other"
+    slot: ClassVar[str] = "commands"
     on_change: tuple[Trigger, ...] = ()
     root: bool = True
     secret: bool = False
+    run_before: str | None = None
+    run_after: str | None = None
+    provides: tuple[str, ...] = ()
 
     @property
     @abstractmethod

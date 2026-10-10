@@ -92,6 +92,7 @@ def _diff(before: object, after: str) -> str:
 @dataclass(frozen=True, kw_only=True)
 class File(Resource):
     family: ClassVar[str] = "Files"
+    slot: ClassVar[str] = "files"
     path: str
     content: str
     owner: str | None = None
@@ -139,6 +140,7 @@ class File(Resource):
 @dataclass(frozen=True, kw_only=True)
 class Directory(Resource):
     family: ClassVar[str] = "Files"
+    slot: ClassVar[str] = "files"
     path: str
     owner: str | None = None
     group: str | None = None
@@ -189,6 +191,7 @@ class Directory(Resource):
 @dataclass(frozen=True, kw_only=True)
 class Symlink(Resource):
     family: ClassVar[str] = "Files"
+    slot: ClassVar[str] = "files"
     path: str
     target: str
 
@@ -231,6 +234,7 @@ class _Edit(Resource):
     """Shared by Block and Line: edits part of a file someone else owns, keeping its owner and mode."""
 
     family: ClassVar[str] = "Files"
+    slot: ClassVar[str] = "files"
     path: str
     validate: str | None = None
 

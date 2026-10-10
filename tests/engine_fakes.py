@@ -16,6 +16,7 @@ def _cat(path: str, root: bool) -> Read:
 @dataclass(frozen=True, kw_only=True)
 class Flag(Resource):
     family: ClassVar[str] = "Files"
+    slot: ClassVar[str] = "files"
     path: str
     value: str
     root: bool = False
@@ -67,6 +68,7 @@ class Append(Resource):
     """Adds one line to a shared file; the fix rewrites the whole file from what was read."""
 
     family: ClassVar[str] = "Files"
+    slot: ClassVar[str] = "files"
     path: str
     text: str
     root: bool = False

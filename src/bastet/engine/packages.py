@@ -61,6 +61,7 @@ def _installed(manager: str, name: str, output: str) -> list[str]:
 @dataclass(frozen=True, kw_only=True)
 class Package(Resource):
     family: ClassVar[str] = "Packages"
+    slot: ClassVar[str] = "packages"
     # Install knobs where the default means "no opinion": another role asking for the same package with a
     # different value wins instead of conflicting (base's git and a host's git with refresh: false).
     SOFT_DEFAULTS: ClassVar[tuple[str, ...]] = ("refresh", "dpkg_options", "extra_args")
@@ -208,6 +209,7 @@ KEY_NAME = re.compile(r"^[A-Za-z0-9@_][A-Za-z0-9@._+-]*$")
 @dataclass(frozen=True, kw_only=True)
 class Repository(Resource):
     family: ClassVar[str] = "Packages"
+    slot: ClassVar[str] = "repositories"
     name: str
     uris: tuple[str, ...]
     suites: tuple[str, ...] = ()
@@ -483,6 +485,7 @@ def _dnf_security(text: str) -> list[str]:
 @dataclass(frozen=True, kw_only=True)
 class Updates(Resource):
     family: ClassVar[str] = "Packages"
+    slot: ClassVar[str] = "packages"
     policy: str = "manual"
     exclude: tuple[str, ...] = ()
     apply_updates: bool = False
@@ -573,6 +576,7 @@ REBOOT = ("[ -e /run/reboot-required ] && echo debian; "
 @dataclass(frozen=True, kw_only=True)
 class Reboot(Resource):
     family: ClassVar[str] = "System"
+    slot: ClassVar[str] = "reports"
     root: bool = False
     policy: str = "ask"  # what apply does when a reboot is needed: never, ask, auto (cli.reboot)
     timeout: int = 600
@@ -620,6 +624,7 @@ class StraySources(Resource):
     """apt source files for Debian/Proxmox that the proxmox role doesn't own: duplicates that make apt warn."""
 
     family: ClassVar[str] = "Packages"
+    slot: ClassVar[str] = "repositories"
     keep: tuple[str, ...] = ()
     remove: bool = False
 
@@ -673,6 +678,7 @@ class Unaccounted(Resource):
     """Packages installed on purpose that no role, system set or allowed list accounts for. Reported, never removed."""
 
     family: ClassVar[str] = "Packages"
+    slot: ClassVar[str] = "reports"
     tracked: tuple[str, ...] = ()
     allowed: tuple[str, ...] = ()
     root: bool = False

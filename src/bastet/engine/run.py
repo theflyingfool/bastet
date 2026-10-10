@@ -10,6 +10,7 @@ from bastet import events
 from bastet.core.errors import BastetError
 from bastet.engine.model import FieldChange, ReadError, Resource, Trigger, Unsupported, show_value
 from bastet.engine.script import NOT_REPORTED, exec_script, new_mark, read_script, split_results
+from bastet.engine.slots import apply_order
 
 
 class ConflictError(BastetError):
@@ -94,7 +95,7 @@ def _merge(a: Resource, b: Resource, a_from: str, b_from: str) -> Resource:
     clashes: list[str] = []
     soft = getattr(type(a), "SOFT_DEFAULTS", ())
     for f in fields(a):
-        if f.name == "on_change":
+        if f.name in ("on_change", "provides"):
             continue
         va, vb = getattr(a, f.name), getattr(b, f.name)
         if f.name in soft and va != vb and f.default in (va, vb):
@@ -106,6 +107,8 @@ def _merge(a: Resource, b: Resource, a_from: str, b_from: str) -> Resource:
             updates[f.name] = vb
         elif vb is not None and va != vb:
             clashes.append(f.name)
+    if tuple(dict.fromkeys((*a.provides, *b.provides))) != a.provides:
+        updates["provides"] = tuple(dict.fromkeys((*a.provides, *b.provides)))
     if clashes:
         raise ConflictError(f"{b.label}: {a_from} and {b_from} want different {', '.join(clashes)}")
     return replace(a, **updates) if updates else a
@@ -214,6 +217,7 @@ def run_host(
 ) -> HostRun:
     with events.phase(host, "collect"):
         planned = collect_items(batches)
+        sequence = apply_order(planned)
     items = [i for _, mine in planned for i in mine]
     run = HostRun(host, apply, items)
     if not items:
@@ -229,75 +233,67 @@ def run_host(
 
     changed: list[Item] = []
     touched: set[str] = set()
-    host_broken: str | None = None  # a failure in an earlier batch stops every later batch too
+    pending: list[Trigger] = []
+    broken: str | None = None
     with events.phase(host, "apply"):
-        for batch, mine in planned:  # phase 4
-            pending: list[Trigger] = []
-            broken: str | None = None
-            i = 0
-            while i < len(mine):
-                item = mine[i]
-                i += 1
-                if item.status == "failed" and not item.resource.report_only() and broken is None and host_broken is None:
+        i = 0
+        while i < len(sequence):  # phase 4
+            item = sequence[i]
+            i += 1
+            if item.status == "failed" and not item.resource.report_only() and broken is None:
+                broken = item.resource.label
+            if item.status != "would-change":
+                continue
+            if run.stopped or (should_stop is not None and should_stop()):
+                run.stopped = True
+                item.status, item.error = "skipped", "stopped (Ctrl-C)"
+                _item_event(host, item, "apply")
+                continue
+            if broken is not None:
+                item.status, item.error = "skipped", f"earlier failure on this host: {broken}"
+                _item_event(host, item, "apply")
+                continue
+            path = item.resource.touches()
+            if path is not None and path in touched:
+                _assess(item, _read(runner, [item], host=host, phase="apply")[0])
+                if item.status == "failed":
                     broken = item.resource.label
                 if item.status != "would-change":
-                    continue
-                if run.stopped or (should_stop is not None and should_stop()):
-                    run.stopped = True
-                    item.status, item.error = "skipped", "stopped (Ctrl-C)"
                     _item_event(host, item, "apply")
                     continue
-                if host_broken is not None:
-                    item.status, item.error = "skipped", f"earlier failure on this host: {host_broken}"
-                    _item_event(host, item, "apply")
-                    continue
-                if broken is not None:
-                    item.status, item.error = "skipped", f"earlier failure: {broken}"
-                    _item_event(host, item, "apply")
-                    continue
-                path = item.resource.touches()
-                if path is not None and path in touched:
-                    _assess(item, _read(runner, [item], host=host, phase="apply")[0])
-                    if item.status == "failed":
-                        broken = item.resource.label
-                    if item.status != "would-change":
-                        _item_event(host, item, "apply")
-                        continue
-                group = [item]
-                key = item.resource.group_key()
-                if key is not None:
-                    while (i < len(mine) and mine[i].status == "would-change"
-                           and mine[i].resource.group_key() == key):
-                        group.append(mine[i])
-                        i += 1
-                    commands = type(item.resource).fix_group([(g.resource, g.changes, g.current) for g in group])
-                else:
-                    commands = item.resource.fix(item.changes, item.current)
-                ok, error = _exec(runner, commands, any(g.resource.root for g in group), fix_timeout,
-                                  host=host, phase="apply", hidden=any(g.resource.secret for g in group))
-                if not ok:
-                    for g in group:
-                        g.status, g.error = "failed", error
-                        _item_event(host, g, "apply")
-                    broken = item.resource.label
-                    continue
+            group = [item]
+            key = item.resource.group_key()
+            if key is not None:
+                while (i < len(sequence) and sequence[i].status == "would-change"
+                       and sequence[i].resource.group_key() == key):
+                    group.append(sequence[i])
+                    i += 1
+                commands = type(item.resource).fix_group([(g.resource, g.changes, g.current) for g in group])
+            else:
+                commands = item.resource.fix(item.changes, item.current)
+            ok, error = _exec(runner, commands, any(g.resource.root for g in group), fix_timeout,
+                              host=host, phase="apply", hidden=any(g.resource.secret for g in group))
+            if not ok:
                 for g in group:
-                    g.status = "changed"
+                    g.status, g.error = "failed", error
                     _item_event(host, g, "apply")
-                    changed.append(g)
-                    if g.resource.touches() is not None:
-                        touched.add(g.resource.touches())
-                    for t in g.triggers:
-                        if t not in pending:
-                            pending.append(t)
-            if host_broken is None and broken is not None:
-                host_broken = broken
-            for t in sorted(pending, key=lambda t: t.order):  # phase 5
-                ok, error = _exec(runner, [t.command], t.root, fix_timeout, host=host, phase="on_change")
-                run.triggers.append(TriggerRun(t, ok, error))
-                events.emit("trigger_fired", host, trigger=t.label, ok=ok, error=error)
-                if not ok and host_broken is None:
-                    host_broken = t.label
+                broken = item.resource.label
+                continue
+            for g in group:
+                g.status = "changed"
+                _item_event(host, g, "apply")
+                changed.append(g)
+                if g.resource.touches() is not None:
+                    touched.add(g.resource.touches())
+                for t in g.triggers:
+                    if t not in pending:
+                        pending.append(t)
+        for t in sorted(pending, key=lambda t: t.order):  # phase 5
+            ok, error = _exec(runner, [t.command], t.root, fix_timeout, host=host, phase="on_change")
+            run.triggers.append(TriggerRun(t, ok, error))
+            events.emit("trigger_fired", host, trigger=t.label, ok=ok, error=error)
+            if not ok:
+                break
 
     if changed:  # phase 6
         with events.phase(host, "verify"):

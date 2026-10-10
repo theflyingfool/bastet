@@ -49,7 +49,7 @@ def test_failure_skips_rest_of_batch_and_later_batches(tmp_path):
     ], apply=True)
     s = statuses(run)
     assert s[bad] == ("failed", "boom")
-    assert s[after][0] == "skipped" and s[after][1] == f"earlier failure: {bad}"
+    assert s[after] == ("skipped", f"earlier failure on this host: {bad}")
     assert s[other] == ("skipped", f"earlier failure on this host: {bad}")
     assert not (tmp_path / "other").exists() and not run.ok
 
@@ -72,7 +72,7 @@ def test_failure_stops_later_batches_but_not_an_earlier_trigger(tmp_path):
     assert log.read_text() == "ran\n"
 
 
-def test_failed_trigger_stops_later_batches(tmp_path):
+def test_failed_trigger_does_not_stop_items_since_triggers_run_after_all_of_them(tmp_path):
     trigger = Trigger("restart-thing", "exit 1", root=False)
     other = str(tmp_path / "other")
     run = run_host(LocalRunner(), "h", [
@@ -81,8 +81,8 @@ def test_failed_trigger_stops_later_batches(tmp_path):
     ], apply=True)
     s = statuses(run)
     assert [(t.trigger.label, t.ok) for t in run.triggers] == [("restart-thing", False)]
-    assert s[other] == ("skipped", "earlier failure on this host: restart-thing")
-    assert not (tmp_path / "other").exists() and not run.ok
+    assert s[other] == ("changed", None) and (tmp_path / "other").exists()
+    assert not run.ok
 
 
 def test_triggers_run_once_after_batch_in_order(tmp_path):

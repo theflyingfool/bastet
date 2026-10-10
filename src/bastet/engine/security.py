@@ -24,6 +24,7 @@ def _cell(text: object) -> str:
 class _Report(Resource):
     family: ClassVar[str] = "Security"
     title: ClassVar[str] = ""
+    slot: ClassVar[str] = "reports"
 
     def report_only(self) -> bool:
         return True
