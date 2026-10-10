@@ -51,7 +51,7 @@ follow-ups fixed.
 
 Design: `docs/specs/2026-10-10-bastet-roles-architecture-design.md`. Each step ends with merged, working software, and the next is planned only when it is next.
 
-1. ☐ **First slice** (`docs/plans/2026-10-10-bastet-roles-arch-1-slice.md`; apt is included, and we stop for hard testing afterwards): draft contract (`api: 0`), the generic builder next to the old Python builders, `files` settings (`edit: ini`), `before:`/`after:` on entries, `wants`/`provides`, the phase engine across all roles (triggers once at the end, daemon-reload, health check), and **pacman as Markdown-only**. Done when pacman has no Python, every existing pacman test passes unchanged, and `check` output on an Arch host is identical.
+1. ☑ **First slice** (`docs/plans/2026-10-10-bastet-roles-arch-1-slice.md`; apt is included, and we stop for hard testing afterwards): draft contract (`api: 0`), the generic builder next to the old Python builders, `files` settings (`edit: ini`), `before:`/`after:` on entries, `wants`/`provides`, the phase engine across all roles (triggers once at the end, daemon-reload, health check), and **pacman as Markdown-only**. Done when pacman has no Python, every existing pacman test passes unchanged, and `check` output on an Arch host is identical. Built: pacman is Markdown-only; apt is a new Markdown-only role (curated, incomplete option list); the engine runs entries from all roles by block slot and each trigger once per host. **Next gate: hard testing** (the full suite, `BASTET_CONTRACT=1 uv run pytest tests/contract -q`, real runs, failure cases, Ctrl-C, `-vv`), and no more roles are converted until it is done. Known risk: the AUR (roles table item 8) is out of scope and may break on Arch hosts in the new order.
 2. ☐ **One role at a time, evaluating after each:** ssh (`edit: sshd` with its `sshd -t` check and a few `warn` rules; the lockout guard is dropped), base (`when:` for microcode), harden, systemd (time, hostname, locale), the thin `users` and `files` roles, `packages` (AUR, update and reboot policy become block features), proxmox. Each adds only the block or contract features it needs.
 3. ☐ **Capabilities and contributions** beyond `wants`, when a real role needs them: the firewall (same-host), then the Git forge (a host waits for the whole provider host; guests already wait for their node).
 4. ☐ **Stabilize:** the library, `role update`, `doctor <dir>` and role pages (the audited old subplan 2), then presets, boards and the guided `add role`.
@@ -96,7 +96,7 @@ Generic mechanisms every role is assembled from (roles spec §8). Roles never im
 |---|---|---|---|
 | ◐ | packages | Repositories and signing keys, installs, updates, reboot-needed marking | `hold` (pinning distro packages), install-method support (`native`/`container`), AUR bootstrap and update/reboot policy as block options (today in the role), `wants: package-manager` |
 | ☑ | users | Users, groups, authorized keys, sudoers drop-ins | |
-| ◐ | files | Whole files, directories, symlinks, lines, blocks; owner/mode; validate before swap; Jinja2 templates (below) | Settings edits from options (`edit: ini`, then `kv`, `sshd`); format checking (YAML, JSON, TOML, INI parsed on the controller; `visudo -cf`, `sshd -t`, `systemd-analyze verify` on the host; a role's own `validate:`); replace-with-check; `before:`/`after:` |
+| ◐ | files | Whole files, directories, symlinks, lines, blocks; owner/mode; validate before swap; Jinja2 templates (below) | Settings edits from options (`edit: ini` and apt's `render: apt` are built; `kv`, `sshd` next); format checking (YAML, JSON, TOML, INI parsed on the controller; `visudo -cf`, `sshd -t`, `systemd-analyze verify` on the host; a role's own `validate:`); replace-with-check; `before:`/`after:` is built (`run_before`/`run_after`) |
 | ◐ | templates (part of files) | Files rendered with Jinja2 (`StrictUndefined`) | The full language; role-folder includes only, plain-data context, `toyaml`/`tojson`/`quote` |
 | ◐ | systemd | Units, drop-ins, hostname, locale, time | Timers, `.mount` units, sysctl.d, modules-load.d, tmpfiles.d, hardening drop-ins from `access` |
 | ☐ | JSON state | APIs and JSON-speaking CLIs: read, find, compare a subset, create/update/delete; on the host or the controller | Everything |
@@ -105,8 +105,8 @@ Generic mechanisms every role is assembled from (roles spec §8). Roles never im
 | ☐ | power control | On, off and status through IPMI, Redfish or Wake-on-LAN | Everything |
 
 **Execution (not blocks):**
-- ☐ the phase engine: entries from all roles ordered by block, `before:`/`after:` on an entry, `wants` on a block, daemon-reload once before restarts, a health check after restarts (replaces the per-role batch order and `ORDER`);
-- ◐ triggers (restart/reload once; today once per role batch, becomes once per host);
+- ☑ the phase engine (first slice): entries from all roles ordered by block, `before:`/`after:` on an entry (the resource fields are `run_before`/`run_after`), `wants` on a block, daemon-reload once before restarts, a health check after restarts (`restart(unit, check=False)` opts out). The first failed step skips every later item on that host ("earlier failure on this host: ..."); triggers still run for what changed before the failure; a failed trigger stops the remaining triggers; verify still runs.
+- ☑ triggers: each restart/reload once per host, at the end;
 - ◐ reboot: policy and need detection done; missing `before_reboot`/`after_reboot` hooks and the reboot plan for dependent hosts (roles spec §7.6).
 
 ## Roles
@@ -119,7 +119,8 @@ they are converted one at a time to straight Markdown (roles architecture spec �
 | ☑ | — | systemd | Time, NTP, hostname, locale | Friendly menu over the systemd block |
 | ☑ | — | packages | Installs, updates and reboot policy per host | |
 | ☑ | — | base | Admin tools everywhere; CPU microcode on physical hosts | |
-| ☑ | — | pacman | Every `pacman.conf` option | Arch. First Markdown conversion (the proof) |
+| ☑ | — | pacman | Every `pacman.conf` option | Arch. Markdown-only, no Python (the proof) |
+| ☑ | — | apt | Curated apt options, written to `/etc/apt/apt.conf.d/90-bastet` | Debian. New, Markdown-only; the option list is curated and incomplete (full list generated later) |
 | ☑ | — | proxmox | No-subscription repositories, the subscription-notice patch, libguestfs-tools | Grows into node setup (1) |
 | ☑ | — | users | Users, groups, keys, sudoers | |
 | ☑ | — | files | Files you want on a host | |
@@ -132,7 +133,7 @@ they are converted one at a time to straight Markdown (roles architecture spec �
 | ☐ | 5 | firewall | nftables, built from the ports other roles contribute | |
 | ☐ | 6 | podman | Container runtime (Quadlet), rootless where possible | The default runtime |
 | ☐ | 7 | mounts | NFS shares and data disks as `.mount` units | Friendly menu over the systemd block |
-| ☐ | 8 | aur repository | A local, signed pacman repository built with aurutils; reports AUR updates | Design session first |
+| ☐ | 8 | aur repository | A local, signed pacman repository built with aurutils; reports AUR updates | Design session first. The AUR is out of scope for the first slice and may break on Arch hosts in the new order |
 | ☐ | 9 | docker | Alternative container runtime | Only where docker must stay |
 | ☐ | — | App roles, unordered | caddy, gitea, hugo, lldap or kanidm, grafana, jellyfin, pi_hole, rustdesk, sunshine, glances, unifi, vaultwarden | Native first, podman otherwise |
 | ☐ | — | Old docker_* roles, undecided | arr, frigate, homepage, mealie, nextcloud, paperless, uptime, … | See `refs/old-homelab-ansible-roles/` |

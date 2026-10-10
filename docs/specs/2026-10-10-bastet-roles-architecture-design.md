@@ -70,6 +70,8 @@ One plan per host: every role's entries join one desired state, each entry belon
 
 An entry can move itself with `before:` or `after:` (below). The first failed step stops that host; other hosts continue.
 
+**As built (first slice).** The contract keys are `before`/`after`; on a resource they are the fields `run_before`/`run_after` (and `provides`). Failure rules: the first failed step skips every later item on that host with "earlier failure on this host: <what>"; triggers still run for what changed before the failure; a failed trigger stops the remaining triggers; verify still runs. The health check runs only after restarts (`restart(unit, check=False)` opts out). daemon-reload is a trigger that runs before the restarts.
+
 **Ordering knobs**
 - **`wants` (block side).** A block lists capabilities it wants done first. The packages block declares `wants: package-manager`; roles that configure a package manager tag themselves `provides: package-manager`. Their entries run just before the block's own entries. If nothing provides it, nothing happens, which fits settings that are mostly optional. The knowledge "package manager config comes before installs" lives once, in the block.
 - **`before:` / `after:` (entry side)** names a block: the entry runs in the slot just before or after that block's normal slot. It works on an entry of any block, and it says why in words you already use. Example: a user created by hand before packages that would create it is `users: [{name: svc, before: packages}]`. The slots are totally ordered, so it can never create a cycle.
