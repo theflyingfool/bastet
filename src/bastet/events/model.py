@@ -50,12 +50,16 @@ class Event:
     def level(self) -> int:
         return level_of(self.kind, self.data)
 
+    def to_dict(self) -> dict:
+        return {"kind": self.kind, "run_id": self.run_id, "t": self.t, "elapsed": round(self.elapsed, 3),
+                "host": self.host, "data": self.data}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Event":
+        return cls(d["kind"], d["run_id"], d["t"], float(d.get("elapsed", 0.0)), d.get("host"), dict(d.get("data") or {}))
+
     def to_json(self) -> str:
-        return json.dumps(
-            {"kind": self.kind, "run_id": self.run_id, "t": self.t, "elapsed": round(self.elapsed, 3),
-             "host": self.host, "data": self.data},
-            ensure_ascii=False, default=str,
-        )
+        return json.dumps(self.to_dict(), ensure_ascii=False, default=str)
 
 
 def make_event(kind: str, run_id: str, started: float, host: str | None, data: dict) -> Event:
