@@ -149,7 +149,7 @@ def _role_file_template() -> str:
     frontmatter = dump_frontmatter(data)
     body = """# <role name> for <target>
 
-Docs: [[Roles]]
+Docs: [[Using roles]]
 
 Values go in this note's properties (the frontmatter at the top), not in the page text below.
 

@@ -24,4 +24,4 @@ unpushed commits so you notice, and the next successful push catches up.
 ## Getting unstuck
 
 See [[Bastet guide]] for who writes what, [[Hosts and facts]] for the notes/facts split, and
-[[Secrets]] if a command refuses to run because a secret is unlocked.
+[[Using secrets]] if a command refuses to run because a secret is unlocked.

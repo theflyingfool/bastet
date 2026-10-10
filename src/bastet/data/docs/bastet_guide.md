@@ -22,4 +22,4 @@ This page, and the rest of `_bastet/docs/`, ships with the Bastet you run, so it
    unpushed commits) and fixes what it safely can with `--fix`.
 
 See [[Commands]] for every command and option, [[Hosts and facts]] for the notes/facts split,
-[[Hardware]] for physical inventory, [[Roles]] for configuration, and [[Secrets]] for secret values.
+[[Hardware]] for physical inventory, [[Using roles]] for configuration, and [[Using secrets]] for secret values.

@@ -1,4 +1,4 @@
-# Roles
+# Using roles
 
 A role is a menu of options for one thing: `systemd` (time, hostname, locale, services),
 `packages`, `users`, `files`, `ssh`, `harden` and more. `bastet add role` writes a role file for

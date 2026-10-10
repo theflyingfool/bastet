@@ -42,7 +42,7 @@ def _rows(name: str, opt: Option) -> list[str]:
 
 
 def role_page(role: RoleDef, used_by: list[tuple[str, list[str]]]) -> str:
-    lines = [f"# {role.name} role", "", role.description, "", "Docs: [[Roles]] · [[Writing roles]]", "",
+    lines = [f"# {role.name} role", "", role.description, "", "Docs: [[Using roles]] · [[Writing roles]]", "",
              "Values go in a role file's properties (the frontmatter at the top), never in its page text.", "",
              "## Examples", ""]
     for ex in role.examples:

@@ -1,4 +1,4 @@
-# Secrets
+# Using secrets
 
 A secret is a Markdown note under `_secrets/` (one per host/role/option, or lab-wide): readable
 frontmatter, and a body that's exactly one armored `age` message. Bastet owns it; it's never shown

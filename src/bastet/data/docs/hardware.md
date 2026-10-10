@@ -21,4 +21,4 @@ deleted from the inventory, so you don't lose its history (purchase date, warran
 
 `_templates/Hardware - <category>.md` gives you a starting note for each hardware category, with
 every field you can set already in its properties. Insert one from Obsidian's "Templates: Insert
-template" command; see [[Roles]] and [[Hosts and facts]] for the other templates under `_templates/`.
+template" command; see [[Using roles]] and [[Hosts and facts]] for the other templates under `_templates/`.

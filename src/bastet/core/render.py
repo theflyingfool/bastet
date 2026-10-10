@@ -32,7 +32,7 @@ RECENT = 6
 GUIDE_PATH = "_bastet/Bastet guide.md"  # old location (single note); deleted once docs() replaces it
 DOCS_DIR = "_bastet/docs"
 DOC_TITLES = (
-    "Bastet guide", "Commands", "Hosts and facts", "Hardware", "Roles", "Secrets", "Troubleshooting", "Writing roles",
+    "Bastet guide", "Commands", "Hosts and facts", "Hardware", "Using roles", "Using secrets", "Troubleshooting", "Writing roles",
 )
 MAPS_DIR = "_bastet/maps"
 GROUPS_DIR = "_bastet/groups"

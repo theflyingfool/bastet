@@ -61,7 +61,7 @@ def test_docs_shipped_and_regenerated_on_version_change(tmp_path, monkeypatch):
 @pytest.mark.parametrize("text,expected", [
     (templates_for_inventory(TYPES)["Host - server.md"], "[[Hosts and facts]]"),
     (templates_for_inventory(TYPES)["Hardware - drive.md"], "[[Hardware]]"),
-    (templates_for_inventory(TYPES)["Role file.md"], "[[Roles]]"),
+    (templates_for_inventory(TYPES)["Role file.md"], "[[Using roles]]"),
 ])
 def test_contextual_links_in_templates(text, expected):
     assert expected in text
