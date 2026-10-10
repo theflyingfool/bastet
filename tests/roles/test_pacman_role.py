@@ -4,6 +4,7 @@ import pytest
 
 from bastet.core.errors import BastetError
 from bastet.engine.files import Line
+from bastet.engine.slots import SLOTS, rank
 from bastet.roles.builtin import HostInfo, batches_for
 from bastet.roles.contract import check_values, load_roles, with_defaults
 from bastet.roles.resolve import Applied
@@ -28,7 +29,7 @@ def built(values, host=None):
 
 
 def line(key, text):
-    return Line(path=CONF, line=text, match=rf"^#?\s*{key}\s*(=.*)?$", after=OPTIONS, unique=True)
+    return Line(path=CONF, line=text, match=rf"^#?\s*{key}\s*(=.*)?$", after=OPTIONS, unique=True, provides=("package-manager",))
 
 
 COLOR, CANDY = line("Color", "Color"), line("ILoveCandy", "ILoveCandy")
@@ -94,3 +95,7 @@ def test_parallel_downloads_must_be_one_or_more(bad):
 def test_a_value_option_must_be_one_non_empty_line(bad):
     with pytest.raises(BastetError, match=r"pacman\.xfer_command: needs a single non-empty line"):
         built({"xfer_command": bad})
+
+
+def test_pacman_lines_run_before_the_packages_slot():
+    assert all(rank(r) < SLOTS.index("packages") for r in built({}))

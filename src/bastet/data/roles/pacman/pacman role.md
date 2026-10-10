@@ -6,6 +6,8 @@ api: 0
 description: 'pacman''s own settings: every [options] setting in /etc/pacman.conf (Arch-based hosts; aim it at [[arch]]). Unset = leave pacman''s setting as it is. Repositories belong to the packages role.'
 os:
 - arch
+provides:
+- package-manager
 options:
   root_dir:
     type: string
