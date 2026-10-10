@@ -1,5 +1,5 @@
 from bastet.engine.model import ABSENT, FieldChange, Trigger
-from bastet.engine.report import change_text, render_host, render_runs
+from bastet.engine.report import change_text, host_block, render_host, render_runs
 from bastet.engine.run import HostRun, Item, TriggerRun
 from engine_fakes import Flag
 
@@ -64,3 +64,29 @@ def test_attention_marked_and_counted():
     text = render_host(run, full=False)
     assert "    unaccounted: 2 packages → none ⚠\n      htop\n      steam\n" in text
     assert text.rstrip().endswith("media01: 0 to change · 1 compliant · 0 failed · 1 need attention")
+
+
+def test_block_plain_is_the_old_render_host_text_exactly():
+    run = HostRun("media01", True, [
+        item("/a", "changed", [FieldChange("value", ABSENT, "1")]),
+        item("/b", "failed", [FieldChange("value", ABSENT, "2")], error="boom\nsecond line"),
+        item("/c", "compliant"),
+        item("/e", "skipped", error="no systemd on this host"),
+    ])
+    for full in (True, False):
+        assert host_block(run, full=full).plain() == render_host(run, full=full)
+
+
+def test_block_styles_follow_status():
+    run = HostRun("media01", False, [
+        item("/m", "would-change", [FieldChange("content", "old", "new")], diff="@@ -1 +1 @@\n-old\n+new"),
+        item("/f", "failed", [FieldChange("value", ABSENT, "2")], error="boom"),
+        item("/c", "compliant"),
+    ])
+    styles = {line.text.strip(): line.style for line in host_block(run, full=True).lines}
+    assert styles["differs → update"] == "yellow"
+    assert styles["@@ -1 +1 @@"] == "cyan" and styles["-old"] == "red" and styles["+new"] == "green"
+    assert styles["✗ boom"] == "red"
+    assert styles["/c  ✓ compliant"] == "dim"
+    assert host_block(run, full=True).lines[0].style == "bold"
+    assert host_block(run, full=True).lines[-1].style == "red"  # the summary: something failed
