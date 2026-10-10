@@ -79,7 +79,8 @@ One `Console` wrapper around `rich.console.Console`, created once per command, r
   per-host timeline grouped by phase in execution order. Level-4 output is truncated per step in the note and
   complete in the JSONL.
 - **Views:** a Runs Base on `Homelab.md`, newest first, each row linking to its note; a per-host runs Base on each
-  host page.
+  host page. Each of those notes shows, directly below the table, a kanban board over the same runs grouped by
+  `status` (ok, failed, interrupted), as a second Base view embedded under the table.
 - **Git:** run notes for `apply` and `gather` are committed; `check` writes one rolling "last check" note per
   host instead of a new note each time. JSONL is never committed.
 
