@@ -298,7 +298,7 @@ _secrets/            one note per secret: <host>/<role>/<name>.md, <host>/<name>
 
 - **Lab file:** lab-wide settings (domains, timezone, ACME email, proxies per domain, DNS providers, networks with VLAN, purpose and reserved/DHCP ranges, admin user, version pins…) and the dashboard body.
 - **Host:** `type` plus that type's minimal fields; `ip` (a fixed address, or `dhcp` for machines that move around) and an optional `address` Bastet connects to when the IP isn't fixed (`laptop.local`, a DNS or Tailscale name); facts and desired fields (chapter 6); `groups`; `location`; `runs_on` for guests; `state` (`present`, the default, or `destroyed`); prose. The body embeds the host's views.
-- **Hardware:** one file per chassis, drive, NIC, GPU, HBA, PSU…, with `installed_in: "[[<host>]]"` (or a location, for spares). The host is the hub, and the chassis is just another part pointing at it. `serial`, `model` and `size` are facts; `purchased`, `vendor`, `warranty_until`, `location` and notes are yours. Status: `in-service`, `spare`, `failed`, `retired`, `sold`.
+- **Hardware:** one file per chassis, drive, NIC, GPU, HBA, PSU…, with `installed_in: "[[<host>]]"` (or a location, for spares). The host is the hub, and the chassis is just another part pointing at it. `serial`, `model` and `size` are facts, gathered into the item's own facts note (`_bastet/facts/<item> facts.md`) alongside every other gathered field -- one Bastet note per host or hardware item, never split across several. Yours, on the hardware note itself: `price`, `vendor`, `purchased`, `location`, `warranty_until`, `status` (`in-service`, `spare`, `failed`, `retired`, `sold`), `notes`.
   - **Out-of-band management** sits on the chassis (or the machine's main hardware file): `oob: {type: ipmi|idrac|ilo|amt|redfish|pikvm, address: …, url: …, credential: secret:…}`. The address is gathered where possible (e.g. `ipmitool lan print`) and goes through the gather diff.
   - **Links** (cabling) sit on the downstream end, on a host or hardware file: `links: [{port: enp65s0f0, to: "[[<switch>]]", to_port: "8", speed: 10G, note: …}]`. Each cable is written once, and switch-side views are derived.
 - **Group:** a set of hosts that shares role files. Hosts join with `groups: ["[[internet-facing]]"]`. Groups can belong to groups the same way (nesting, as in Ansible `children`). A host type is a group too: every host is automatically a member of its type's group. An optional `priority:` number breaks ties between groups at the same level (5.4).
@@ -344,21 +344,13 @@ Each type declares:
 
 The same field can be desired on one type and a fact on another. A VPS's `ram` starts as a fact and can become desired later (Linode plan resize).
 
-## 7. Gather and attribution
+## 7. Gather
 
-`bastet gather [hosts]` collects facts, computes changes to your files, shows them as one diff, and writes them after you approve (`--yes` when unattended). It can create hardware files. Discovered hardware that moves to another host updates its `installed_in`, and hardware no longer seen is reported, never deleted or re-statused automatically.
+Gathering (`bastet run`, or `bastet run -g` to stop after it) collects facts, computes changes, shows them as one diff, and writes them after you approve (`-y` when unattended). It can create hardware files. Discovered hardware that moves to another host updates its `installed_in`, and hardware no longer seen is reported, never deleted or re-statused automatically.
 
-**Attribution.** When a *fact* in your file differs from what's observed:
+**Facts always go to Bastet's own note, never yours.** Every host and hardware item has exactly one facts note, `_bastet/facts/<name> facts.md`, rewritten on every gather; your host or hardware note never holds a fact-nature key. A fact-nature key found on your own note (left over from an older layout, or typed by hand) is never read as a value and never kept -- `bastet doctor` flags it, and `bastet doctor --fix` removes it once the facts note already carries that value, so nothing is lost. There is no attribution step and nothing to `--take`: with facts and your notes on separate files, there's no file for the two to collide on.
 
-- **Bastet was the last to set it:** the change is a normal update in the diff.
-- **You were the last to set it:** Bastet **keeps your value** and tells you who set it, when, and in which commit. On physical hardware, it's a ⚠. The notice shows prominently the first time for each commit that set the value. After that, the mismatch sits in a standing list, "manual values that differ from reality", in the host's status file, visible but quiet.
-- **Uncommitted, or history unavailable** (squashed, file renamed): treated as yours.
-
-"Who set it" is **value history, not line blame**. For each field, Bastet finds the most recent commit in which the field's *parsed value* changed, and uses that commit's author. This survives Obsidian rewriting the frontmatter block and Bastet's own line edits.
-
-`bastet gather <host> --take <field>` accepts reality for that field, which then becomes Bastet-maintained again.
-
-**Desired** fields aren't gathered into the file. A mismatch appears in `check` as a change to apply.
+**Desired** fields aren't gathered into the file. A mismatch appears in `bastet run`'s check as a change to apply.
 
 ## 7b. Drift [firm for reporting; resolution open]
 
@@ -732,6 +724,8 @@ Runs on the orchestrator LXC with a remote-only inventory, on the same core. It 
 ## 12. Commands
 
 Few verbs; options over sibling commands. Every command pulls first and commits and pushes what Bastet wrote.
+
+> **Superseded by the current command set** (simplified in `docs/plans/2026-10-07-bastet-simplify-ux.md`): one `run` verb replaces `gather`/`check`/`apply`, `add hardware` and `secret audit` are gone, `map` is folded into `refresh`, and `doctor` is new. The table below is kept as the original plan; see `_bastet/docs/Commands.md` (shipped into every inventory) for what's actually there today.
 
 | Command | Does |
 |---|---|

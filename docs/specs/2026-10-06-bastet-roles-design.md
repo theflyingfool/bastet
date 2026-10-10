@@ -35,7 +35,8 @@ Everything here is v1 unless marked **deferred**.
 | What | Where | Written by |
 |---|---|---|
 | Host identity (type, address, groups, `runs_on`, location, `connection`, `gather`, guest settings) and your notes | `hosts/<host>.md` | you |
-| Gathered facts | `_bastet/facts/<host> facts.md` (`host: "[[<host>]]"`) | Bastet only |
+| Hardware identity (`category`, `installed_in`) and your fields (`price`, `vendor`, `purchased`, `location`, `warranty_until`, `status`, `notes`) | `hardware/<item>.md` | you |
+| Gathered facts, for a host or a hardware item -- **one Bastet note per object**, never split across several: facts, `warnings`, `drift`, the summary cards, the resolved-roles table and (hosts only) the security section all live on this one note | `_bastet/facts/<name> facts.md` (`host:`/`item: "[[<name>]]"`) | Bastet only |
 | Per-host reports from roles | `_bastet/reports/<host> reports.md` | Bastet only |
 | Role files (which roles apply where, with which preset and values) | `_roles/{lab,groups/<g>,hosts/<h>}/<role>.md` | you, or `add role` |
 | Your presets | `_roles/presets/<role>/<name>.md` | you |
@@ -49,7 +50,7 @@ Everything here is v1 unless marked **deferred**.
 
 - **Bastet never writes to `hosts/<host>.md`.** Gather writes the facts note, and Bastet-generated views are embedded, not stored.
 - **Declared versus observed is explicit.** A value you set on the host note (e.g. a fixed `ip`) that differs from the facts note is drift (main spec §7b), reported the same way as before.
-- **Attribution and `--take` shrink to what's still needed.** They existed to share one note between you and gather.
+- **No attribution, no `--take`.** They existed to share one note between you and gather; with facts and your notes on separate files (the one-note rule above), there's no file for the two to collide on, so neither is needed any more.
 - **A guest's settings live on its own host note:** cores, memory, disks, OS template, network. For a guest, that *is* its identity, the way hardware is for a physical machine. The host type (`lxc`, `vm`) defines and validates those fields, so they need no prefixes.
 - **The host page embeds:**
   - the facts summary;
@@ -451,7 +452,7 @@ Main spec §15 applies unchanged: secret options are declared in the contract fr
 | Level | What | Your roles | Upstream roles |
 |---|---|---|---|
 | Always | the contract parses, types are valid, the OS is claimed, templates render. Caught during check/apply. | enforced | enforced |
-| `bastet role check <dir>` | options documented; per-OS maps vs `os`; templates render per OS and per preset; hooks declare a mode; units declare `access`; service roles declare `data`; `api` supported; unused `vars`; options no resource reads | opt-in | required |
+| `bastet doctor <dir>` | options documented; per-OS maps vs `os`; templates render per OS and per preset; hooks declare a mode; units declare `access`; service roles declare `data`; `api` supported; unused `vars`; options no resource reads | opt-in | required |
 | Plan tests (`tests/*.md`, `bastet role test`) | facts + values → expected resources or guard error | opt-in | required |
 | Host tests (`bastet role test --hosts`, podman per supported OS) | apply, verify, re-apply = zero changes; exposure under target at strict and relaxed; presets apply. VM-only cases are marked and skipped. | opt-in | required where a container can test it |
 
