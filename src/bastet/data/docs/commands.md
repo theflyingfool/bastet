@@ -5,8 +5,8 @@ Every command Bastet has, and its options. See [[Bastet guide]] for the daily lo
 | Command | Does |
 |---|---|
 | `bastet init [--manage-this-machine] [-y]` | Config, Bastet's SSH key, the inventory repository and `Homelab.md`. With the flag (or a yes when asked), also sets up this computer as a managed host. |
-| `bastet run [selectors] [-c\|-g\|-a] [--exclude …] [-y] [-j JOBS] [-v…] [--updates] [--accept-new-hostkey]` | Gathers facts, checks every selected host against its roles, shows the diff and applies it. `-c` stops after check, `-g` after gather; `-a` (apply) is the default. `--exclude` removes hosts a selector picked up. `--updates` also installs pending updates on hosts whose policy is manual. |
-| `bastet log` | Lists past runs, newest first: id, command, when, hosts, and how it ended. |
+| `bastet run [selectors] [-c\|-g\|-a] [--exclude …] [-y] [-j JOBS] [-v…] [--updates] [--accept-new-hostkey]` | Checks every selected host against its roles, shows the plan and, after you confirm, applies it. `-c` only checks and changes nothing. `-g` gathers facts first (on its own, or followed by `-c` or `-a`); without `-g` nothing is gathered. `--exclude` removes hosts a selector picked up. `--updates` also installs pending updates on hosts whose policy is manual. |
+| `bastet log` | Lists past runs, newest first: id, when it started, how it ended, the command and the number of hosts. |
 | `bastet log export RUN [--out FILE]` | Prints one run's record (JSON lines), or writes it to `FILE`. `RUN` is an id from `bastet log`, or `latest`. |
 | `bastet show [selectors]` | Read-only: lists the inventory and its problems, or shows the named hosts/hardware and what links to them. |
 | `bastet add host [NAME] [--type …] [--local]` | Writes a minimal host file, asking for anything left out (`-y` to never ask). `--local` marks the computer Bastet runs on and sets it up as a managed host. |
