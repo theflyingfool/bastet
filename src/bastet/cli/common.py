@@ -22,6 +22,7 @@ from bastet.core.secrets.notes import SecretNote, SecretPath
 from bastet.core.secrets.redact import ACTIVE
 from bastet.core.secrets.refs import MissingSecret
 from bastet.core.secrets.store import AgeStore, for_note
+from bastet.ui import out
 
 
 def _refuse_while_in_worker(fn):
@@ -60,7 +61,7 @@ def handles_errors(fn):
         try:
             return fn(*args, **kwargs)
         except BastetError as exc:
-            typer.secho(ACTIVE.mask(f"error: {exc}"), fg="red", err=True)
+            out.secho(ACTIVE.mask(f"error: {exc}"), fg="red", err=True)
             raise typer.Exit(1) from None
 
     return wrapper
@@ -154,15 +155,15 @@ def alert_upstream_secrets(repo: GitRepo, root: Path) -> list[str]:
     secret_paths = secrets_confirm.changed_since_confirmed(repo, root)
     if not secret_paths:
         return []
-    typer.secho("ALERT: secrets changed upstream:", fg="red", err=True, bold=True)
+    out.secho("ALERT: secrets changed upstream:", fg="red", err=True, bold=True)
     for rel in secret_paths:
         info = repo.last_author(root / rel) if (root / rel).exists() else None
         if info is None:
-            typer.secho(f"  {rel}", fg="red", err=True)
+            out.secho(f"  {rel}", fg="red", err=True)
             continue
         name, email, date = info
         machine = email.split("@", 1)[1] if "@" in email else email
-        typer.secho(f"  {rel} — {name} on {machine}, {date}", fg="red", err=True)
+        out.secho(f"  {rel} — {name} on {machine}, {date}", fg="red", err=True)
     return secret_paths
 
 
@@ -183,7 +184,7 @@ def load_context(*, allow_plaintext: bool = False) -> Context:
         try:
             repo.pull()
         except BastetError as exc:
-            typer.secho(f"warning: {exc}; continuing on the last pulled state", fg="yellow", err=True)
+            out.secho(f"warning: {exc}; continuing on the last pulled state", fg="yellow", err=True)
             pull_error = exc.message
         upstream_secrets = alert_upstream_secrets(repo, root)
     if not allow_plaintext:
@@ -213,7 +214,7 @@ def print_problems(ctx: Context) -> None:
     (relative to the inventory root) and line."""
     for problem in ctx.inventory.problems:
         text, fg = problem_line(ctx.root, problem)
-        typer.secho(text, fg=fg)
+        out.secho(text, fg=fg)
 
 
 def _stdout_is_tty() -> bool:
@@ -227,7 +228,7 @@ def next_hint(text: str, yes: bool) -> None:
     Hints are suppressed when -y/--yes is set or when stdout is not a terminal (e.g., piped).
     """
     if not yes and _stdout_is_tty():
-        typer.secho(f"next: {text}", fg="green")
+        out.secho(f"next: {text}", fg="green")
 
 
 def find_named_host(ctx: Context, name: str) -> Document:
@@ -250,7 +251,7 @@ PUSH_FAILED_LINE = "committed locally; push failed (offline?); it'll be pushed n
 def push_or_warn(ctx: Context) -> None:
     """The one push-failure line, everywhere: never changes the exit code; the next command pushes what's pending."""
     if not ctx.repo.push():
-        typer.secho(PUSH_FAILED_LINE, fg="yellow", err=True)
+        out.secho(PUSH_FAILED_LINE, fg="yellow", err=True)
 
 
 def pull_or_warn(ctx: Context) -> None:
@@ -260,7 +261,7 @@ def pull_or_warn(ctx: Context) -> None:
         ctx.repo.pull()
         ctx.pull_error = None
     except BastetError as exc:
-        typer.secho(f"warning: {exc}; continuing on the last pulled state", fg="yellow", err=True)
+        out.secho(f"warning: {exc}; continuing on the last pulled state", fg="yellow", err=True)
         ctx.pull_error = exc.message
 
 
@@ -279,9 +280,9 @@ def write_with_confirmation(ctx: Context, changes: list[Change], yes: bool) -> b
         if p.suffix == ".md" and p.resolve() in bastet_files and p.resolve() not in ctx.written
     ]
     if pending:
-        typer.echo("Uncommitted edits to Bastet files:")
+        out.echo("Uncommitted edits to Bastet files:")
         for path in pending:
-            typer.echo(f"  {path.relative_to(ctx.root)}")
+            out.echo(f"  {path.relative_to(ctx.root)}")
         if yes or typer.confirm("Commit them as you before Bastet writes?", default=True):
             ctx.repo.commit(pending, "Edits committed before a Bastet change", as_bastet=False)
         else:
@@ -289,9 +290,9 @@ def write_with_confirmation(ctx: Context, changes: list[Change], yes: bool) -> b
             if clash:
                 raise BastetError("has uncommitted edits; commit them first", file=clash[0])
     for change in changes:
-        typer.echo(render_diff(change, ctx.root))
+        out.diff(render_diff(change, ctx.root))
     if not yes and not typer.confirm("Write?", default=True):
-        typer.echo("Nothing written.")
+        out.echo("Nothing written.")
         return False
     write_changes(changes)
     ctx.written |= targets
@@ -301,7 +302,7 @@ def write_with_confirmation(ctx: Context, changes: list[Change], yes: bool) -> b
 def _refresh_skip(ctx: Context, reason: str) -> None:
     """A refresh that can't run says why, as a normal line -- never red, never an error -- and
     remembers it (`.bastet/refresh-skipped`) so `bastet doctor` can list it until a refresh succeeds."""
-    typer.echo(f"refresh skipped: {reason}")
+    out.echo(f"refresh skipped: {reason}")
     _write_refresh_skipped(ctx.root, reason)
 
 
@@ -345,7 +346,7 @@ def refresh_generated(
         _refresh_skip(ctx, f"{exc.__class__.__name__}: {exc}")
         return []
     _clear_refresh_skipped(ctx.root)
-    typer.echo(f"Refreshed {len(changes)} generated note{'s' if len(changes) != 1 else ''} in _bastet/.")
+    out.echo(f"Refreshed {len(changes)} generated note{'s' if len(changes) != 1 else ''} in _bastet/.")
     return changes
 
 
@@ -421,7 +422,7 @@ def ssh_port(ctx: Context, doc) -> int:
     try:
         applied = {a.role.name: a for a in resolve(ctx.inventory, doc, ctx.types, load_roles())}
     except BastetError as exc:
-        typer.secho(f"{doc.name}: roles couldn't be read ({exc.message}); connecting on port 22", fg="yellow", err=True)
+        out.secho(f"{doc.name}: roles couldn't be read ({exc.message}); connecting on port 22", fg="yellow", err=True)
         return 22
     ports = (applied["ssh"].values.get("port") if "ssh" in applied else None) or [22]
     return int(ports[0])

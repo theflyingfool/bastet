@@ -19,6 +19,7 @@ from bastet.core.initialize import (
     InitOptions, ProcResult, existing_recipients, generate_recovery_key, initialize, local_user_setup,
     real_runner, sshd_inactive_unit, sshd_ready,
 )
+from bastet.ui import out
 
 _RECOVERY_WARNING = (
     "Recovery key: keep this offline. It's the only way back if this laptop is lost. It won't be shown again."
@@ -51,32 +52,32 @@ def _now() -> str:
 def _confirm_local_hostkey(ctx: Context, *, yes: bool) -> None:
     hosts = [d for d in ctx.inventory.of_kind("host") if d.data.get("connection") == "local"]
     if not hosts:
-        typer.echo("No local host in the inventory yet; `bastet gather` will pin its key once you add one.")
+        out.echo("No local host in the inventory yet; `bastet gather` will pin its key once you add one.")
         return
     try:
         keys = _scan_local()
     except BastetError as exc:
-        typer.secho(f"Could not scan this machine's host key: {exc}", fg="yellow")
+        out.secho(f"Could not scan this machine's host key: {exc}", fg="yellow")
         return
     offered = hostkeys.record(hostkeys.preferred(keys))
     for doc in hosts:
         recorded = host_data(ctx.inventory, doc, ctx.types).get("ssh_host_key")
         status = hostkeys.check(recorded, keys)
         if status == "match":
-            typer.echo(f"{doc.name}: host key already set up")
+            out.echo(f"{doc.name}: host key already set up")
             continue
         if recorded:
-            typer.secho(
+            out.secho(
                 f"{doc.name}: a different host key is already recorded; run `bastet gather "
                 "--accept-new-hostkey` if this machine was reinstalled", fg="yellow",
             )
             continue
-        typer.echo(f"{doc.name}: host key {offered}")
+        out.echo(f"{doc.name}: host key {offered}")
         if yes:
-            typer.echo(f"{doc.name}: run without -y to confirm the host key")
+            out.echo(f"{doc.name}: run without -y to confirm the host key")
             continue
         if not typer.confirm("Trust this key?", default=False):
-            typer.echo(f"{doc.name}: host key not recorded")
+            out.echo(f"{doc.name}: host key not recorded")
             continue
         # The pin lives in the facts note, never the host note -- it isn't a gather, so the note's
         # own `gathered:` is kept as-is when there is one.
@@ -89,7 +90,7 @@ def _confirm_local_hostkey(ctx: Context, *, yes: bool) -> None:
             if ctx.repo.is_repo():
                 if ctx.repo.commit([change.path], f"init: pin {doc.name}'s host key"):
                     push_or_warn(ctx)
-        typer.echo(f"{doc.name}: host key recorded")
+        out.echo(f"{doc.name}: host key recorded")
 
 
 def _setup_this_machine(ctx: Context, public_key: Path, *, yes: bool) -> None:
@@ -97,22 +98,22 @@ def _setup_this_machine(ctx: Context, public_key: Path, *, yes: bool) -> None:
     authorized_keys, an sshd check, and (once confirmed) its host key. Tty only, like the recovery
     key -- every step is idempotent, and nothing here ever edits sshd config."""
     if not _stdout_is_tty():
-        typer.echo("Not a terminal: run this in a terminal to set up this machine as a Bastet host.")
+        out.echo("Not a terminal: run this in a terminal to set up this machine as a Bastet host.")
         return
-    typer.echo(
+    out.echo(
         "Setting up this machine as a Bastet host: a local 'bastet' user with passwordless sudo "
         "(root-equivalent; only Bastet's SSH key can log in as it). sudo will ask for your password."
     )
     if not _sudo_validate():
-        typer.secho("Could not get sudo; this machine was not set up as a Bastet host.", fg="yellow")
+        out.secho("Could not get sudo; this machine was not set up as a Bastet host.", fg="yellow")
         return
     key = public_key.read_text(encoding="utf-8").strip()
     with tempfile.TemporaryDirectory(prefix="bastet-init-") as tmp:
         try:
             for action in local_user_setup(_runner, Path(tmp), key):
-                typer.echo(action)
+                out.echo(action)
         except BastetError as exc:
-            typer.secho(f"Setting up this machine failed: {exc}", fg="yellow")
+            out.secho(f"Setting up this machine failed: {exc}", fg="yellow")
             return
     ok, hint = sshd_ready(_runner, _scan_local)
     if not ok and not yes:
@@ -120,11 +121,11 @@ def _setup_this_machine(ctx: Context, public_key: Path, *, yes: bool) -> None:
         if unit and typer.confirm(f"Start sshd now (systemctl enable --now {unit})?", default=False):
             res = _runner(["sudo", "-n", "systemctl", "enable", "--now", unit])
             if res.returncode != 0:
-                typer.secho(f"systemctl enable --now {unit} failed: {(res.stderr or res.stdout).strip()}", fg="yellow")
+                out.secho(f"systemctl enable --now {unit} failed: {(res.stderr or res.stdout).strip()}", fg="yellow")
                 return
             ok, hint = sshd_ready(_runner, _scan_local)
     if not ok:
-        typer.secho(hint, fg="yellow")
+        out.secho(hint, fg="yellow")
         return
     _confirm_local_hostkey(ctx, yes=yes)
 
@@ -161,7 +162,7 @@ def _plan_recipients(inventory_path: Path, yes: bool) -> tuple[list[str] | None,
     if existing_recipients(homelab_path):
         return None, None
     if not _stdout_is_tty():
-        typer.echo("Not a terminal: run `bastet init` in a terminal to create the recovery key.")
+        out.echo("Not a terminal: run `bastet init` in a terminal to create the recovery key.")
         return None, None
     recovery_private, recovery_public = generate_recovery_key()
     your_pub = _your_pub_text(yes)
@@ -170,8 +171,8 @@ def _plan_recipients(inventory_path: Path, yes: bool) -> tuple[list[str] | None,
         return recipients, recovery_private
     before = homelab_path.read_text(encoding="utf-8")
     after = set_keys(before, {"secrets": {"recipients": recipients}}, homelab_path)
-    typer.echo("\nBastet will add to Homelab.md:")
-    typer.echo(render_diff(Change(homelab_path, before, after), inventory_path))
+    out.echo("\nBastet will add to Homelab.md:")
+    out.diff(render_diff(Change(homelab_path, before, after), inventory_path))
     if yes or typer.confirm("Add a recovery key and your SSH key as secrets.recipients?", default=True):
         return recipients, recovery_private
     return None, None
@@ -205,7 +206,7 @@ def init(
         return typer.prompt(prompt, default=default, show_default=bool(default))
 
     if existing is not None:
-        typer.echo(f"Using {cfg_file} (edit it to change the inventory, remote, key or login).")
+        out.echo(f"Using {cfg_file} (edit it to change the inventory, remote, key or login).")
         inventory_path = inventory_dir(existing, data_dir())
         remote_url = existing.inventory.remote
         key_path = existing.ssh.key
@@ -240,38 +241,38 @@ def init(
         inventory=inventory_path, remote=remote_url, key=key_path, bootstrap_user=user,
         lab_name=name, domains=domains, snippet=snippet, recipients=recipients,
     )
-    typer.echo("\nBastet will set up:")
-    typer.echo(f"  config      {cfg_file}")
-    typer.echo(f"  inventory   {options.inventory}" + (f"  (remote {options.remote})" if options.remote else ""))
-    typer.echo(f"  SSH key     {options.key or cfg_file.parent / 'ssh' / 'id_ed25519 (new)'}")
-    typer.echo(f"  login       {options.bootstrap_user} (to set up the bastet user on existing hosts)")
-    typer.echo(f"  lab         {options.lab_name}" + (f"  {domains}" if domains else ""))
-    typer.echo(f"  stylesheet  {'yes' if options.snippet else 'no'}")
+    out.echo("\nBastet will set up:")
+    out.echo(f"  config      {cfg_file}")
+    out.echo(f"  inventory   {options.inventory}" + (f"  (remote {options.remote})" if options.remote else ""))
+    out.echo(f"  SSH key     {options.key or cfg_file.parent / 'ssh' / 'id_ed25519 (new)'}")
+    out.echo(f"  login       {options.bootstrap_user} (to set up the bastet user on existing hosts)")
+    out.echo(f"  lab         {options.lab_name}" + (f"  {domains}" if domains else ""))
+    out.echo(f"  stylesheet  {'yes' if options.snippet else 'no'}")
     if manage_this_machine:
-        typer.echo(
+        out.echo(
             "  this machine  a local 'bastet' user with passwordless sudo (root-equivalent; only "
             "Bastet's SSH key can log in as it)"
         )
     else:
-        typer.echo("  this machine  not managed")
+        out.echo("  this machine  not managed")
     if not yes and not typer.confirm("Go ahead?", default=True):
-        typer.echo("Nothing written.")
+        out.echo("Nothing written.")
         return
 
     result = initialize(cfg_file, options, keys_dir=cfg_file.parent / "ssh")
     for action in result.actions:
-        typer.echo(action)
+        out.echo(action)
     ctx = load_context()
     refresh_only(ctx)
-    typer.echo(f"\nBastet's public key ({result.public_key}):")
-    typer.echo(result.public_key.read_text(encoding="utf-8").strip())
+    out.echo(f"\nBastet's public key ({result.public_key}):")
+    out.echo(result.public_key.read_text(encoding="utf-8").strip())
     if recovery_private:
-        typer.echo()
-        typer.secho(_RECOVERY_WARNING, fg="yellow")
-        typer.echo(recovery_private)
-    typer.echo()
+        out.echo()
+        out.secho(_RECOVERY_WARNING, fg="yellow")
+        out.echo(recovery_private)
+    out.echo()
     if manage_this_machine:
         _setup_this_machine(ctx, result.public_key, yes=yes)
     else:
-        typer.echo("This computer isn't managed by Bastet. To manage it later: bastet add host <name> --local")
+        out.echo("This computer isn't managed by Bastet. To manage it later: bastet add host <name> --local")
     next_hint("bastet add host", yes=yes)

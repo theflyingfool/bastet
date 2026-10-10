@@ -7,12 +7,13 @@ import typer
 from bastet.cli.common import finish, handles_errors, load_context, write_with_confirmation
 from bastet.core.doctor import Problem, diagnose, merged_changes
 from bastet.core.errors import BastetError
+from bastet.ui import out
 
 
 def _print_problem(p: Problem) -> None:
     fg = "red" if p.severity == "error" else "yellow"
     where = f"{p.where}: " if p.where else ""
-    typer.secho(f"{where}{p.message}", fg=fg)
+    out.secho(f"{where}{p.message}", fg=fg)
 
 
 def _check_role_dir(path: Path) -> None:
@@ -23,7 +24,7 @@ def _check_role_dir(path: Path) -> None:
     roles = load_roles(path.parent)
     if path.resolve().name not in roles:
         raise BastetError(f"no role.yml in {path}")
-    typer.echo(f"{path}: parses as a role definition.")
+    out.echo(f"{path}: parses as a role definition.")
 
 
 @handles_errors
@@ -45,13 +46,13 @@ def doctor(
     problems = diagnose(ctx)
     if not fix:
         if not problems:
-            typer.echo("No problems found.")
+            out.echo("No problems found.")
         for p in problems:
             _print_problem(p)
         return
     changes = merged_changes(problems)
     if not changes:
-        typer.echo("Nothing to fix.")
+        out.echo("Nothing to fix.")
         for p in problems:
             _print_problem(p)
         return
@@ -59,5 +60,5 @@ def doctor(
         return
     for p in problems:
         if p.fix_note:
-            typer.echo(p.fix_note)
+            out.echo(p.fix_note)
     finish(ctx, "doctor: fix")

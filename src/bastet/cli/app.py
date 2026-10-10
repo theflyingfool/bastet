@@ -1,13 +1,14 @@
 import typer
 
 from bastet import __version__
+from bastet.ui import out
 
 app = typer.Typer(invoke_without_command=True, add_completion=True, pretty_exceptions_show_locals=False)  # never print a decrypted secret
 
 
 def _print_version(value: bool) -> None:
     if value:
-        typer.echo(f"bastet {__version__}")
+        out.echo(f"bastet {__version__}")
         raise typer.Exit()
 
 
@@ -24,7 +25,7 @@ def main(
 ) -> None:
     """Bastet: a human-readable homelab inventory."""
     if ctx.invoked_subcommand is None:  # bare `bastet` is a request for help, not a mistake
-        typer.echo(ctx.get_help())
+        out.echo(ctx.get_help())
         raise typer.Exit()
 
 
@@ -39,7 +40,7 @@ def help_(ctx: typer.Context, command: list[str] = typer.Argument(None, help="Th
             raise typer.BadParameter(f"no command named {' '.join(command)!r}", param_hint="COMMAND")
         parent = typer.Context(sub, info_name=word, parent=parent)
         target = sub
-    typer.echo(parent.get_help())
+    out.echo(parent.get_help())
 
 
 from bastet.cli.add import add_app  # noqa: E402

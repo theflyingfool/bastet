@@ -12,11 +12,7 @@ from bastet.core.hostview import host_data
 from bastet.core.inventory import Inventory
 from bastet.core.selectors import is_selector, select_hosts
 from bastet.core.yamlstyle import dump_frontmatter
-
-
-def _table(rows: list[list[str]]) -> list[str]:
-    widths = [max(len(r[i]) for r in rows) for i in range(len(rows[0]))]
-    return ["  " + "  ".join(c.ljust(w) for c, w in zip(r, widths)).rstrip() for r in rows]
+from bastet.ui import out
 
 
 def _host_rows(inv: Inventory, types: dict[str, HostType], hosts: list) -> list[list[str]]:
@@ -25,10 +21,9 @@ def _host_rows(inv: Inventory, types: dict[str, HostType], hosts: list) -> list[
 
 
 def _show_hosts(inv: Inventory, types: dict[str, HostType], hosts: list) -> None:
-    typer.echo(f"Hosts ({len(hosts)})")
+    out.echo(f"Hosts ({len(hosts)})")
     if hosts:
-        for line in _table(_host_rows(inv, types, hosts)):
-            typer.echo(line)
+        out.table(_host_rows(inv, types, hosts))
 
 
 def _show_all(inv: Inventory, types: dict[str, HostType]) -> None:
@@ -36,39 +31,39 @@ def _show_all(inv: Inventory, types: dict[str, HostType]) -> None:
     hardware = inv.of_kind("hardware")
     counts = Counter(str(d.data.get("status", "in-service")) for d in hardware)
     summary = ", ".join(f"{n} {s}" for s, n in sorted(counts.items()))
-    typer.echo(f"Hardware ({len(hardware)})" + (f": {summary}" if summary else ""))
+    out.echo(f"Hardware ({len(hardware)})" + (f": {summary}" if summary else ""))
     for kind, label in (("location", "Locations"), ("group", "Groups")):
         docs = inv.of_kind(kind)
         if docs:
-            typer.echo(f"{label}: " + ", ".join(d.name for d in docs))
+            out.echo(f"{label}: " + ", ".join(d.name for d in docs))
 
 
 def _show_one(inv: Inventory, root: Path, name: str) -> None:
     doc = inv.get(name)
     if doc is None:
         raise BastetError(f"no object named '{name}' in the inventory")
-    typer.echo(f"{doc.name} ({doc.data['bastet']}) · {doc.path.relative_to(inv.root)}")
+    out.echo(f"{doc.name} ({doc.data['bastet']}) · {doc.path.relative_to(inv.root)}")
     for line in dump_frontmatter(doc.data).splitlines():
-        typer.echo(f"  {line}")
+        out.echo(f"  {line}")
     links = inv.linking_to(doc.name)
     if links:
-        typer.echo("Linked from:")
+        out.echo("Linked from:")
         for other, key in links:
-            typer.echo(f"  {other.name} ({key})")
+            out.echo(f"  {other.name} ({key})")
     if doc.data.get("bastet") == "host":
         path = facts_path(inv.root, doc.name)
         rel = path.relative_to(inv.root)
         facts_doc = inv.facts.get(doc.name.lower())
         if facts_doc is None or not facts_doc.data.get("gathered"):
-            typer.echo(f"\nGathered facts ({rel}): not gathered yet")
+            out.echo(f"\nGathered facts ({rel}): not gathered yet")
         else:
-            typer.echo(f"\nGathered facts ({rel}):")
+            out.echo(f"\nGathered facts ({rel}):")
             for line in dump_frontmatter(inv.facts_for(doc.name)).splitlines():
-                typer.echo(f"  {line}")
+                out.echo(f"  {line}")
         for problem in inv.problems:
             if problem.error.file == doc.path:
                 text, fg = problem_line(root, problem)
-                typer.secho(text, fg=fg)
+                out.secho(text, fg=fg)
 
 
 @handles_errors
@@ -88,8 +83,8 @@ def show(
     else:
         _show_all(inv, ctx.types)
     if inv.problems:
-        typer.echo("\nProblems")
+        out.echo("\nProblems")
         for problem in inv.problems:
-            typer.echo(f"  {problem}")
+            out.echo(f"  {problem}")
     if inv.errors:
         raise typer.Exit(1)

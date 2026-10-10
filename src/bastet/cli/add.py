@@ -18,15 +18,16 @@ from bastet.roles.contract import load_roles
 from bastet.core.scaffold import new_host, suggested_ip
 from bastet.core.hardware import HARDWARE_CATEGORIES
 from bastet.core.errors import did_you_mean
+from bastet.ui import out
 
 add_app = typer.Typer(no_args_is_help=True, help="Add a host to the inventory. Asks for anything not given.")
 
 
 def _choose(label: str, options: list[tuple[str, str]], *, default: str | None = None, allow_blank: bool = False) -> str | None:
     """Numbered list; accepts a number or the value itself (any case)."""
-    typer.echo(f"{label}:")
+    out.echo(f"{label}:")
     for i, (value, description) in enumerate(options, 1):
-        typer.echo(f"  {i}. {value}" + (f"  - {description}" if description else ""))
+        out.echo(f"  {i}. {value}" + (f"  - {description}" if description else ""))
     prompt_default = default if default is not None else ("" if allow_blank else None)
     while True:
         answer = typer.prompt(
@@ -41,7 +42,7 @@ def _choose(label: str, options: list[tuple[str, str]], *, default: str | None =
         for value, _ in options:
             if value.lower() == answer.lower():
                 return value
-        typer.echo(f"  '{answer}' isn't one of the choices.")
+        out.echo(f"  '{answer}' isn't one of the choices.")
 
 
 @add_app.command("host")
@@ -107,7 +108,7 @@ def add_host(
         provider=provider, address=address, connection="local" if local else None,
     )
     if draft.suggested_ip:
-        typer.echo(f"Suggested address: {draft.suggested_ip} (next free in {network})")
+        out.echo(f"Suggested address: {draft.suggested_ip} (next free in {network})")
     if write_with_confirmation(ctx, [draft.change, *lab_embed_changes(inv)], yes):
         finish(ctx, f"add host {name}")
         next_hint(f"bastet run -g {name}", yes=yes)
@@ -124,16 +125,16 @@ def _set_up_this_machine(*, yes: bool) -> None:
     key = ctx.config.ssh.key
     pub = Path(str(key) + ".pub") if key is not None else None
     if pub is None or not pub.is_file():
-        typer.echo("Bastet has no SSH key yet; run `bastet init --manage-this-machine` to create one and set up this machine.")
+        out.echo("Bastet has no SSH key yet; run `bastet init --manage-this-machine` to create one and set up this machine.")
         return
     init_mod._setup_this_machine(ctx, pub, yes=yes)
 
 
 def _choose_many(label: str, options: list[tuple[str, str]]) -> list[str]:
     """Numbered list; several picks by number or name, comma- or space-separated."""
-    typer.echo(f"{label}:")
+    out.echo(f"{label}:")
     for i, (value, description) in enumerate(options, 1):
-        typer.echo(f"  {i}. {value}" + (f"  - {description}" if description else ""))
+        out.echo(f"  {i}. {value}" + (f"  - {description}" if description else ""))
     values = {v.lower(): v for v, _ in options}
     while True:
         answer = typer.prompt("Choice (one or more, e.g. 1,3)").strip()
@@ -147,12 +148,12 @@ def _choose_many(label: str, options: list[tuple[str, str]]) -> list[str]:
                 bad.append(word)
         if picked and not bad:
             return list(dict.fromkeys(picked))
-        typer.echo(f"  '{' '.join(bad) or answer}' isn't one of the choices.")
+        out.echo(f"  '{' '.join(bad) or answer}' isn't one of the choices.")
 
 
 def _print_secret_commands(needed: list) -> None:
     for n in needed:
-        typer.echo(f"  bastet secret set {secret_mod.secret_words(n.sp)}")
+        out.echo(f"  bastet secret set {secret_mod.secret_words(n.sp)}")
 
 
 def _offer_secrets(ctx, added: list[str], doc, *, yes: bool) -> None:
@@ -169,12 +170,12 @@ def _offer_secrets(ctx, added: list[str], doc, *, yes: bool) -> None:
     if not needed:
         return
     if yes:
-        typer.echo("Secrets this role needs (run these to set them):")
+        out.echo("Secrets this role needs (run these to set them):")
         _print_secret_commands(needed)
         return
-    typer.echo("Secrets this role needs:")
+    out.echo("Secrets this role needs:")
     for n in needed:
-        typer.echo(f"  {n.sp.text}")
+        out.echo(f"  {n.sp.text}")
     if not typer.confirm("Set them now?", default=True):
         _print_secret_commands(needed)
         return
@@ -238,7 +239,7 @@ def add_role(
     targets = {name.lower() for name, _ in _role_targets(ctx.inventory)}
     if to is None and len(names) >= 2 and names[-1].lower() in targets:
         if names[-1] in known:
-            typer.secho(f"'{names[-1]}' is both a role and a target; treating it as a role (use --to for the target)",
+            out.secho(f"'{names[-1]}' is both a role and a target; treating it as a role (use --to for the target)",
                         fg="yellow")
         else:
             to = names.pop()  # the old form: bastet add role <role> <target>
@@ -270,7 +271,7 @@ def add_role(
     for role in names:
         path = folder / f"{role}.md"
         if path.exists():
-            typer.secho(f"{doc.name} already has the {role} role ({path.relative_to(ctx.root)}); edit it in Obsidian",
+            out.secho(f"{doc.name} already has the {role} role ({path.relative_to(ctx.root)}); edit it in Obsidian",
                         fg="yellow")
             continue
         # When no values are set, use the minimal body line
