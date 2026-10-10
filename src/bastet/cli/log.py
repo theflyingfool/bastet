@@ -1,4 +1,4 @@
-"""`bastet runs`: the records of past runs on this computer."""
+"""`bastet log`: the record of past runs on this computer."""
 
 import sys
 from pathlib import Path
@@ -10,12 +10,12 @@ from bastet.core.config import data_dir
 from bastet.events.jsonl import _files, resolve_run, runs_dir, summarize
 from bastet.ui import out
 
-runs_app = typer.Typer(invoke_without_command=True, help="Records of past runs on this computer.")
+log_app = typer.Typer(invoke_without_command=True, help="The record of past runs on this computer.")
 
 
-@runs_app.callback(invoke_without_command=True)
+@log_app.callback(invoke_without_command=True)
 @handles_errors
-def runs(
+def log_list(
     ctx: typer.Context,
     all_: bool = typer.Option(False, "--all", help="List every recorded run, not just the newest 20."),
 ) -> None:
@@ -33,7 +33,7 @@ def runs(
     out.table(rows)
 
 
-@runs_app.command("export")
+@log_app.command("export")
 @handles_errors
 def export(
     run: str = typer.Argument(..., help="A run id, the start of one, or 'latest'."),

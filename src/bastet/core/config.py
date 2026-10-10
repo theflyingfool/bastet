@@ -83,14 +83,14 @@ class ParallelConfig(BaseModel):
 class RunsConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    keep_runs: int = 500
-    keep_days: int = 90
+    keep_runs: int | None = None  # None: keep every run
+    keep_days: int | None = None
 
     @field_validator("keep_runs", "keep_days")
     @classmethod
-    def _at_least_one(cls, value: int) -> int:
-        if value < 1:
-            raise ValueError("must be at least 1")
+    def _at_least_one(cls, value: int | None) -> int | None:
+        if value is not None and value < 1:
+            raise ValueError("must be at least 1, or empty to keep every run")
         return value
 
 

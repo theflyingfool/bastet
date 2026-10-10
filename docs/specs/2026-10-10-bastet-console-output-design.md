@@ -18,8 +18,10 @@ three plans, in order, so the colour and width handling don't wait for the run l
 | How runs produce output | An event stream; renderers consume it. Not post-hoc rendering from `HostRun` |
 | Which commands emit events | `run` (gather, check, apply) and `refresh`. Other commands use the console primitives only |
 | Record | JSONL per run, always at full detail, masked. SQLite is deferred and, when wanted, a derived index rebuilt from the JSONL |
-| Log level | `--log-level` / `log_level:` shapes the vault run note only. The JSONL always has everything |
-| Git | Commit run notes for `apply` and `gather`; one rolling "last check" note per host for `check`; JSONL never committed |
+| Run notes | Every run gets a short note in the vault, so the Runs Base lists every run by name. `bastet log note <run> [-v…]` re-renders any run's note from the JSONL at more detail, and `--remove` deletes it. There is no log-level setting: the JSONL always has everything |
+| The command | `bastet log` lists past runs, `bastet log export <run>` prints one, `bastet log note <run>` makes its note (not `runs`, which is too close to `run`) |
+| Retention | The JSONL is kept forever by default. `runs.keep_runs` and `runs.keep_days` in `bastet.yml` limit it; `bastet init` asks and Enter keeps everything |
+| Git | Each run's note is committed in the command's own commit (apply, gather and check alike), so a check also makes a small commit. The JSONL is never committed |
 
 ## Plan 1: console primitives (`bastet/ui/`)
 
@@ -42,7 +44,7 @@ One `Console` wrapper around `rich.console.Console`, created once per command, r
   - unified diffs: green `+`, red `-`, cyan `@@` hunk headers (the `Write?` previews and per-item diffs).
 - **Run reports:** `render_host` in `engine/report.py` is rebuilt on the primitives, keeping its structure
   (families, collapsed compliant items, summary line).
-- **Display verbosity (`-v`)**, separate from the log level:
+- **Display verbosity (`-v`)**, a terminal setting only (run notes don't follow it):
   - default: the per-host summary as a finished block;
   - `-v`: compliant items too;
   - `-vv`: live events as they arrive (phases, checks);
@@ -66,23 +68,32 @@ One `Console` wrapper around `rich.console.Console`, created once per command, r
 - **Normal display** is the events folded into the existing `HostRun` summary, so there is a single source of truth.
 - **JSONL:** `~/.local/share/bastet/runs/<run-id>.jsonl`, one file per run, every event at full detail (the
   equivalent of level 4), flushed per event so an interrupted run leaves a usable log. Retention is a setting
-  (`keep_runs` and/or `keep_days` in `bastet.yml`), pruned at the start of a run; old files may be gzipped.
-  `bastet runs export <run-id>` copies a run's events out.
+  (`runs.keep_runs` and/or `runs.keep_days` in `bastet.yml`), unset by default so every run is kept forever; when
+  set, pruned at the start of a run. `bastet init` asks once for the number of days (Enter keeps everything).
+  `bastet log` lists the runs and `bastet log export <run>` copies a run's events out.
 - **Event levels** (what the run note and `-v` use to filter): 1 changes and failures, with why; 2 every item
   checked, with before/after; 3 every command, with exit code and timing; 4 full command output.
 
 ## Plan 3: run notes and Obsidian views
 
-- **Run note:** `_bastet/runs/<date time> <command>.md`, rendered from the run's JSONL at the chosen log level
-  (default 1). Flat frontmatter (`command`, `started`, `hosts`, `changed`, `failed`, `status`) so Bases can list
-  it. Body: a summary on top (command, who ran it, hosts, changed/failed/skipped/stopped counts, duration), then a
-  per-host timeline grouped by phase in execution order. Level-4 output is truncated per step in the note and
-  complete in the JSONL.
-- **Views:** a Runs Base on `Homelab.md`, newest first, each row linking to its note; a per-host runs Base on each
-  host page. Each of those notes shows, directly below the table, a kanban board over the same runs grouped by
-  `status` (ok, failed, interrupted), as a second Base view embedded under the table.
-- **Git:** run notes for `apply` and `gather` are committed; `check` writes one rolling "last check" note per
-  host instead of a new note each time. JSONL is never committed.
+- **Every run gets a run note:** `_bastet/runs/<date time> <command> <id suffix>.md`. Obsidian note names must be
+  unique, so the name ends with the run id's random part; that also lets a re-render find the same file. Flat
+  frontmatter (`run`, `command`, `started`, `hosts`, `changed`, `failed`, `status`, `detail`) so Bases can list
+  it. Body: a summary (command, who ran it, hosts, changed/failed/skipped/stopped counts, duration), then, at the
+  default detail, only the changes and failures with why.
+- **More detail on demand:** `bastet log note <run> [-v…]` renders the run's note from its JSONL at the detail
+  you ask for, using the same `-v` scale as the terminal: every item checked (`-v`, `-vv`), commands with exit
+  code and timing (`-vvv`), output (`-vvvv`, truncated per step; the complete output stays in the JSONL). It
+  replaces the existing note for that run. `bastet log note <run> --remove` deletes the note. Each is a normal
+  command: one diff, one commit. A run whose JSONL has been pruned can't be re-rendered ("that run's record is
+  gone"); notes already written are unaffected. The JSONL lives on the controller that made the run, so
+  re-rendering works only there; notes travel through git as usual.
+- **Views:** a Runs Base on `Homelab.md`, newest first, listing every run by name, each row linking to its note; a
+  per-host runs Base on each host page. Each of those notes shows, directly below the table, a kanban board over
+  the same runs grouped by `status` (ok, failed, interrupted), as a second Base view embedded under the table.
+- **Git:** each run's note is written and committed in the command's own single commit, whatever the command
+  (apply, gather or check). The JSONL is never committed. This replaces the earlier "rolling last-check note per
+  host" idea: one small note per run is what lets the Base list every run, and it keeps the history.
 
 ## Failure handling
 
@@ -102,7 +113,7 @@ One `Console` wrapper around `rich.console.Console`, created once per command, r
 - **Events:** the emitted sequence for check and apply with a fake runner, covering parallel hosts, a failing item,
   a stopped host, triggers and reboot steps.
 - **Reporters:** the terminal renderer against recorded event streams. JSONL: schema, flush on a killed run,
-  masking, retention. Run note: golden notes at levels 1–4.
+  masking, retention. Run note: golden notes at each detail, and `log note` re-render, replace and remove.
 - Tests that assert on printed text move to the plain-text output, which should be nearly identical.
 - Container (contract) tests are unchanged and run only on request.
 

@@ -19,7 +19,8 @@
 3. **`hook_ran` and `reboot_step` are not defined yet.** Hooks and the reboot plan don't exist until roles subplan 3, which adds those kinds. `refresh` emits nothing yet, and `gather` emits only host-level events (started, finished, skipped), not its individual commands.
 4. **No gzip** of old runs: retention only deletes.
 5. **`on_change` is a value of the `phase` field** on command and trigger events, not a start/finish pair. Phase pairs exist for `collect`, `read`, `compare`, `apply` and `verify`.
-6. **The output of a read script is never recorded.** It carries file contents, which may hold secrets the masker doesn't know about. Fix and trigger commands record their output, except when any resource in them is marked `secret`.
+6. **Retention is off by default:** every run is kept forever unless `runs.keep_runs` or `runs.keep_days` is set; `bastet init` asks once (Task 7). The command is `bastet log`, not `runs`, which is too close to `run`.
+7. **The output of a read script is never recorded.** It carries file contents, which may hold secrets the masker doesn't know about. Fix and trigger commands record their output, except when any resource in them is marked `secret`.
 
 ## Global Constraints
 
@@ -40,11 +41,11 @@
 
 ## Review Focus
 
-1. **A secret value never reaches the JSONL, the live terminal view or `runs export`.** Check every path a value could take: fix command text, command output, a diff, a read script's output, an error message, a trigger. A `secret` resource shows `(hidden: secret resource)` and no output.
+1. **A secret value never reaches the JSONL, the live terminal view or `log export`.** Check every path a value could take: fix command text, command output, a diff, a read script's output, an error message, a trigger. A `secret` resource shows `(hidden: secret resource)` and no output.
 2. **A run never fails because of the record.** The data directory unwritable (or a file where the directory should be), a sink raising on the third event, an invalid event: the command's result and exit code are the same as without recording.
 3. **Parallel runs:** many hosts emitting at once never produce a torn or interleaved JSONL line; each host's events stay in order; `run_finished` is last; Ctrl-C leaves a usable file whose last event is `run_finished` with status `interrupted`.
 4. **Tests and tools never write to the real data directory.**
-5. **Odd inputs:** a run with no hosts, a host skipped before it starts, an empty or torn JSONL file in `runs/`, a run id such as `../x` given to `runs export`, a command with very large output.
+5. **Odd inputs:** a run with no hosts, a host skipped before it starts, an empty or torn JSONL file in `runs/`, a run id such as `../x` given to `log export`, a command with very large output.
 
 ## File structure
 
@@ -55,7 +56,7 @@
 | `src/bastet/events/jsonl.py` | `JsonlSink`, run directory helpers, pruning, run summaries |
 | `src/bastet/events/terminal.py` | `TerminalSink`: live events from `-vv` |
 | `src/bastet/events/__init__.py` | the public names |
-| `src/bastet/cli/runs.py` | `bastet runs` (list) and `bastet runs export` |
+| `src/bastet/cli/log.py` | `bastet log` (list) and `bastet log export` |
 | `src/bastet/cli/common.py` | `recorded_run()`: builds sinks from config and `-v` |
 | `src/bastet/engine/run.py` | emissions in `run_host`, `_read`, `_exec` |
 | `src/bastet/cli/run.py`, `gather.py` | the recording around `run`, host scopes, skips |
@@ -726,21 +727,21 @@ git commit -m "events: recorder with a queue, a masking consumer thread, sinks a
 
 ---
 
-### Task 3: The JSONL record, retention, and `bastet runs`
+### Task 3: The JSONL record, retention, and `bastet log`
 
 **Files:**
-- Create: `src/bastet/events/jsonl.py`, `src/bastet/cli/runs.py`
+- Create: `src/bastet/events/jsonl.py`, `src/bastet/cli/log.py`
 - Modify: `src/bastet/core/config.py` (`RunsConfig`), `src/bastet/cli/app.py` (register `runs`)
-- Test: `tests/events/test_jsonl.py`, `tests/cli/test_runs_cli.py`, a config test in `tests/core/test_config.py`
+- Test: `tests/events/test_jsonl.py`, `tests/cli/test_log_cli.py`, a config test in `tests/core/test_config.py`
 
 **Interfaces (produces):**
 ```python
 def runs_dir(data: Path) -> Path                                  # data / "runs"
 class JsonlSink:  name = "jsonl"; path: Path; def __init__(self, directory: Path, run_id: str)
-def prune(directory: Path, *, keep_runs: int, keep_days: int, now: float | None = None) -> list[Path]   # the files removed
+def prune(directory: Path, *, keep_runs: int | None, keep_days: int | None, now: float | None = None) -> list[Path]   # the files removed; a limit of None keeps every run
 def summarize(path: Path) -> dict      # id, command, started, status ("unfinished" without run_finished), hosts, changed, failed
 def resolve_run(directory: Path, ident: str) -> Path      # an id, a unique prefix, or "latest"; BastetError otherwise
-class RunsConfig(BaseModel):  keep_runs: int = 500; keep_days: int = 90    # Config.runs
+class RunsConfig(BaseModel):  keep_runs: int | None = None; keep_days: int | None = None    # Config.runs; None keeps every run
 ```
 
 **Behaviour:**
@@ -748,9 +749,9 @@ class RunsConfig(BaseModel):  keep_runs: int = 500; keep_days: int = 90    # Con
 - **`prune`** removes the oldest files beyond `keep_runs` and any older than `keep_days` (by modification time). Only `*.jsonl` files. A file that can't be removed is reported on stderr and skipped. Returns the removed paths.
 - **`summarize`** reads the first line and the last complete line (from the last 64 KB). A torn or empty file gives `status: "unfinished"` and blanks, never an error.
 - **`resolve_run`:** `ident` must match `[0-9A-Za-z-]+` (anything else, such as `../x`, is an error). `latest` is the newest file. A prefix matching several files is an error naming them.
-- **`bastet runs`** lists the 20 newest runs (`--all` for every one) as a table: id, started, status, command, hosts. No runs: "No runs recorded yet."
-- **`bastet runs export <run> [--out FILE]`** prints the JSONL (or writes it to `--out`). The file is already masked, so it is written as is.
-- **`runs.keep_runs` / `runs.keep_days`** in `bastet.yml`, each at least 1.
+- **`bastet log`** lists the 20 newest runs (`--all` for every one) as a table: id, started, status, command, hosts. No runs: "No runs recorded yet."
+- **`bastet log export <run> [--out FILE]`** prints the JSONL (or writes it to `--out`). The file is already masked, so it is written as is.
+- **`runs.keep_runs` / `runs.keep_days`** in `bastet.yml`, each unset (keep every run, the default) or at least 1.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -802,6 +803,16 @@ def test_prune_by_count_and_age_only_touches_jsonl(tmp_path):
     assert sorted(p.name for p in removed) == sorted(p.name for p in paths[:2])
     assert sorted(p.name for p in d.glob("*.jsonl")) == sorted(p.name for p in paths[2:])
     assert (d / "notes.txt").exists()
+
+
+def test_prune_with_no_limits_keeps_everything(tmp_path):
+    d = tmp_path / "runs"
+    paths = [make_run(d, f"2026101{i}-120000-aaaa") for i in range(3)]
+    old = time.time() - 4000 * 86400
+    os.utime(paths[0], (old, old))
+    assert prune(d, keep_runs=None, keep_days=None) == []
+    assert len(list(d.glob("*.jsonl"))) == 3
+    assert [p.name for p in prune(d, keep_runs=None, keep_days=90)] == [paths[0].name]
 
 
 def test_prune_reports_a_file_it_cannot_remove_and_goes_on(tmp_path, monkeypatch, capsys):
@@ -856,7 +867,7 @@ def test_latest_with_no_runs_is_a_clear_error(tmp_path):
         resolve_run(tmp_path / "runs", "latest")
 ```
 
-Create `tests/cli/test_runs_cli.py`:
+Create `tests/cli/test_log_cli.py`:
 
 ```python
 from bastet.cli.app import app
@@ -873,51 +884,52 @@ def record(run_id, command="run -c"):
     return sink.path
 
 
-def test_runs_with_nothing_recorded(runner, inventory):
-    result = runner.invoke(app, ["runs"])
+def test_log_with_nothing_recorded(runner, inventory):
+    result = runner.invoke(app, ["log"])
     assert result.exit_code == 0 and "No runs recorded yet." in result.output
 
 
-def test_runs_lists_newest_first_with_status_and_command(runner, inventory):
+def test_log_lists_newest_first_with_status_and_command(runner, inventory):
     record("20261010-120000-aaaa", "run -c")
     record("20261011-120000-bbbb", "run -a pve1")
-    result = runner.invoke(app, ["runs"])
+    result = runner.invoke(app, ["log"])
     assert result.exit_code == 0
     lines = [line for line in result.output.splitlines() if "2026" in line]
     assert lines[0].startswith("  20261011-120000-bbbb") and "run -a pve1" in lines[0] and "ok" in lines[0]
     assert lines[1].startswith("  20261010-120000-aaaa")
 
 
-def test_runs_shows_twenty_unless_all(runner, inventory):
+def test_log_shows_twenty_unless_all(runner, inventory):
     for i in range(25):
         record(f"202610{i:02d}-120000-aaaa")
-    assert len([l for l in runner.invoke(app, ["runs"]).output.splitlines() if "2026" in l]) == 20
-    assert len([l for l in runner.invoke(app, ["runs", "--all"]).output.splitlines() if "2026" in l]) == 25
+    assert len([l for l in runner.invoke(app, ["log"]).output.splitlines() if "2026" in l]) == 20
+    assert len([l for l in runner.invoke(app, ["log", "--all"]).output.splitlines() if "2026" in l]) == 25
 
 
 def test_export_prints_the_file_or_writes_it(runner, inventory, tmp_path):
     path = record("20261010-120000-aaaa")
-    result = runner.invoke(app, ["runs", "export", "latest"])
+    result = runner.invoke(app, ["log", "export", "latest"])
     assert result.exit_code == 0 and result.output == path.read_text()
     dest = tmp_path / "out.jsonl"
-    result = runner.invoke(app, ["runs", "export", "20261010", "--out", str(dest)])
+    result = runner.invoke(app, ["log", "export", "20261010", "--out", str(dest)])
     assert result.exit_code == 0 and dest.read_text() == path.read_text()
 
 
 def test_export_errors_are_clean(runner, inventory):
     record("20261010-120000-aaaa")
     for ident in ("../etc/passwd", "nope"):
-        result = runner.invoke(app, ["runs", "export", ident])
+        result = runner.invoke(app, ["log", "export", ident])
         assert result.exit_code == 1 and "Traceback" not in result.output
 ```
 
 Add to `tests/core/test_config.py`:
 
 ```python
-def test_runs_config_defaults_and_limits(tmp_path):
+def test_log_config_defaults_and_limits(tmp_path):
     from bastet.core.config import RunsConfig
 
-    assert RunsConfig().keep_runs == 500 and RunsConfig().keep_days == 90
+    assert RunsConfig().keep_runs is None and RunsConfig().keep_days is None
+    assert RunsConfig(keep_runs=10, keep_days=None).keep_runs == 10
     for bad in ({"keep_runs": 0}, {"keep_days": 0}):
         with pytest.raises(Exception):
             RunsConfig(**bad)
@@ -926,8 +938,8 @@ def test_runs_config_defaults_and_limits(tmp_path):
 
 - [ ] **Step 2: Run to verify they fail**
 
-Run: `uv run pytest tests/events/test_jsonl.py tests/cli/test_runs_cli.py tests/core/test_config.py -q`
-Expected: failures: no `bastet.events.jsonl`, no `runs` command, no `RunsConfig`.
+Run: `uv run pytest tests/events/test_jsonl.py tests/cli/test_log_cli.py tests/core/test_config.py -q`
+Expected: failures: no `bastet.events.jsonl`, no `log` command, no `RunsConfig`.
 
 - [ ] **Step 3: Implement**
 
@@ -937,14 +949,14 @@ Expected: failures: no `bastet.events.jsonl`, no `runs` command, no `RunsConfig`
 class RunsConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    keep_runs: int = 500
-    keep_days: int = 90
+    keep_runs: int | None = None  # None: keep every run
+    keep_days: int | None = None
 
     @field_validator("keep_runs", "keep_days")
     @classmethod
-    def _at_least_one(cls, value: int) -> int:
-        if value < 1:
-            raise ValueError("must be at least 1")
+    def _at_least_one(cls, value: int | None) -> int | None:
+        if value is not None and value < 1:
+            raise ValueError("must be at least 1, or empty to keep every run")
         return value
 ```
 and `runs: RunsConfig = RunsConfig()` in `Config`.
@@ -996,11 +1008,15 @@ def _files(directory: Path) -> list[Path]:
     return sorted(directory.glob("*.jsonl")) if directory.is_dir() else []
 
 
-def prune(directory: Path, *, keep_runs: int, keep_days: int, now: float | None = None) -> list[Path]:
+def prune(directory: Path, *, keep_runs: int | None, keep_days: int | None, now: float | None = None) -> list[Path]:
+    """Remove the oldest records beyond the limits. A limit of None keeps every run."""
     files = _files(directory)
-    doomed = set(files[:-keep_runs]) if len(files) > keep_runs else set()
-    cutoff = (now if now is not None else time.time()) - keep_days * 86400
-    doomed |= {f for f in files if f.stat().st_mtime < cutoff}
+    doomed: set[Path] = set()
+    if keep_runs is not None and len(files) > keep_runs:
+        doomed |= set(files[:-keep_runs])
+    if keep_days is not None:
+        cutoff = (now if now is not None else time.time()) - keep_days * 86400
+        doomed |= {f for f in files if f.stat().st_mtime < cutoff}
     removed: list[Path] = []
     for path in sorted(doomed):
         try:
@@ -1057,10 +1073,10 @@ def resolve_run(directory: Path, ident: str) -> Path:
     return matches[0]
 ```
 
-`src/bastet/cli/runs.py`:
+`src/bastet/cli/log.py`:
 
 ```python
-"""`bastet runs`: the records of past runs on this computer."""
+"""`bastet log`: the records of past runs on this computer."""
 
 import sys
 from pathlib import Path
@@ -1072,12 +1088,12 @@ from bastet.core.config import data_dir
 from bastet.events.jsonl import _files, resolve_run, runs_dir, summarize
 from bastet.ui import out
 
-runs_app = typer.Typer(invoke_without_command=True, help="Records of past runs on this computer.")
+log_app = typer.Typer(invoke_without_command=True, help="Records of past runs on this computer.")
 
 
-@runs_app.callback(invoke_without_command=True)
+@log_app.callback(invoke_without_command=True)
 @handles_errors
-def runs(
+def log_list(
     ctx: typer.Context,
     all_: bool = typer.Option(False, "--all", help="List every recorded run, not just the newest 20."),
 ) -> None:
@@ -1095,7 +1111,7 @@ def runs(
     out.table(rows)
 
 
-@runs_app.command("export")
+@log_app.command("export")
 @handles_errors
 def export(
     run: str = typer.Argument(..., help="A run id, the start of one, or 'latest'."),
@@ -1113,21 +1129,21 @@ def export(
 `src/bastet/cli/app.py`: after the `doctor` registration add:
 
 ```python
-from bastet.cli.runs import runs_app  # noqa: E402
+from bastet.cli.runs import log_app  # noqa: E402
 
-app.add_typer(runs_app, name="runs")
+app.add_typer(log_app, name="log")
 ```
 
 - [ ] **Step 4: Run to verify they pass**
 
-Run: `uv run pytest tests/events tests/cli/test_runs_cli.py tests/core/test_config.py -q`
+Run: `uv run pytest tests/events tests/cli/test_log_cli.py tests/core/test_config.py -q`
 Expected: all pass. If `test_runs_lists_newest_first_with_status_and_command` fails on the leading spaces, check `out.table`'s indent (two spaces) and not the test.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/bastet/events/jsonl.py src/bastet/cli/runs.py src/bastet/core/config.py src/bastet/cli/app.py tests/events/test_jsonl.py tests/cli/test_runs_cli.py tests/core/test_config.py
-git commit -m "events: the JSONL run record, retention, and bastet runs / runs export"
+git add src/bastet/events/jsonl.py src/bastet/cli/log.py src/bastet/core/config.py src/bastet/cli/app.py tests/events/test_jsonl.py tests/cli/test_log_cli.py tests/core/test_config.py
+git commit -m "events: the JSONL run record, retention, and bastet log / log export"
 ```
 
 ---
@@ -1418,7 +1434,7 @@ git commit -m "engine: emit phase, item, command and trigger events from run_hos
 | `command_run` | `  $ <command>  → exit N (0.2s)` or `→ error (0.2s)`; at level 4 its stdout then stderr lines indented 4 | dim |
 | `trigger_fired` | `  trigger <label> ✓` / `✗ <error>` | green / red |
 | `note` | the message | yellow |
-| `run_finished` | `run <id>: <status> in 12.3s (bastet runs export <id>)` | dim |
+| `run_finished` | `run <id>: <status> in 12.3s (bastet log export <id>)` | dim |
 
 Marks and styles by item status: `compliant` ✓ green, `changed` ✓ green, `would-change` ~ yellow, `attention` ⚠ yellow, `failed` ✗ red, `skipped` – dim. `run_started` prints nothing.
 
@@ -1577,7 +1593,7 @@ class TerminalSink:
         if e.kind == "note":
             return [(f"{h}{d['message']}", "yellow")]
         if e.kind == "run_finished":
-            return [(f"run {e.run_id}: {d['status']} in {d['duration']:.1f}s (bastet runs export {e.run_id})", "dim")]
+            return [(f"run {e.run_id}: {d['status']} in {d['duration']:.1f}s (bastet log export {e.run_id})", "dim")]
         return []
 ```
 
@@ -1637,8 +1653,8 @@ def events_of(path):
 5. **Early exits are `ok`:** `run` on an inventory with no hosts prints "No hosts yet" (or the existing message), exits 0, and the record says `ok` with `hosts == 0`.
 6. **The record can't be written:** set `XDG_DATA_HOME` to a path whose `bastet` entry is a regular file (create the file); `run -c` still exits with its normal code and result, prints `warning: not recording this run` on stderr, and `-vv` still prints the live view.
 7. **A skipped host is recorded:** an `other`-type host in the inventory gives a `host_skipped` event with `reason == "not managed"`.
-8. **`bastet runs`** lists the run that `run -c` just made.
-9. **Secrets:** register a secret value (`ACTIVE.add("hunter2-value")`) and use it as a role option via the secret mechanism the existing `test_secret_leaks.py` uses; the record, `-vvvv` output and `runs export` contain no `hunter2-value`.
+8. **`bastet log`** lists the run that `run -c` just made.
+9. **Secrets:** register a secret value (`ACTIVE.add("hunter2-value")`) and use it as a role option via the secret mechanism the existing `test_secret_leaks.py` uses; the record, `-vvvv` output and `log export` contain no `hunter2-value`.
 
 - [ ] **Step 2: Run to verify they fail**
 
@@ -1712,20 +1728,118 @@ git commit -m "run: record every run as events (JSONL), live view from -vv, host
 
 ---
 
-### Task 7: Docs, roadmap, spec, and a real-terminal check
+### Task 7: `bastet init` asks how long to keep run records
+
+**Files:**
+- Modify: `src/bastet/core/initialize.py` (`InitOptions.keep_days`, the config it writes), `src/bastet/cli/init.py` (option, prompt, summary line)
+- Test: `tests/core/test_initialize.py`, `tests/cli/test_init.py`
+
+**Behaviour:**
+- **Only when `init` creates a new config.** If a config already exists it is left alone, and the existing "Using <file> (edit it to change …)" line gains "or how long run records are kept".
+- **The question:** `Keep run records for how many days? (Enter to keep them forever)`. Enter, blank or `forever` keeps every run; a whole number of 1 or more is the number of days; anything else (text, 0, negative) says `Enter a number of days, or press Enter to keep every run.` and asks again.
+- **`--keep-days N`** (minimum 1) answers it without asking. `-y` means forever.
+- **The config it writes** always has the knobs visible: `runs: {keep_runs: null, keep_days: null}`, or `keep_days: N` when a number was given. `keep_runs` is never asked; it stays `null`.
+- **The summary** before "Go ahead?" gains `  run records  kept forever` or `  run records  kept for N days`.
+
+- [ ] **Step 1: Write the failing tests**
+
+In `tests/core/test_initialize.py` (use the existing `opts(...)` helper; add `keep_days` to its defaults dict as `None`):
+
+```python
+def test_init_writes_the_retention_knobs_visible_and_forever_by_default(tmp_path):
+    cfg = tmp_path / "cfg" / "bastet.yml"
+    initialize(cfg, opts(tmp_path), keys_dir=tmp_path / "cfg" / "ssh")
+    text = cfg.read_text()
+    assert "keep_runs" in text and "keep_days" in text
+    loaded = load_config(cfg)
+    assert loaded.runs.keep_runs is None and loaded.runs.keep_days is None
+
+
+def test_init_writes_a_chosen_number_of_days(tmp_path):
+    cfg = tmp_path / "cfg" / "bastet.yml"
+    initialize(cfg, opts(tmp_path, keep_days=45), keys_dir=tmp_path / "cfg" / "ssh")
+    assert load_config(cfg).runs.keep_days == 45 and load_config(cfg).runs.keep_runs is None
+
+
+def test_init_leaves_an_existing_config_alone(tmp_path):
+    cfg = tmp_path / "cfg" / "bastet.yml"
+    initialize(cfg, opts(tmp_path, keep_days=45), keys_dir=tmp_path / "cfg" / "ssh")
+    before = cfg.read_text()
+    initialize(cfg, opts(tmp_path, keep_days=7), keys_dir=tmp_path / "cfg" / "ssh")
+    assert cfg.read_text() == before
+```
+
+In `tests/cli/test_init.py` (follow the file's existing way of invoking `init` with a temporary `BASTET_CONFIG`; read two existing tests first):
+
+```python
+def test_init_yes_keeps_run_records_forever(...):          # -y, no question asked; summary says "run records  kept forever"
+def test_init_keep_days_option(...):                       # --keep-days 30 -y; config has keep_days 30; summary "kept for 30 days"
+def test_init_asks_and_enter_means_forever(...):           # interactive; the keep-days answer is just Enter; config has null
+def test_init_reasks_on_a_bad_answer(...):                 # answers "abc", "0", then "45"; two "Enter a number of days" lines; config 45
+def test_init_with_an_existing_config_does_not_ask(...):   # second run: no "Keep run records" prompt, config unchanged
+```
+Write these out fully against the file's existing helpers; the prompt order is: after the lab and domain questions, before the stylesheet question.
+
+- [ ] **Step 2: Run to verify they fail**
+
+Run: `uv run pytest tests/core/test_initialize.py tests/cli/test_init.py -q`
+Expected: failures: no `keep_days` field, no question.
+
+- [ ] **Step 3: Implement**
+
+`InitOptions` gains `keep_days: int | None = None`. In `initialize()`'s new-config branch:
+
+```python
+data = {"inventory": inventory, "ssh": {...as before...},
+        "runs": {"keep_runs": None, "keep_days": options.keep_days}}
+```
+(`dump_frontmatter` must write `null` for `None`; if it writes something `load_config` rejects, fix the writer for `None`, not the config model.)
+
+In `cli/init.py`:
+
+```python
+def _ask_keep_days(yes: bool) -> int | None:
+    if yes:
+        return None
+    while True:
+        answer = typer.prompt("Keep run records for how many days? (Enter to keep them forever)",
+                              default="", show_default=False).strip().lower()
+        if answer in ("", "forever"):
+            return None
+        if answer.isdigit() and int(answer) >= 1:
+            return int(answer)
+        out.echo("Enter a number of days, or press Enter to keep every run.")
+```
+Add `keep_days: int | None = typer.Option(None, "--keep-days", min=1, help="Keep run records this many days (default: forever).")`. After the stylesheet question: `days = keep_days if keep_days is not None else _ask_keep_days(yes)` when `existing is None`, else `None`; pass `keep_days=days` into `InitOptions`; add the summary line after the stylesheet line (only when `existing is None`).
+
+- [ ] **Step 4: Run to verify they pass**
+
+Run: `uv run pytest tests/core/test_initialize.py tests/cli/test_init.py tests/core/test_config.py -q`
+Expected: all pass, and no existing init test edited except adding `keep_days` to the `opts` helper.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/bastet/core/initialize.py src/bastet/cli/init.py tests/core/test_initialize.py tests/cli/test_init.py
+git commit -m "init: ask how long to keep run records (Enter keeps every run)"
+```
+
+---
+
+### Task 8: Docs, roadmap, spec, and a real-terminal check
 
 **Files:**
 - Modify: `src/bastet/data/docs/commands.md`, `src/bastet/data/docs/troubleshooting.md`, `docs/ROADMAP.md`, `docs/specs/2026-10-10-bastet-console-output-design.md`
 - Test: `tests/core/test_docs.py` (the existing docs tests must stay green)
 
 - [ ] **Step 1: Docs**
-  - `commands.md`: document `bastet run -v/-vv/-vvv/-vvvv`, `bastet runs` and `bastet runs export <run> [--out FILE]`.
-  - `troubleshooting.md`: one paragraph: every run is recorded under `~/.local/share/bastet/runs/`, kept for `runs.keep_runs` runs and `runs.keep_days` days (defaults 500 and 90, in `bastet.yml`); the record is masked but contains command output, so treat it like logs.
+  - `commands.md`: document `bastet run -v/-vv/-vvv/-vvvv`, `bastet log` and `bastet log export <run> [--out FILE]`.
+  - `troubleshooting.md`: one paragraph: every run is recorded under `~/.local/share/bastet/runs/`, kept forever unless `runs.keep_runs` or `runs.keep_days` is set in `bastet.yml`; the record is masked but contains command output, so treat it like logs.
   - Plain user-facing text, no plan or spec references.
-- [ ] **Step 2: Spec.** In the "Plan 2: events and JSONL" section of the spec, record the six decisions from this plan's "Decisions made while planning" so the spec matches what was built.
-- [ ] **Step 3: Roadmap.** In "Run logs (milestone 3b)" mark plan 2 done (events, JSONL, `-vv` live view, `bastet runs`), leave plan 3 (run notes, Runs Bases, `--log-level`) not started, and update "Now" to name plan 3 as next. Leave the "Turning git off" item alone.
+- [ ] **Step 2: Spec.** Check the "Plan 2: events and JSONL" section of the spec against what was built, and record the decisions from this plan's "Decisions made while planning" that it doesn't already state.
+- [ ] **Step 3: Roadmap.** In "Run logs (milestone 3b)" mark plan 2 done (events, JSONL, `-vv` live view, `bastet log`), leave plan 3 (run notes, Runs Bases, `--log-level`) not started, and update "Now" to name plan 3 as next. Leave the "Turning git off" item alone.
 - [ ] **Step 4: Run** `uv run pytest tests/core/test_docs.py tests/events -q` and `scripts/privacy-check`. Expected: green, and the privacy check prints nothing.
-- [ ] **Step 5: Real-terminal check (the user does this).** In a terminal against a sandbox inventory (the `run-bastet` skill sets one up): `bastet run -c -vv` shows phases and per-item lines coloured by status; `-vvv` adds `$ command → exit 0 (0.2s)` lines; `-vvvv` adds output; `bastet runs` lists the run; `bastet runs export latest | head -3` prints JSON lines; the file under `~/.local/share/bastet/runs/` is mode `0600`; a deliberately wrong role option fails the host but still leaves a record ending in `run_finished` with `status: failed`.
+- [ ] **Step 5: Real-terminal check (the user does this).** In a terminal against a sandbox inventory (the `run-bastet` skill sets one up): `bastet run -c -vv` shows phases and per-item lines coloured by status; `-vvv` adds `$ command → exit 0 (0.2s)` lines; `-vvvv` adds output; `bastet log` lists the run; `bastet log export latest | head -3` prints JSON lines; the file under `~/.local/share/bastet/runs/` is mode `0600`; a deliberately wrong role option fails the host but still leaves a record ending in `run_finished` with `status: failed`.
 - [ ] **Step 6: Commit**
 
 ```bash

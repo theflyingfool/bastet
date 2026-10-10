@@ -21,7 +21,7 @@ work in `docs/plans/`. Update this file whenever a plan lands.
 **Run logs were pulled forward ahead of the roles redesign** (decided 2026-10-10): you need to see what a run did, in order, before more roles land, and the event tests give the roles work a regression net. The design is `docs/specs/2026-10-10-bastet-console-output-design.md`, built as three plans:
 1. **Console primitives:** done and merged (colour, width-fitting tables, coloured diffs, plain when piped).
 2. **Events and the JSONL record:** **next**, written (`docs/plans/2026-10-10-bastet-console-2-events.md`).
-3. **Run notes** in the vault, the Runs Bases and `--log-level`: not yet planned.
+3. **Run notes** in the vault, the Runs Bases and `bastet log note`: not yet planned.
 
 **Simplification and UX** (`docs/plans/2026-10-07-bastet-simplify-ux.md`) is merged: `bastet run`, selectors, `doctor`,
 the hardware split, one Bastet note per object, `_templates/`, user docs in `_bastet/docs/`, type groups and the
@@ -59,16 +59,15 @@ Needed before the Proxmox and ZFS roles, to see what a run did, in the order it 
 
 **Plan 2, events and the JSONL record: next** (`docs/plans/2026-10-10-bastet-console-2-events.md`).
 - **Events:** the engine and `run` emit events (phase, item checked, command with exit code and timing, trigger, host started/finished/skipped, notes). Output is masked once, in one place.
-- **The JSONL record:** every run, always at full detail, in `~/.local/share/bastet/runs/<run-id>.jsonl` (mode `0600`), with retention (`runs.keep_runs`, `runs.keep_days`). `bastet runs` lists past runs and `bastet runs export` prints one.
+- **The JSONL record:** every run, always at full detail, in `~/.local/share/bastet/runs/<run-id>.jsonl` (mode `0600`), kept forever unless limited (`runs.keep_runs`, `runs.keep_days`; `bastet init` asks, and Enter keeps everything). `bastet log` lists past runs and `bastet log export` prints one.
 - **`-v` counts:** `-v` shows compliant items as before; `-vv` live events; `-vvv` commands with exit code and timing; `-vvvv` their output.
 - A read script's output is never recorded (it holds file contents), and a `secret` resource's command and output are hidden.
 
 **Plan 3, run notes: not planned yet.**
-- **A run note in the vault:** `_bastet/runs/<date time> <command>.md`, with a summary on top and a per-host timeline grouped by phase.
-- **Flat frontmatter** (`command`, `started`, `hosts`, `changed`, `failed`, `status`) so Bases can list it.
+- **Every run gets a short note** in the vault (`_bastet/runs/<date time> <command> <id suffix>.md`), so the Runs Base lists every run by name. Flat frontmatter (`run`, `command`, `started`, `hosts`, `changed`, `failed`, `status`, `detail`).
+- **More detail on demand:** `bastet log note <run> [-v…]` re-renders a run's note from its JSONL at the detail you ask for (the same `-v` scale as the terminal); `--remove` deletes it. There is no log-level setting.
 - **Obsidian views:** a Runs Base on `Homelab.md` and a per-host one on each host page, newest first. Directly below each table, a kanban board over the same runs grouped by `status` (ok, failed, interrupted).
-- **`--log-level 1–4`** (or `log_level:` in `bastet.yml`) shapes only the run note, since that is what lands in git. The JSONL always has everything.
-- **Git:** commit run notes for `apply` and `gather`; one rolling "last check" note per host for `check`; the JSONL is never committed.
+- **Git:** each run's note is committed in the command's one commit (apply, gather and check alike); the JSONL is never committed.
 
 **Later:** a SQLite index built from the JSONL files for cross-run queries and the ARA replacement (JSONL stays the record); every command, not only the run-type ones, emitting events; `refresh` and gather's individual commands emitting events; `hook_ran` and `reboot_step` events once roles subplan 3 adds hooks and the reboot plan.
 

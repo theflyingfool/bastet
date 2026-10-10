@@ -42,11 +42,15 @@ def _files(directory: Path) -> list[Path]:
     return sorted(directory.glob("*.jsonl")) if directory.is_dir() else []
 
 
-def prune(directory: Path, *, keep_runs: int, keep_days: int, now: float | None = None) -> list[Path]:
+def prune(directory: Path, *, keep_runs: int | None, keep_days: int | None, now: float | None = None) -> list[Path]:
+    """Remove the oldest records beyond the limits. A limit of None keeps every run."""
     files = _files(directory)
-    doomed = set(files[:-keep_runs]) if len(files) > keep_runs else set()
-    cutoff = (now if now is not None else time.time()) - keep_days * 86400
-    doomed |= {f for f in files if f.stat().st_mtime < cutoff}
+    doomed: set[Path] = set()
+    if keep_runs is not None and len(files) > keep_runs:
+        doomed |= set(files[:-keep_runs])
+    if keep_days is not None:
+        cutoff = (now if now is not None else time.time()) - keep_days * 86400
+        doomed |= {f for f in files if f.stat().st_mtime < cutoff}
     removed: list[Path] = []
     for path in sorted(doomed):
         try:

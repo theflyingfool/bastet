@@ -45,6 +45,16 @@ def test_prune_by_count_and_age_only_touches_jsonl(tmp_path):
     assert (d / "notes.txt").exists()
 
 
+def test_prune_with_no_limits_keeps_everything(tmp_path):
+    d = tmp_path / "runs"
+    paths = [make_run(d, f"2026101{i}-120000-aaaa") for i in range(3)]
+    old = time.time() - 4000 * 86400
+    os.utime(paths[0], (old, old))
+    assert prune(d, keep_runs=None, keep_days=None) == []
+    assert len(list(d.glob("*.jsonl"))) == 3
+    assert [p.name for p in prune(d, keep_runs=None, keep_days=90)] == [paths[0].name]
+
+
 def test_prune_reports_a_file_it_cannot_remove_and_goes_on(tmp_path, monkeypatch, capsys):
     d = tmp_path / "runs"
     paths = [make_run(d, f"2026101{i}-120000-aaaa") for i in range(3)]
