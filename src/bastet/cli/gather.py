@@ -238,6 +238,7 @@ def _collect_one(prepared: Prepared, host: str):
 
 def _echo_outcome(outcome: Outcome, done: str) -> None:
     """Print a finished parallel host's buffered lines, then its own result line."""
+    events.flush()
     for text, fg in outcome.log.lines:
         out.secho(ACTIVE.mask(text), fg=fg)
     if outcome.status == "done":
@@ -299,6 +300,7 @@ def _tools_round(
     succeeded: set[str] = set()
 
     def on_done(outcome: Outcome) -> None:
+        events.flush()
         for text, fg in outcome.log.lines:
             out.secho(ACTIVE.mask(text), fg=fg)
         if outcome.status == "error":

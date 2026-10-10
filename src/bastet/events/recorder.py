@@ -16,6 +16,14 @@ from bastet.ui import out
 
 _STOP = object()
 DRAIN_SECONDS = 10
+FLUSH_SECONDS = 2
+
+
+class _Flush:
+    """A marker on the queue: set once the consumer has handled everything queued before it."""
+
+    def __init__(self) -> None:
+        self.done = threading.Event()
 
 
 class Sink(Protocol):
@@ -89,6 +97,9 @@ class Recorder:
             item = self._queue.get()
             if item is _STOP:
                 return
+            if isinstance(item, _Flush):
+                item.done.set()
+                continue
             event = mask_event(item)
             for sink in list(self.sinks):
                 try:
@@ -96,6 +107,12 @@ class Recorder:
                 except Exception as exc:
                     self.sinks.remove(sink)
                     self._complain(f"sink:{sink.name}", f"{sink.name} output stopped: {exc}")
+
+    def flush(self) -> None:
+        """Wait (briefly) until every event emitted so far has reached the sinks."""
+        marker = _Flush()
+        self._queue.put(marker)
+        marker.done.wait(FLUSH_SECONDS)
 
     def close(self) -> None:
         self.emit("run_finished", None, status=self.status or "ok",
@@ -110,6 +127,13 @@ class Recorder:
 
 
 _active: Recorder | None = None
+
+
+def flush() -> None:
+    """Let the live view catch up before something else prints (a host's finished report)."""
+    recorder = _active
+    if recorder is not None:
+        recorder.flush()
 
 
 def set_status(status: str) -> None:

@@ -297,6 +297,7 @@ def _choose_hosts(pending: list[str], checks: dict, *, yes: bool) -> list[str]:
 
 
 def _print_outcome_log(outcome: Outcome) -> None:
+    events.flush()  # the live view (-vv) finishes this host's lines before its report prints
     for text, fg in outcome.log.lines:
         out.secho(ACTIVE.mask(text), fg=fg)
 
