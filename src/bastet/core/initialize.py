@@ -39,6 +39,7 @@ class InitOptions:
     domains: dict[str, str] = field(default_factory=dict)
     snippet: bool = True
     recipients: list[str] | None = None  # secrets.recipients to add to Homelab.md; None = leave alone
+    keep_days: int | None = None  # run records kept this many days in a new config; None = forever
 
 
 @dataclass
@@ -117,7 +118,11 @@ def initialize(config_file: Path, options: InitOptions, *, keys_dir: Path) -> In
         if options.remote:
             inventory["remote"] = options.remote
         inventory["path"] = _tilde(options.inventory)
-        data = {"inventory": inventory, "ssh": {"key": _tilde(key), "bootstrap_user": options.bootstrap_user}}
+        data = {
+            "inventory": inventory,
+            "ssh": {"key": _tilde(key), "bootstrap_user": options.bootstrap_user},
+            "runs": {"keep_runs": None, "keep_days": options.keep_days},
+        }
         config_file.parent.mkdir(parents=True, exist_ok=True)
         config_file.write_text(dump_frontmatter(data), encoding="utf-8")
         actions.append(f"created {config_file}")

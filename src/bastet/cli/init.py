@@ -178,6 +178,20 @@ def _plan_recipients(inventory_path: Path, yes: bool) -> tuple[list[str] | None,
     return None, None
 
 
+def _ask_keep_days(yes: bool) -> int | None:
+    if yes:
+        return None
+    while True:
+        answer = typer.prompt(
+            "Keep run records for how many days? (Enter to keep them forever)", default="", show_default=False
+        ).strip().lower()
+        if answer in ("", "forever"):
+            return None
+        if answer.isdigit() and int(answer) >= 1:
+            return int(answer)
+        out.echo("Enter a number of days, or press Enter to keep every run.")
+
+
 @handles_errors
 def init(
     inventory: Path | None = typer.Option(None, "--inventory", help="Inventory directory."),
@@ -188,6 +202,9 @@ def init(
     public_domain: str | None = typer.Option(None, "--public-domain"),
     internal_domain: str | None = typer.Option(None, "--internal-domain"),
     snippet: bool | None = typer.Option(None, "--snippet/--no-snippet", help="Install Bastet's Obsidian stylesheet."),
+    keep_days: int | None = typer.Option(
+        None, "--keep-days", min=1, help="Keep run records this many days (default: forever)."
+    ),
     manage_this_machine: bool | None = typer.Option(
         None, "--manage-this-machine/--no-manage-this-machine",
         help="Also manage this computer with Bastet (a local 'bastet' user with passwordless sudo; needs sshd).",
@@ -206,7 +223,7 @@ def init(
         return typer.prompt(prompt, default=default, show_default=bool(default))
 
     if existing is not None:
-        out.echo(f"Using {cfg_file} (edit it to change the inventory, remote, key or login).")
+        out.echo(f"Using {cfg_file} (edit it to change the inventory, remote, key, login or how long run records are kept).")
         inventory_path = inventory_dir(existing, data_dir())
         remote_url = existing.inventory.remote
         key_path = existing.ssh.key
@@ -227,6 +244,7 @@ def init(
         domains["public"] = public
     if internal:
         domains["internal"] = internal
+    days = None if existing is not None else (keep_days if keep_days is not None else _ask_keep_days(yes))
     if snippet is None:
         snippet = True if yes else typer.confirm("Install and enable Bastet's Obsidian stylesheet?", default=True)
 
@@ -239,7 +257,7 @@ def init(
 
     options = InitOptions(
         inventory=inventory_path, remote=remote_url, key=key_path, bootstrap_user=user,
-        lab_name=name, domains=domains, snippet=snippet, recipients=recipients,
+        lab_name=name, domains=domains, snippet=snippet, recipients=recipients, keep_days=days,
     )
     out.echo("\nBastet will set up:")
     out.echo(f"  config      {cfg_file}")
@@ -248,6 +266,8 @@ def init(
     out.echo(f"  login       {options.bootstrap_user} (to set up the bastet user on existing hosts)")
     out.echo(f"  lab         {options.lab_name}" + (f"  {domains}" if domains else ""))
     out.echo(f"  stylesheet  {'yes' if options.snippet else 'no'}")
+    if existing is None:
+        out.echo("  run records  " + ("kept forever" if days is None else f"kept for {days} days"))
     if manage_this_machine:
         out.echo(
             "  this machine  a local 'bastet' user with passwordless sudo (root-equivalent; only "

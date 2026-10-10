@@ -92,6 +92,7 @@ def test_cli_init_interactive(runner, tmp_path, monkeypatch, interactive):
         "My Lab",                # lab name
         "example.com",           # public domain
         "-",                     # internal domain: none
+        "",                      # run records: keep forever
         "y",                     # stylesheet
         "",                      # your SSH public key: skip
         "y",                     # go ahead
@@ -105,7 +106,7 @@ def test_cli_init_interactive(runner, tmp_path, monkeypatch, interactive):
 def test_cli_init_declined_writes_nothing(runner, tmp_path, monkeypatch, interactive):
     cfg = tmp_path / "c" / "bastet.yml"
     monkeypatch.setenv("BASTET_CONFIG", str(cfg))
-    answers = "\n".join([str(tmp_path / "Lab"), "", "new", "alice", "Homelab", "", "-", "y", "", "n"]) + "\n"
+    answers = "\n".join([str(tmp_path / "Lab"), "", "new", "alice", "Homelab", "", "-", "", "y", "", "n"]) + "\n"
     result = runner.invoke(app, ["init", "--no-manage-this-machine"], input=answers)
     assert result.exit_code == 0
     assert not cfg.exists() and not (tmp_path / "Lab").exists()
@@ -137,3 +138,70 @@ def test_cli_init_flag_sets_up_this_machine(runner, tmp_path, monkeypatch, inter
     result = runner.invoke(app, ["init", "--inventory", str(tmp_path / "Homelab"), "-y", "--manage-this-machine"])
     assert result.exit_code == 0, result.output
     assert "created the local bastet user" in result.output
+
+
+def _init_args(tmp_path, *extra):
+    return ["init", "--inventory", str(tmp_path / "Homelab"), "--no-manage-this-machine", *extra]
+
+
+def _interactive_answers(tmp_path, keep_days_answers):
+    return "\n".join([
+        "", "new", "alice", "Homelab", "", "-",   # remote, key, login, lab name, public domain, internal domain
+        *keep_days_answers,
+        "y",                                       # stylesheet
+        "",                                        # your SSH public key: skip
+        "y",                                       # go ahead
+    ]) + "\n"
+
+
+def test_init_yes_keeps_run_records_forever(runner, tmp_path, monkeypatch):
+    cfg = tmp_path / "c" / "bastet.yml"
+    monkeypatch.setenv("BASTET_CONFIG", str(cfg))
+    result = runner.invoke(app, _init_args(tmp_path, "-y"))
+    assert result.exit_code == 0, result.output
+    assert "Keep run records" not in result.output
+    assert "run records  kept forever" in result.output
+    assert load_config(cfg).runs.keep_days is None
+
+
+def test_init_keep_days_option(runner, tmp_path, monkeypatch):
+    cfg = tmp_path / "c" / "bastet.yml"
+    monkeypatch.setenv("BASTET_CONFIG", str(cfg))
+    result = runner.invoke(app, _init_args(tmp_path, "--keep-days", "30", "-y"))
+    assert result.exit_code == 0, result.output
+    assert "run records  kept for 30 days" in result.output
+    assert load_config(cfg).runs.keep_days == 30
+
+
+def test_init_asks_and_enter_means_forever(runner, tmp_path, monkeypatch, interactive):
+    cfg = tmp_path / "c" / "bastet.yml"
+    monkeypatch.setenv("BASTET_CONFIG", str(cfg))
+    result = runner.invoke(app, _init_args(tmp_path), input=_interactive_answers(tmp_path, [""]))
+    assert result.exit_code == 0, result.output
+    assert "Keep run records for how many days? (Enter to keep them forever)" in result.output
+    assert "run records  kept forever" in result.output
+    assert load_config(cfg).runs.keep_days is None
+    assert "keep_days" in cfg.read_text()
+
+
+def test_init_reasks_on_a_bad_answer(runner, tmp_path, monkeypatch, interactive):
+    cfg = tmp_path / "c" / "bastet.yml"
+    monkeypatch.setenv("BASTET_CONFIG", str(cfg))
+    result = runner.invoke(app, _init_args(tmp_path), input=_interactive_answers(tmp_path, ["abc", "0", "45"]))
+    assert result.exit_code == 0, result.output
+    assert result.output.count("Enter a number of days, or press Enter to keep every run.") == 2
+    assert "run records  kept for 45 days" in result.output
+    assert load_config(cfg).runs.keep_days == 45
+
+
+def test_init_with_an_existing_config_does_not_ask(runner, tmp_path, monkeypatch):
+    cfg = tmp_path / "c" / "bastet.yml"
+    monkeypatch.setenv("BASTET_CONFIG", str(cfg))
+    first = runner.invoke(app, _init_args(tmp_path, "--keep-days", "30", "-y"))
+    assert first.exit_code == 0, first.output
+    before = cfg.read_text()
+    second = runner.invoke(app, _init_args(tmp_path, "-y"))
+    assert second.exit_code == 0, second.output
+    assert "Keep run records" not in second.output and "run records  " not in second.output
+    assert "or how long run records are kept" in second.output
+    assert cfg.read_text() == before

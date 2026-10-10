@@ -19,7 +19,7 @@ def log(root):
 def opts(tmp_path: Path, **kw) -> InitOptions:
     base = dict(
         inventory=tmp_path / "Homelab", remote=None, key=None, bootstrap_user="alice",
-        lab_name="Homelab", domains={"public": "example.com"}, snippet=True,
+        lab_name="Homelab", domains={"public": "example.com"}, snippet=True, keep_days=None,
     )
     base.update(kw)
     return InitOptions(**base)
@@ -408,3 +408,26 @@ def test_init_keeps_a_custom_obsidian_templates_folder(tmp_path):
     r = initialize(tmp_path / "cfg" / "bastet.yml", opts(tmp_path), keys_dir=tmp_path / "cfg" / "ssh")
     assert json.loads((inv / ".obsidian" / "templates.json").read_text()) == {"folder": "MyTemplates", "dateFormat": "YYYY"}
     assert any("MyTemplates" in a for a in r.actions)
+
+
+def test_init_writes_the_retention_knobs_visible_and_forever_by_default(tmp_path):
+    cfg = tmp_path / "cfg" / "bastet.yml"
+    initialize(cfg, opts(tmp_path), keys_dir=tmp_path / "cfg" / "ssh")
+    text = cfg.read_text()
+    assert "keep_runs" in text and "keep_days" in text
+    loaded = load_config(cfg)
+    assert loaded.runs.keep_runs is None and loaded.runs.keep_days is None
+
+
+def test_init_writes_a_chosen_number_of_days(tmp_path):
+    cfg = tmp_path / "cfg" / "bastet.yml"
+    initialize(cfg, opts(tmp_path, keep_days=45), keys_dir=tmp_path / "cfg" / "ssh")
+    assert load_config(cfg).runs.keep_days == 45 and load_config(cfg).runs.keep_runs is None
+
+
+def test_init_leaves_an_existing_config_alone(tmp_path):
+    cfg = tmp_path / "cfg" / "bastet.yml"
+    initialize(cfg, opts(tmp_path, keep_days=45), keys_dir=tmp_path / "cfg" / "ssh")
+    before = cfg.read_text()
+    initialize(cfg, opts(tmp_path, keep_days=7), keys_dir=tmp_path / "cfg" / "ssh")
+    assert cfg.read_text() == before
