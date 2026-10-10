@@ -37,9 +37,11 @@
 - **Commit trailer:**
   ```
   Co-Authored-By: <model> <noreply@anthropic.com>
-  Claude-Session: https://claude.ai/code/session_01SgYSJBjMmf52EmoGk4d4zN
+  Claude-Session: https://claude.ai/code/session_01DBkyXRsdxwovkRErg9n9wt
   ```
   Stage by name, never `git commit -a`. Run `scripts/privacy-check` before each commit; the pre-commit hook enforces it.
+- **Output goes through the console:** every message printed by the new `role` commands (and by `ensure_library`) uses `from bastet.ui import out` (`out.echo`, `out.secho`, `out.table`, `out.diff`), never `typer.echo`. `tests/test_no_raw_echo.py` fails the build if `typer.echo`, `typer.secho` or `click.echo` appears anywhere in `src/`.
+- **Library copies and the run record:** `ensure_library` adds its copies to `ctx.written`, so a command's run note (if it makes one) and the library copies share the command's one commit. Nothing here emits events; the recorder is a no-op where no run is recording.
 - **Each task:** failing tests first and seen failing, then implement, then the full `uv run pytest -q` green.
 
 ## Review Focus
@@ -250,7 +252,7 @@ def changed_files(old_dir: Path, new_dir: Path) -> list[str]
 ```
 
 **Behaviour:**
-- **`bastet role`** (no sub-command) prints help. `bastet role list` prints a table: role, version in the lab, source (a custom folder's path is shown; "source unavailable" when it no longer exists, never an error), newer version available (from that copy's `source:`), edited, and implementation (`yes`, or `none yet` for a role with no builder). Use the new output helpers if they exist by then; plain aligned text otherwise.
+- **`bastet role`** (no sub-command) prints help. `bastet role list` prints a table: role, version in the lab, source (a custom folder's path is shown; "source unavailable" when it no longer exists, never an error), newer version available (from that copy's `source:`), edited, and implementation (`yes`, or `none yet` for a role with no builder). Print it with `out.table`.
 - **`bastet role update [name…]`.** With no names, every role that has a newer version in its source. For each:
   1. **The contract diff, and the changed files:** one line per file in the role folder that is added, modified or deleted (`~ role.py  (executable code)`, `+ templates/network.xml.j2`). No file contents.
   2. **Options in use that the new version removes, or whose type changes,** listed per role file and key, in red.
@@ -303,15 +305,13 @@ def changed_files(old_dir: Path, new_dir: Path) -> list[str]
 ### Task 6: Docs
 
 **Files:**
-- `README.md`: a Roles section covering:
-  - where roles come from;
-  - the library and that it's what runs;
-  - `bastet role`, `bastet doctor <dir>`, `role update`;
-  - "edit a copy only if you accept merging by hand".
-- `src/bastet/data/guide/` guide note: one paragraph on the library.
+- `src/bastet/data/docs/using_roles.md` and `writing_roles.md` (the user docs shipped into every vault): where roles come from; the library and that it is what runs; `bastet role`, `bastet doctor <dir>`, `bastet role update`; "edit a copy only if you accept merging by hand"; the Markdown role format for authors.
+- `src/bastet/data/docs/commands.md`: the command table gains `bastet role`, `bastet doctor <dir> [--fix]` and `bastet role update [name…] [-y] [--accept-edited]`.
+- `src/bastet/data/docs/bastet_guide.md`: one paragraph on the library.
+- `README.md`: no change beyond a one-line mention, if any (it is only install and quick start now).
 - `docs/ROADMAP.md`, `docs/plans/2026-10-06-bastet-roles-roadmap.md`: leave subplan 2 ◐; the controller marks it ☑ after the merge.
 
-**Behaviour:** docs only. The README command table gains `bastet role`, `bastet doctor <dir> [--fix]` and `bastet role update [name…] [-y] [--accept-edited]`.
+**Behaviour:** docs only. Plain text, example data only, every `[[link]]` must resolve to a shipped doc (the docs tests check it).
 
 ---
 
