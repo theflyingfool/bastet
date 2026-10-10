@@ -146,19 +146,23 @@ def test_role_file_pointing_nowhere_is_reported(runner, box, inventory):
     assert "web-servrs" in result.output and "stray.md" in result.output
 
 
-def test_unifi_devices_are_not_role_managed(runner, box, inventory, monkeypatch):
-    (inventory / "hosts" / "ap1.md").write_text("---\nbastet: host\ntype: unifi-ap\nip: 10.10.0.3\n---\n# ap1\n")
+@pytest.mark.parametrize(("host", "host_type", "managed_by"), [
+    ("ap1", "unifi-ap", "the UniFi controller"),
+    ("tv", "other", "nothing (shown on maps only)"),
+])
+def test_unmanaged_types_are_not_role_managed(runner, box, inventory, monkeypatch, host, host_type, managed_by):
+    (inventory / "hosts" / f"{host}.md").write_text(f"---\nbastet: host\ntype: {host_type}\nip: 10.10.0.3\n---\n# {host}\n")
     lab = inventory / "_roles" / "lab"
     lab.mkdir(parents=True)
     (lab / "systemd.md").write_text('---\nbastet: role\nrole: systemd\napplies_to: "[[Homelab]]"\ntimezone: UTC\n---\n')
 
     def connect(ctx, doc, tmp, yes):
-        assert doc.name != "ap1", "UniFi devices must not be connected to by check"
+        assert doc.name != host, f"{host_type} hosts must not be connected to by check"
         return AsRootLocally(), None
 
     monkeypatch.setattr(run_mod, "connect", connect)
-    result = runner.invoke(app, ["run", "-c", "ap1", "box"])
-    assert "ap1: configured through the UniFi controller" in result.output
+    result = runner.invoke(app, ["run", "-c", host, "box"])
+    assert f"{host}: configured through {managed_by}; not managed by Bastet" in result.output
 
 
 def _no_updates(real):

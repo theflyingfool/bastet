@@ -375,14 +375,18 @@ def _gather(
     print_problems(ctx)
     inv = ctx.inventory
     docs = select_hosts(inv, ctx.types, hosts or [], exclude or [])
-    if not hosts:
-        kept = []
-        for doc in docs:
-            if doc.data.get("gather") is False:
-                typer.echo(f"{doc.name}: skipped (gather: false)")
-            else:
-                kept.append(doc)
-        docs = kept
+    kept = []
+    for doc in docs:
+        host_type = ctx.types.get(str(doc.data.get("type")))
+        # A type that never gathers (e.g. `other`) is skipped even when named -- there's nothing to
+        # connect to. A host-level `gather: false` is only a default skip; naming the host overrides it.
+        if host_type is not None and not host_type.gather:
+            typer.echo(f"{doc.name}: skipped (gather: false)")
+        elif not hosts and doc.data.get("gather") is False:
+            typer.echo(f"{doc.name}: skipped (gather: false)")
+        else:
+            kept.append(doc)
+    docs = kept
     if not docs:
         typer.echo("No hosts yet. Add one with `bastet add host`.")
         return

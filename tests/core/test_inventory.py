@@ -275,8 +275,9 @@ def test_old_proxmox_node_type_name_gives_helpful_error(tmp_path):
 
 def test_group_named_after_type_is_reserved_name_error(tmp_path):
     put(tmp_path, "groups/proxmox.md", "---\nbastet: group\n---\n# proxmox\n")
+    put(tmp_path, "_bastet/groups/lxc.md", "---\nbastet: group\ngenerated: true\nmatch:\n  type: lxc\n---\n# lxc\n")
     inv = load_inventory(tmp_path, TYPES)
-    [error] = inv.errors
+    [error] = inv.errors  # the generated note named after a type is exempt; only the user's one errors
     assert "proxmox" in error.error.message
     assert "host type" in error.error.message
     assert "rename this group" in error.error.message

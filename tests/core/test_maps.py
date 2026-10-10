@@ -22,6 +22,15 @@ def lab(tmp_path: Path):
     return load_inventory(tmp_path, TYPES)
 
 
+def test_other_host_appears_on_cabling_and_networks_maps(tmp_path):
+    inv = lab(tmp_path)
+    (tmp_path / "hosts" / "tv.md").write_text(
+        '---\nbastet: host\ntype: other\nip: 10.10.0.20\nlinks:\n'
+        '  - {port: eth0, to: "[[sw]]", to_port: "3"}\n---\n# tv\n')
+    inv = load_inventory(tmp_path, TYPES)
+    assert "tv" in cabling_map(inv, TYPES) and "10.10.0.20" in networks_map(inv)
+
+
 def test_cabling_map_edges_and_around(tmp_path):
     inv = lab(tmp_path)
     full = cabling_map(inv, TYPES)

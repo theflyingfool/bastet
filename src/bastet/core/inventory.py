@@ -255,9 +255,10 @@ def load_inventory(root: Path, types: dict[str, HostType]) -> Inventory:
     for extra in labs[1:]:
         _add(inv, "error", f"more than one lab file (also {labs[0].path})", extra)
 
-    # Check that group names don't conflict with type names (type groups are automatic)
+    # Check that group names don't conflict with type names (type groups are automatic) -- Bastet's
+    # own generated type/OS group notes are exempt; only a user's own note is a conflict.
     for doc in inv.of_kind("group"):
-        if doc.name in types:
+        if doc.name in types and not _generated(root, doc.path):
             _add(inv, "error", f"'{doc.name}' is a host type; type groups are automatic, so rename this group", doc)
 
     # Index facts notes before checking hosts, so a host's stale-fact-key check below can see what its

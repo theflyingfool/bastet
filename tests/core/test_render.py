@@ -349,6 +349,27 @@ def test_os_groups_generated_for_seen_oses(repo):
     assert "_bastet/groups/arch.md" in paths  # vps1 is Arch Linux in this fixture
 
 
+def test_type_groups_generated_for_seen_types(repo):
+    paths = {c.path.relative_to(repo.root).as_posix(): c for c in generated_changes(inv(repo), TYPES, repo)}
+    proxmox = paths["_bastet/groups/proxmox.md"].after
+    assert "bastet: group" in proxmox and "type: proxmox" in proxmox and "Every proxmox host" in proxmox
+    assert "_bastet/groups/lxc.md" in paths and "_bastet/groups/vps.md" in paths
+
+
+def test_type_and_os_name_collision_generates_only_the_type_group(tmp_path):
+    (tmp_path / "Homelab.md").write_text("---\nbastet: lab\n---\n# L\n")
+    (tmp_path / "hosts").mkdir()
+    (tmp_path / "hosts" / "pve1.md").write_text("---\nbastet: host\ntype: proxmox\nip: 10.0.10.11\n---\n# pve1\n")
+    write_facts(tmp_path, "pve1", {"os": "Proxmox VE 8.2"})  # os_id() falls back to "proxmox": same as the type
+    r = GitRepo(tmp_path)
+    r.init()
+    i = load_inventory(tmp_path, TYPES)
+    changes = {c.path.relative_to(tmp_path).as_posix(): c for c in generated_changes(i, TYPES, r)}
+    group = changes["_bastet/groups/proxmox.md"].after
+    assert "type: proxmox" in group and "os: proxmox" not in group
+    assert "OS is proxmox" in group  # mentions it also covers that OS
+
+
 def test_generated_group_removed_when_user_note_takes_the_name(repo):
     write_changes(generated_changes(inv(repo), TYPES, repo))
     gen = repo.root / "_bastet" / "groups" / "debian.md"

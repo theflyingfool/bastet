@@ -1,0 +1,12 @@
+name: other
+description: anything on the network Bastet doesn't manage (game consoles, TVs, printers); shown on maps only
+physical: true
+gather: false
+managed: false
+managed_by: "nothing (shown on maps only)"
+fields:
+  ip: yours
+  mac: yours
+  address: yours
+  location: yours
+  links: yours

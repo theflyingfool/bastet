@@ -327,7 +327,7 @@ def _run(selectors: list[str] | None, exclude: list[str] | None, *, apply_change
     for doc in docs:
         host_type = ctx.types.get(str(doc.data.get("type")))
         if host_type is not None and not host_type.managed:
-            typer.echo(f"{doc.name}: configured through {host_type.managed_by or 'something else'}; Bastet doesn't apply roles to it")
+            typer.echo(f"{doc.name}: configured through {host_type.managed_by or 'something else'}; not managed by Bastet")
             continue
         try:
             applied, batches = plan_for(ctx, doc, roles, updates)

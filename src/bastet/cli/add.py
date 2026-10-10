@@ -201,11 +201,24 @@ def _ensure_secrets_section(ctx, doc) -> None:
     write_with_confirmation(ctx, [Change(doc.path, text, text.rstrip("\n") + "\n" + SECRETS_SECTION)], True)
 
 
+def _group_label(g) -> str:
+    rule = g.data.get("match") if isinstance(g.data.get("match"), dict) else {}
+    if rule.get("type"):
+        return f"every {rule['type']} host"
+    if rule.get("os"):
+        return f"every {rule['os']} host"
+    return "group"
+
+
 def _role_targets(inv) -> list[tuple[str, str]]:
+    """`lab`, then every generated group (type and OS groups, automatic) before the user's own
+    groups, then hosts last."""
+    groups = list(inv.of_kind("group"))
+    generated = [g for g in groups if g.data.get("generated")]
+    own = [g for g in groups if not g.data.get("generated")]
     out = [("lab", "every host")]
-    for g in inv.of_kind("group"):
-        rule = g.data.get("match") if isinstance(g.data.get("match"), dict) else {}
-        out.append((g.name, f"every {rule['os']} host" if rule.get("os") else "group"))
+    out += [(g.name, _group_label(g)) for g in generated]
+    out += [(g.name, _group_label(g)) for g in own]
     out += [(h.name, str(h.data.get("type") or "host")) for h in inv.of_kind("host")]
     return out
 

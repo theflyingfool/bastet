@@ -597,6 +597,20 @@ def test_gather_false_skipped_unless_named(runner, laptop):
     assert "os: Arch Linux" in facts(laptop, "hp-13")
 
 
+def test_unmanaged_type_is_skipped_even_when_named(runner, laptop, monkeypatch):
+    """A type with `gather: false` (e.g. `other`) is never connected to, even named explicitly --
+    unlike a host-level `gather: false`, which naming the host overrides."""
+    add_host(laptop, "tv", "---\nbastet: host\ntype: other\nip: 10.10.0.30\n---\n# tv\n")
+
+    def ssh_runner(target):
+        raise AssertionError("an unmanaged type must never be connected to")
+
+    monkeypatch.setattr(gather_mod, "ssh_runner", ssh_runner)
+    result = runner.invoke(app, ["run", "-g", "tv", "-y"])
+    assert result.exit_code == 0, result.output
+    assert "tv: skipped (gather: false)" in result.output and facts(laptop, "tv") == ""
+
+
 def _git1(inventory, extra=""):
     add_host(inventory, "git1", f'---\nbastet: host\ntype: lxc\nruns_on: "[[pve1]]"\nip: 10.0.20.99/24\n{extra}---\n# git1\n')
 
