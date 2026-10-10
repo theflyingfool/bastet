@@ -100,3 +100,77 @@ def test_block_plain_matches_a_joined_string():
     b = Block().add("HOST: pve1").add("").add("done", "green")
     assert b.plain() == "HOST: pve1\n\ndone\n"
     assert Block().plain() == "\n"
+
+
+DIFF = "--- a/x.md\n+++ b/x.md\n@@ -1 +1 @@\n-old\n+new\n context\n"
+
+
+def test_diff_is_unchanged_in_plain_mode_and_coloured_in_colour_mode():
+    c, o, _ = make(color=False)
+    c.diff(DIFF)
+    assert o.getvalue() == DIFF + "\n"  # echo semantics: the trailing newline stays, echo adds one
+    c, o, _ = make(color=True)
+    c.diff(DIFF)
+    lines = o.getvalue().split("\n")
+    assert "\x1b[32m" in lines[4] and "new" in lines[4]  # + green
+    assert "\x1b[31m" in lines[3] and "old" in lines[3]  # - red
+    assert "\x1b[36m" in lines[2]                         # @@ cyan
+    assert ANSI.sub("", o.getvalue()) == DIFF + "\n"
+
+
+def test_diff_masks_secrets():
+    ACTIVE.add("s3cret-token")
+    c, o, _ = make(color=True)
+    c.diff("+token: s3cret-token\n")
+    assert "s3cret-token" not in o.getvalue()
+
+
+ROWS = [["pve1", "proxmox", "10.1.0.15", "Debian"], ["git1", "lxc", "10.1.20.21", ""]]
+
+
+def test_plain_table_matches_the_old_show_output():
+    c, o, _ = make(color=False)
+    c.table(ROWS)
+    assert o.getvalue() == "  pve1  proxmox  10.1.0.15   Debian\n  git1  lxc      10.1.20.21\n"
+
+
+def test_empty_table_prints_nothing():
+    for color in (False, True):
+        c, o, _ = make(color=color)
+        c.table([])
+        assert o.getvalue() == ""
+
+
+@pytest.mark.parametrize("width", [20, 40, 80])
+def test_coloured_table_fits_the_width(width):
+    c, o, _ = make(color=True, width=width)
+    c.table([["pve1", "proxmox", "10.1.0.15", "Debian GNU/Linux 13 (trixie) with a very long description"], ["", "", "", ""]])
+    assert all(len(ANSI.sub("", line)) <= width for line in o.getvalue().splitlines())
+    assert "pve1" in o.getvalue()
+
+
+def test_table_cells_with_markup_text_print_literally():
+    c, o, _ = make(color=True, width=60)
+    c.table([["[[Bastet guide]]", "[red]x[/red]"]])
+    text = ANSI.sub("", o.getvalue())
+    assert "[[Bastet guide]]" in text and "[red]x[/red]" in text
+
+
+def test_block_prints_styled_lines_and_plain_is_echo_of_plain():
+    b = Block().add("HOST: pve1", "bold").add("  /etc/motd ✗ failed", "red").add("")
+    c, o, _ = make(color=False)
+    c.block(b)
+    assert o.getvalue() == b.plain() + "\n"
+    c, o, _ = make(color=True)
+    c.block(b)
+    assert "\x1b[31m" in o.getvalue() and ANSI.sub("", o.getvalue()) == b.plain() + "\n"
+
+
+def test_empty_block_and_masked_block():
+    c, o, _ = make(color=False)
+    c.block(Block())
+    assert o.getvalue() == "\n\n"
+    ACTIVE.add("hunter2-value")
+    c, o, _ = make(color=True)
+    c.block(Block().add("pw hunter2-value", "red"))
+    assert "hunter2-value" not in o.getvalue()

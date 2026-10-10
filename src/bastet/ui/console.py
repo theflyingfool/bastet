@@ -9,6 +9,8 @@ from collections.abc import Iterator
 from typing import IO
 
 from rich.console import Console as RichConsole
+from rich.padding import Padding
+from rich.table import Table
 from rich.text import Text
 
 from bastet.core.secrets.redact import ACTIVE
@@ -66,6 +68,54 @@ class Console:
         plain = self._text(text)
         style = " ".join(s for s in ("bold" if bold else "", fg or "") if s) or None
         self._emit(Text(plain, style=style or ""), plain, nl=nl, err=err)
+
+    def diff(self, text: str) -> None:
+        plain = self._text(text)
+        rich_text = Text()
+        for line in plain.splitlines(keepends=True):
+            rich_text.append(line, style=_diff_style(line))
+        self._emit(rich_text, plain, nl=True, err=False)
+
+    def table(self, rows: list[list[str]], *, indent: str = "  ") -> None:
+        if not rows:
+            return
+        cells = [[self._text(c) for c in row] for row in rows]
+        stream = self._stream(False)
+        if not self._use_color(stream):
+            widths = [max(len(r[i]) for r in cells) for i in range(len(cells[0]))]
+            for r in cells:
+                stream.write(indent + "  ".join(c.ljust(w) for c, w in zip(r, widths)).rstrip() + "\n")
+            stream.flush()
+            return
+        table = Table(box=None, show_header=False, show_edge=False, pad_edge=False, padding=(0, 2, 0, 0))
+        for i, _ in enumerate(cells[0]):
+            table.add_column(no_wrap=i == 0, overflow="fold")
+        for r in cells:
+            table.add_row(*[Text(c) for c in r])
+        self._rich_for(False).print(Padding(table, (0, 0, 0, len(indent))))
+        stream.flush()
+
+    def block(self, block: Block) -> None:
+        plain = self._text(block.plain())
+        rich_text = Text()
+        for i, line in enumerate(block.lines):
+            if i:
+                rich_text.append("\n")
+            rich_text.append(self._text(line.text), style=line.style or "")
+        rich_text.append("\n")
+        self._emit(rich_text, plain, nl=True, err=False)
+
+
+def _diff_style(line: str) -> str:
+    if line.startswith(("+++", "---")):
+        return "bold"
+    if line.startswith("@@"):
+        return "cyan"
+    if line.startswith("+"):
+        return "green"
+    if line.startswith("-"):
+        return "red"
+    return ""
 
 
 _default = Console()
