@@ -101,8 +101,12 @@ One `Console` wrapper around `rich.console.Console`, created once per command, r
   `bastet log export` prints the raw lines.
 - **The note is built before the commit:** `finish()` renders it from the events recorded so far (kept in memory
   up to the configured detail) and adds it to the command's one commit. Its status and counts come from those
-  events; a run that is interrupted writes nothing, so it has no note. `bastet log note <run>` renders from the
-  final JSONL and replaces the note.
+  events and the recorder's status (an interrupted check or apply still commits, so its note says `interrupted`;
+  only gather's outer Ctrl-C handler writes nothing). A host with a planning error or a connection exception counts
+  as failed, and every failure's reason is in the default note. `bastet log note <run>` renders from the final JSONL
+  and replaces the note.
+- **The note is best-effort:** if rendering or writing it fails, the command warns and still commits its own
+  changes. An explicit `bastet log note` reports its errors normally.
 - **Nothing is deleted.** There is no option to remove a note, and refresh never removes one.
 - **Views:** one Runs Base (`_bastet/runs.base`) shown in a `## Runs` section of the dashboard note, and a per-host
   one (`_bastet/runs-here.base`, filtered to the host with `hosts.contains(this.host)`) in a `## Runs` section of
@@ -110,9 +114,12 @@ One `Console` wrapper around `rich.console.Console`, created once per command, r
   of your notes is edited. Each Base has several views over the same notes, newest first: **Changes** (the default:
   `apply` and `gather` runs, plus any run that failed), **Checks** (`check` runs), **Failures**, and **All runs**
   (every run that has a note; `bastet log` lists every run). Directly below the table, a board
-  (`_bastet/runs-board.base`) groups the same runs by `status`. It is Obsidian's built-in Kanban view; its type
-  string is one constant.
-- **Git:** a run's note is written into the command's one commit and never makes a commit of its own. The JSONL
+  (`_bastet/runs-board.base`) groups the same runs through a formula (`formula.outcome`, from `status`), so
+  dragging a card cannot rewrite a recorded outcome. It is Obsidian's built-in Kanban view; its type string is one
+  constant. The Bases need Obsidian 1.14 or later with the Bases core plugin, which `init` and `doctor --fix`
+  enable.
+- **Git:** an automatic run note is written into the command's one commit and never causes a commit that would
+  not otherwise happen; an explicit `bastet log note` is a command that makes its own commit. The JSONL
   is never committed. A check that writes nothing makes no commit and no note.
 
 ## Failure handling

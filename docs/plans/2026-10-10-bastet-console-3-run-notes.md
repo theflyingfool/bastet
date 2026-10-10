@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. In this repo, the `bastet-run-plan` skill supplies the Bastet-specific parts.
 
-**Goal:** a run that changes something leaves a short, readable note in the vault, in the command's own commit; `bastet log note` makes the note of any run; `bastet log show` prints a run's deeper detail in the terminal; and a Runs Base lists the runs.
+**Goal:** a run that changes something leaves a short, readable note in the vault, in the command's own commit; an explicit `bastet log note` makes the note of any run; `bastet log show` prints a run's deeper detail in the terminal; and a Runs Base lists the runs.
 
 **Architecture:** a renderer turns a run's events (the dict lines the JSONL holds) into a Markdown note at a detail of 1 to 3. While a run is recorded, a small in-memory sink keeps its events up to the configured detail; `finish()` renders the note from them and adds it to the command's one commit, only when that commit exists anyway. `bastet log note` renders from the JSONL file, and `bastet log show` replays the JSONL through the live terminal view. The Bases and their embeds live in Bastet's own notes (the dashboard and each host's facts note), so none of your notes is edited.
 
@@ -19,16 +19,19 @@
 3. **Deeper detail is read in the terminal,** with `bastet log show <run> [-v…]`, which replays the record through the same view as `bastet run -vv`. The raw lines come from `bastet log export`.
 4. **Nothing is deleted.** There is no `--remove`, and refresh never deletes a run note. (Removal is deferred project-wide.)
 5. **The command text is not in the file name.** The name is `<date time> <mode> <id suffix>`, for example `2026-10-10 1218 apply 22d326.md`. No character in a command (`*`, `/`, `@`, `#`) can break a note name, and the id's random part keeps names unique and lets `log note` find its file.
-6. **The default note is built from events kept in memory,** because `finish()` commits before the recorder closes. Its status and counts come from the events so far. A run that is interrupted writes nothing, so it has no note.
+6. **The default note is built from events kept in memory,** because `finish()` commits before the recorder closes. Its counts come from the events so far; its status is the recorder's when one is set (an interrupted run), else it is worked out from the events, counting a host with a planning error as failed. Only gather's outer Ctrl-C handler writes nothing; an interrupted check or apply still commits what it had (that is how `_run` behaves today), so its note says `interrupted`.
 7. **The per-host Base filters on `hosts.contains(this.host)`** and is embedded in the host's facts note, whose frontmatter has `host: "[[name]]"`. Per the Bases documentation, `this` is the file that contains the embed.
-8. **The board is a built-in `kanban` view grouped by `status`.** The documentation lists Kanban as a built-in view type but does not print the exact `type:` string; `kanban` is the expected one and the view type is one constant (`BOARD_VIEW_TYPE`). `groupBy` is written as the documented map (`property:` and `direction:`), which also corrects the existing secrets Base.
+8. **The board is a built-in `kanban` view, read-only by construction.** It groups by a formula (`formulas: outcome: note.status`, `groupBy: property: formula.outcome`), so dragging a card cannot rewrite a recorded outcome. The documentation lists Kanban as a built-in view type but does not print the exact `type:` string; `kanban` is the expected one and the view type is one constant (`BOARD_VIEW_TYPE`). `groupBy` is written as the documented map (`property:` and `direction:`), which also corrects the existing secrets Base. These Bases need Obsidian 1.14 or later.
 9. **Run notes are a new inventory kind, `run`,** marked `generated: true`.
+10. **Automatic notes are best-effort.** If rendering or writing the note fails, `finish()` warns and still commits the command's own changes. An explicit `bastet log note` reports its errors normally.
+11. **`init` and `doctor --fix` enable Obsidian's Bases core plugin** (Task 5), since every Base Bastet writes needs it.
 
 ## Global Constraints
 
 - **Unit tests** never touch the real inventory, `~/.config/bastet`, `~/.local/share/bastet` (including `runs/`), `~/.ssh`, the real `~/.cache` or `$XDG_RUNTIME_DIR`; no network; `tmp_path` only; placeholder data only (see "Example data" in `docs/ROADMAP.md`). `tests/conftest.py` already gives every test a temporary data directory.
 - **Test file basenames must be unique across `tests/`** (there are no `__init__.py` files). Use the names given in each task.
-- **One commit per command.** A run note never makes a commit of its own and never exists without the command's commit.
+- **One commit per command.** An automatic run note is part of the command's one commit and never causes a commit that would not otherwise happen. An explicit `bastet log note` is a command in its own right and makes its own commit.
+- **A run never fails because of its note.** Rendering or writing an automatic note is best-effort: a failure is a warning, and the command's own changes are still committed.
 - **No deletes.** Nothing in this plan removes a note or a record.
 - **Nothing unmasked in a note.** Command text and every other string go through the masker (`ACTIVE`) before they are written. A `secret` resource's command is already `(hidden: secret resource)` in the events, and a note never contains command output.
 - **Automatic commands never modify your notes.** Run notes live under `_bastet/runs/`; the Bases are embedded in Bastet's own notes.
@@ -44,11 +47,13 @@
 
 ## Review Focus
 
-1. **No note and no commit for a run that writes nothing.** A second identical check makes no commit. An interrupted run, or one that fails before writing anything, leaves no note.
-2. **A secret never reaches a note** at any detail: command text, an item's error, a diff. A note never holds command output, and `note_detail` cannot be set above 3.
-3. **Note names are safe.** A command containing `*`, `/`, `#` or `[[` cannot change the file name. Two runs in the same minute do not collide. `log note` on a run that already has a note replaces that same file.
-4. **The rest of Bastet copes with `bastet: run` notes:** the inventory loads them without problems, `show`, `refresh` and `doctor` ignore them, and refresh does not delete them. One commit per command still holds, including when the refresh was skipped (a busy repo, a plain secret).
-5. **Odd inputs to `log note` and `log show`:** a run whose JSONL is unfinished, torn, empty or pruned; a run with no hosts; a host whose name contains spaces or brackets; very large records.
+1. **No note and no commit for a run that writes nothing.** A second identical check makes no commit. A run that fails before writing anything leaves no note. An interrupted check or apply that commits still gets a note, and it says `interrupted`.
+2. **The note matches the run.** Its status, counts and host links agree with what the command printed: a host with a planning error or a connection exception is a failed host in the note, an earlier failure is never wiped by a later scope with no counts, and every failure has its reason (item errors, a host's exception, a failed trigger, a run-level warning) in the default note.
+3. **A secret never reaches a note** at any detail: command text, an item's error, a diff. A note never holds command output, and `note_detail` cannot be set above 3.
+4. **Note names are safe.** A command containing `*`, `/`, `#` or `[[` cannot change the file name. Two runs in the same minute do not collide. `log note` on a run that already has a note replaces that same file.
+5. **A failing note never costs the commit.** If rendering or writing the note raises, the command still commits its own changes and warns.
+6. **The rest of Bastet copes with `bastet: run` notes:** the inventory loads them without problems, `show`, `refresh` and `doctor` ignore them, and refresh does not delete them. One commit per command still holds, including when the refresh was skipped (a busy repo, a plain secret).
+7. **Odd inputs to `log note` and `log show`:** a run whose JSONL is unfinished, torn, empty or pruned; a run with no hosts; a host whose name contains spaces or brackets; very large records.
 
 ## File structure
 
@@ -64,6 +69,7 @@
 | `src/bastet/core/inventory.py` | `run` joins `KINDS` |
 | `src/bastet/core/views.py` | per-view filters and sort, the `groupBy` map, the four Runs Bases |
 | `src/bastet/core/render.py` | `## Runs` sections in the dashboard and the host facts summary |
+| `src/bastet/core/initialize.py`, `src/bastet/core/doctor.py` | enable the Bases core plugin; a `doctor` problem with a fix |
 
 ---
 
@@ -79,8 +85,8 @@
 RUNS_DIR = "_bastet/runs"
 def infer_mode(command: str) -> str                         # "check" | "apply" | "gather"
 def note_name(started: str, mode: str, run_id: str) -> str  # "2026-10-10 1218 apply 22d326"
-def summarize(events: list[dict]) -> RunSummary
-def render_run_note(events: list[dict], detail: int) -> str  # detail 1..3
+def summarize(events: list[dict], status: str | None = None) -> RunSummary
+def render_run_note(events: list[dict], detail: int, status: str | None = None) -> str  # detail 1..3
 def find_notes(root: Path, run_id: str) -> list[Path]       # notes under _bastet/runs whose frontmatter `run` is run_id
 @dataclass
 class RunSummary: run_id, command, mode, started, user, status, duration, hosts, changed, failed, skipped
@@ -89,10 +95,11 @@ class RunSummary: run_id, command, mode, started, user, status, duration, hosts,
 
 **Behaviour:**
 - **`infer_mode`:** `-a` in the command words gives `apply`; else `-c` gives `check`; else `-g` alone gives `gather`; a bare `run` is `apply`. `run_started.data.mode`, when present, wins.
-- **`summarize`:** the first `run_started` gives `command`, `started` (its `t`), `user`, `mode`. Hosts are the unique host names of `host_finished` events, in order. `changed`, `failed`, `skipped` sum the latest `host_finished` per host (a later one replaces an earlier one). `status` and `duration` come from `run_finished` when present; otherwise `status` is `failed` if any host finished `failed` or `error`, else `ok`, and `duration` is the largest `elapsed`.
+- **`summarize(events, status=None)`:** the first `run_started` gives `command`, `started` (its `t`), `user`, `mode`. Hosts are the unique host names of `host_finished` events and of `host_skipped` events whose reason starts with `error:` (a planning error), in order. For each host, `changed`, `failed` and `skipped` take a later `host_finished`'s values **only for keys it carries** (a scope that omits counts, such as the gather scope or an error, keeps the earlier ones), its status is the worst seen (`error`, then `failed`, then `ok`), and a planning-error host counts one failure. `status` is the `status` argument when given, else `run_finished`'s when present, else `failed` if any host is `failed` or `error` or has failures, else `ok`. `duration` comes from `run_finished` or is the largest `elapsed`.
 - **Frontmatter** (flat; `hosts` are links so Bases can filter on them): `bastet: run`, `generated: true`, `run`, `command`, `mode`, `started`, `hosts`, `changed`, `failed`, `status`, `detail`. Written with `dump_frontmatter`.
 - **Body:** `# <mode> <date> <time>`, then a summary line (`` `command` · by <user> · N hosts · N changed · N failed · took Ns · status ``), then one section per host.
-  - **Detail 1:** per host `## <host>: <status>`, then one bullet per item whose latest `item_checked` status is not `compliant` (`- ✓ <item>: <changes>`; a failed item adds its error), then `host_skipped` reasons and `note` messages.
+  - **Always (every detail):** run-level `note` events (no host) in a `## Notes` list under the summary; and per host, after its heading, the host's own exception (`- error: <text>` from `host_finished`'s `error`), any failed trigger (`- ✗ trigger <label>: <error>`), and `host_skipped` reasons. A failure must explain itself without opening the JSONL.
+  - **Detail 1:** per host `## <host>: <status>`, then one bullet per item whose latest `item_checked` status is not `compliant` (`- ✓ <item>: <changes>`; a failed item adds its error), then `note` messages.
   - **Detail 2:** per host, the events grouped by phase heading (`### read`, `### compare`, `### apply`, `### verify`) in order, with every `item_checked` (compliant ones too) and its changes.
   - **Detail 3:** adds each `command_run` as `` - `$ <command>` → exit N (0.2s) `` (never its output) and each `trigger_fired`.
   - A hidden command shows `(hidden: secret resource)` at every detail.
@@ -206,6 +213,36 @@ def test_secrets_are_masked_everywhere():
         assert "hunter2-value" not in render_run_note(events, detail)
 
 
+def test_a_later_scope_without_counts_keeps_the_earlier_failures():
+    events = apply_run()[:-1] + [ev("host_finished", "pve1", status="ok")]
+    s = summarize(events)
+    assert (s.changed, s.failed) == (1, 1) and s.status == "failed"
+
+
+def test_a_planning_error_is_a_failed_host_with_a_link_and_a_failed_run():
+    events = [ev("run_started", command="run -c", schema=1),
+              ev("host_skipped", "media01", reason="error: role files: unknown option"),
+              ev("host_finished", "pve1", status="ok", changed=0, failed=0, skipped=0)]
+    s = summarize(events)
+    assert s.hosts == ["media01", "pve1"] and s.failed == 1 and s.status == "failed"
+    text = render_run_note(events, 1)
+    assert "[[media01]]" in text and "unknown option" in text
+
+
+def test_an_explicit_status_wins():
+    assert summarize(apply_run()[:-1], status="interrupted").status == "interrupted"
+    assert "status: interrupted" in render_run_note(apply_run()[:-1], 1, status="interrupted")
+
+
+def test_failures_explain_themselves_at_the_default_detail():
+    events = [ev("run_started", command="run -a", schema=1),
+              ev("note", None, message="refresh skipped: a secret is unlocked"),
+              ev("trigger_fired", "pve1", trigger="restart sshd", ok=False, error="unit not found"),
+              ev("host_finished", "pve1", status="error", error="connection refused", changed=0, failed=0, skipped=0)]
+    text = render_run_note(events, 1)
+    assert "refresh skipped: a secret is unlocked" in text and "unit not found" in text and "connection refused" in text
+
+
 def test_odd_runs_render():
     assert "# " in render_run_note([ev("run_started", command="run -c", schema=1)], 1)    # no hosts, unfinished
     skipped = [ev("run_started", command="run", schema=1), ev("host_skipped", "tv1", reason="not managed")]
@@ -292,24 +329,39 @@ class RunSummary:
     skipped: int
 
 
-def summarize(events: list[dict]) -> RunSummary:
+_RANK = {"ok": 0, "failed": 1, "error": 2}
+
+
+def summarize(events: list[dict], status: str | None = None) -> RunSummary:
     start = next((e for e in events if e["kind"] == "run_started"), None)
     data = start["data"] if start else {}
     finish = next((e for e in reversed(events) if e["kind"] == "run_finished"), None)
     latest: dict[str, dict] = {}
+
+    def host_row(name: str) -> dict:
+        return latest.setdefault(name, {"status": "ok", "changed": 0, "failed": 0, "skipped": 0})
+
     for e in events:
         if e["kind"] == "host_finished" and e["host"]:
-            latest[e["host"]] = e["data"]
-    bad = any(d.get("status") in ("failed", "error") or d.get("failed") for d in latest.values())
+            row, d = host_row(e["host"]), e["data"]
+            if _RANK.get(d.get("status", "ok"), 0) > _RANK[row["status"]]:
+                row["status"] = d["status"]
+            for key in ("changed", "failed", "skipped"):
+                if key in d:                        # a scope that omits counts keeps the earlier ones
+                    row[key] = int(d[key] or 0)
+        elif e["kind"] == "host_skipped" and e["host"] and str(e["data"].get("reason", "")).startswith("error:"):
+            row = host_row(e["host"])               # a planning error: a failed host
+            row["status"] = max(row["status"], "failed", key=_RANK.get)
+            row["failed"] = max(row["failed"], 1)
+    bad = any(r["status"] != "ok" or r["failed"] for r in latest.values())
     command = data.get("command", "")
     return RunSummary(
         run_id=events[0]["run_id"] if events else "", command=command, mode=data.get("mode") or infer_mode(command),
         started=start["t"] if start else "", user=data.get("user", ""),
-        status=finish["data"]["status"] if finish else ("failed" if bad else "ok"),
+        status=status or (finish["data"]["status"] if finish else ("failed" if bad else "ok")),
         duration=finish["data"]["duration"] if finish else max((e["elapsed"] for e in events), default=0.0),
-        hosts=list(latest), changed=sum(int(d.get("changed") or 0) for d in latest.values()),
-        failed=sum(int(d.get("failed") or 0) for d in latest.values()),
-        skipped=sum(int(d.get("skipped") or 0) for d in latest.values()),
+        hosts=list(latest), changed=sum(r["changed"] for r in latest.values()),
+        failed=sum(r["failed"] for r in latest.values()), skipped=sum(r["skipped"] for r in latest.values()),
     )
 
 
@@ -328,6 +380,10 @@ def _host_section(host: str, events: list[dict], detail: int) -> list[str]:
     lines = ["", f"## {host}: {done['status'] if done else 'skipped'}"]
     if skip:
         lines.append(f"- skipped: {skip['reason']}")
+    if done and done.get("error"):
+        lines.append(f"- error: {done['error']}")
+    lines += [f"- ✗ trigger {e['data']['trigger']}: {e['data'].get('error') or 'failed'}"
+              for e in mine if e["kind"] == "trigger_fired" and not e["data"]["ok"]]
     if detail == 1:
         last: dict[str, dict] = {}
         for e in mine:
@@ -349,16 +405,16 @@ def _host_section(host: str, events: list[dict], detail: int) -> list[str]:
         elif kind == "command_run":
             result = "error" if d["exit"] is None else f"exit {d['exit']}"
             lines.append(f"- `$ {d['command']}` → {result} ({d['duration']:.1f}s)")
-        elif kind == "trigger_fired":
-            lines.append(f"- trigger {d['trigger']} " + ("✓" if d["ok"] else f"✗ {d.get('error') or ''}".rstrip()))
+        elif kind == "trigger_fired" and d["ok"]:
+            lines.append(f"- trigger {d['trigger']} ✓")
         elif kind == "note":
             lines.append(f"- {d['message']}")
     return lines
 
 
-def render_run_note(events: list[dict], detail: int) -> str:
+def render_run_note(events: list[dict], detail: int, status: str | None = None) -> str:
     detail = max(1, min(detail, MAX_DETAIL))
-    s = summarize(events)
+    s = summarize(events, status)
     when = _when(s.started) if s.started else datetime.now()
     frontmatter = {
         "bastet": "run", "generated": True, "run": s.run_id, "command": s.command, "mode": s.mode, "started": s.started,
@@ -371,6 +427,9 @@ def render_run_note(events: list[dict], detail: int) -> str:
         f"`{s.command}` · by {s.user or 'unknown'} · {len(s.hosts)} {plural} · {s.changed} changed · "
         f"{s.failed} failed · took {s.duration:.1f}s · {s.status}",
     ]
+    run_notes = [e["data"]["message"] for e in events if e["kind"] == "note" and not e["host"]]
+    if run_notes:
+        lines += ["", "## Notes", *[f"- {m}" for m in run_notes]]
     hosts = list(s.hosts) + [e["host"] for e in events if e["kind"] == "host_skipped" and e["host"] not in s.hosts]
     for host in dict.fromkeys(hosts):
         lines += _host_section(host, events, detail)
@@ -423,10 +482,11 @@ Recorder.flush(self, *, force: bool = False)               # force: wait even wi
 **Behaviour:**
 - **`runs.note_detail`** in `bastet.yml`: whole number from 1 to 3, default 1; anything else is a config error naming the key.
 - **`recorded_run(command, verbose=0, *, mode=None, note_detail=1)`** adds `MemorySink(max_level=note_detail)` to the sinks and puts `mode` (default `infer_mode(command)`) and `user` (`getpass.getuser()`) in the `run_started` data. `MemorySink` keeps events of its level or below as dicts, **dropping `stdout` and `stderr`** from `command_run` data (a note never shows output, and it keeps memory small).
-- **`note_change(root, detail)`:** `None` unless a recording with a `MemorySink` is active and has events. Otherwise it flushes the queue (`force=True`), renders the events kept so far at `detail`, and returns a `Change` for `root/_bastet/runs/<note_name>.md` (`before` is the file's current text or `None`).
+- **`note_change(root, detail)`:** `None` unless a recording with a `MemorySink` is active and has events. Otherwise it flushes the queue (`force=True`), renders the events kept so far at `detail` with the recorder's status (`rec.status`, e.g. `interrupted`), and returns a `Change` for `root/_bastet/runs/<note_name>.md` (`before` is the file's current text or `None`).
 - **`finish()`** (in `cli/common.py`): after computing `paths = ctx.written | {c.path for c in generated}`, if `paths` is empty it returns `False` exactly as today, with **no note**. Otherwise it asks `events.note_change(ctx.root, ctx.config.runs.note_detail)`; if there is a note it writes it (`write_changes`) and adds its path to `paths`, so it joins the one commit. The commit message does not change.
 - **Not recording** (every command except `run`): `note_change` is `None`, nothing changes.
-- **An interrupted run** never reaches `finish()` with something to write ("interrupted; nothing written"), so it has no note.
+- **An interrupted check or apply** still reaches `finish()` and commits, so it gets a note with status `interrupted`. Only gather's outer handler writes nothing.
+- **Best-effort:** in `finish()`, any exception while rendering or writing the note is caught, reported as `warning: could not write the run note: <error>` on stderr, and the command's own changes are committed as usual.
 - **`run` joins `KINDS`** in `core/inventory.py` so the inventory loads the notes without an "unknown kind" error; refresh does not touch `_bastet/runs/`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -518,6 +578,30 @@ def test_an_apply_note_is_in_the_apply_commit_with_the_changes(runner, box, inve
     assert apply_notes and "changed" in apply_notes[-1].read_text()
 
 
+def test_an_interrupted_run_that_commits_gets_a_note_saying_so(runner, box, inventory, monkeypatch):
+    def interrupt(*args, **kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(run_mod, "run_parallel", interrupt)
+    runner.invoke(app, ["run", "-c", "box"])
+    notes_made = notes(inventory)
+    assert notes_made and "status: interrupted" in notes_made[-1].read_text()
+
+
+def test_a_failing_note_never_costs_the_commit(runner, box, inventory, monkeypatch):
+    import bastet.events.runnote as runnote
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("render exploded")
+
+    monkeypatch.setattr(runnote, "render_run_note", boom)
+    before = commit_count(inventory)
+    result = runner.invoke(app, ["run", "-c", "box"])
+    assert result.exit_code == 0, result.output
+    assert "could not write the run note: render exploded" in result.output
+    assert commit_count(inventory) == before + 1 and notes(inventory) == []
+
+
 def test_the_configured_detail_is_used(runner, box, inventory, tmp_path):
     cfg = tmp_path / "bastet.yml"
     cfg.write_text(cfg.read_text() + "runs:\n  note_detail: 3\n") if cfg.exists() else None
@@ -597,17 +681,20 @@ def note_change(root: Path, detail: int) -> "Change | None":
     s = summarize(events)
     path = root / RUNS_DIR / f"{note_name(s.started, s.mode, s.run_id)}.md"
     before = path.read_text(encoding="utf-8") if path.exists() else None
-    return Change(path, before, render_run_note(events, detail))
+    return Change(path, before, render_run_note(events, detail, recorder.status))
 ```
 Export `MemorySink` and `note_change` from `bastet/events/__init__.py`. `recording()` already passes `**extra` into `run_started`, so `recorded_run` passes `mode=` and `user=`.
 
 `cli/common.py`: `recorded_run(command, verbose=0, *, mode=None, note_detail=1)` appends `MemorySink(max_level=note_detail)` to the sinks and calls `recording(command, sinks, run_id=run_id, mode=mode or infer_mode(command), user=getpass.getuser())`. In `run()` the config is already readable in `recorded_run` (it loads `runs_cfg`), so read `note_detail` from `runs_cfg.note_detail` there and drop the parameter if that is simpler. In `finish()`, after `paths = ...` and the `if not paths: return False` line:
 
 ```python
-    note = events.note_change(ctx.root, ctx.config.runs.note_detail)
-    if note is not None:
-        write_changes([note])
-        paths = paths | {note.path}
+    try:
+        note = events.note_change(ctx.root, ctx.config.runs.note_detail)
+        if note is not None:
+            write_changes([note])
+            paths = paths | {note.path}
+    except Exception as exc:  # the note is best-effort: the command's own changes still get committed
+        out.secho(f"warning: could not write the run note: {exc}", fg="yellow", err=True)
 ```
 (import `from bastet import events` and `getpass` if not present; keep `generated` and the message exactly as they are.)
 
@@ -753,13 +840,13 @@ RUNS_HERE_SECTION = "\n## Runs\n\n![[runs-here.base]]\n\n![[runs-board-here.base
 ```
 
 **Behaviour:**
-- **`_base`** accepts, per view, an optional list of filter expressions (rendered as a view-level `filters:` block, `and:` for a list, `or:` for a tuple) and an optional sort. **`groupBy` is written as the documented map** (`groupBy:\n      property: <name>\n      direction: ASC`), including for the existing secrets Base, which used a plain word before. That is the only change to existing Bases; their other text stays byte-identical.
+- **`_base`** accepts an optional `formulas` mapping (rendered as a top-level `formulas:` block before `views:`) and, per view, an optional list of filter expressions (rendered as a view-level `filters:` block, `and:` for a list, `or:` for a tuple) and an optional sort. **`groupBy` is written as the documented map** (`groupBy:\n      property: <name>\n      direction: ASC`), including for the existing secrets Base, which used a plain word before. That is the only change to existing Bases; their other text stays byte-identical.
 - **The runs table Bases** (`runs.base` and `runs-here.base`): global filter `bastet == "run"` (the here-variant adds `hosts.contains(this.host)`), views in this order, each sorted by `started` descending with columns `file.name`, `mode`, `status`, `started`, `changed`, `failed`, `hosts`:
   - **Changes** (the default): `mode == "apply"` or `mode == "gather"` or `status == "failed"`;
   - **Checks:** `mode == "check"`;
   - **Failures:** `status == "failed"`;
   - **All runs:** no extra filter.
-- **The board Bases:** the same global filters, one view of type `BOARD_VIEW_TYPE` named `Board`, grouped by `status`, sorted by `started` descending.
+- **The board Bases:** the same global filters and a top-level `formulas:` block (`outcome: note.status`), one view of type `BOARD_VIEW_TYPE` named `Board`, grouped by `formula.outcome`, sorted by `started` descending. Grouping by a formula keeps the board read-only: a dragged card cannot rewrite the recorded status.
 - **`ensure_views`** writes all four (they are in `VIEWS`), refreshing outdated ones as it does the others.
 - **The dashboard** gets `RUNS_SECTION` after "Recent changes"; **each host's facts summary** (`host_summary`) gets `RUNS_HERE_SECTION` at its end. Both are Bastet's own notes, so none of yours is edited. Hardware facts notes get nothing.
 - Refresh stays idempotent: a second refresh changes nothing.
@@ -811,7 +898,8 @@ def test_the_per_host_base_filters_on_the_host():
 def test_the_board_groups_by_status_using_one_constant():
     text = VIEWS[RUNS_BOARD_PATH]
     assert f"type: {BOARD_VIEW_TYPE}" in text and "name: Board" in text
-    assert "groupBy:\n      property: status\n      direction: ASC\n" in text
+    assert "formulas:\n  outcome: note.status\n" in text
+    assert "groupBy:\n      property: formula.outcome\n      direction: ASC\n" in text and "property: status" not in text
 ```
 
 Add (in `tests/core/test_render.py`, using its `repo`/`inv` fixtures) tests that the dashboard contains `![[runs.base]]` and `![[runs-board.base]]`, a host's facts note body contains `![[runs-here.base]]` and `![[runs-board-here.base]]`, a hardware facts note contains neither, and a second `generated_changes` after `write_changes` is empty.
@@ -854,18 +942,43 @@ git commit -m "views: a Runs Base (Changes, Checks, Failures, All runs) and a st
 
 ---
 
-### Task 5: Docs, roadmap, spec check, and your Obsidian check
+### Task 5: `init` and `doctor --fix` enable the Bases core plugin
+
+**Files:**
+- Modify: `src/bastet/core/initialize.py` (the `core-plugins.json` step), `src/bastet/core/doctor.py` (a problem with a fix)
+- Test: `tests/core/test_initialize.py`, `tests/core/test_doctor.py`
+
+**Behaviour:**
+- **`init`** enables Obsidian's Bases core plugin the way it already enables Templates, in whichever format the vault's `.obsidian/core-plugins.json` uses (a map of id to true, or a list of ids). The core plugin id is `bases`; confirm it against Obsidian's documentation or a vault's own `core-plugins.json`, and use the documented id if it differs. Only when the inventory has a `.obsidian` folder (or `init` creates one), exactly as for Templates. A vault that already has it enabled is left alone, and the action line says "kept".
+- **`doctor`** reports, for a vault that has a `.obsidian` folder where Bases is not enabled, a problem "Obsidian's Bases core plugin isn't enabled; Bastet's tables and boards need it" with a fix `Change` for `core-plugins.json`. `doctor --fix` applies it in its one diff and one commit, as for every other fix.
+- No `.obsidian` folder: no problem.
+
+- [ ] **Step 1: Write the failing tests.** In `tests/core/test_initialize.py`: `init` writes `bases` into a new `core-plugins.json` (map form); adds it to an existing map that has other plugins and keeps them; adds it to a list-form file; leaves an already-enabled one alone. In `tests/core/test_doctor.py`: a vault with `core-plugins.json` lacking `bases` yields the problem with a fix; applying the fix enables it and keeps other keys; a vault with it enabled, or with no `.obsidian`, yields none.
+- [ ] **Step 2: Run to verify they fail:** `uv run pytest tests/core/test_initialize.py tests/core/test_doctor.py -q`.
+- [ ] **Step 3: Implement** by extending the existing `core-plugins.json` handling in `initialize.py` (it already has the dict and list branches for `templates`) and adding one `Problem` to `diagnose` in `core/doctor.py` whose `fix` is the changed file text.
+- [ ] **Step 4: Run to verify they pass:** `uv run pytest tests/core/test_initialize.py tests/core/test_doctor.py tests/cli/test_init.py tests/cli/test_doctor_cli.py -q`.
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/bastet/core/initialize.py src/bastet/core/doctor.py tests/core/test_initialize.py tests/core/test_doctor.py
+git commit -m "init and doctor --fix enable Obsidian's Bases core plugin"
+```
+
+---
+
+### Task 6: Docs, roadmap, spec check, and your Obsidian check
 
 **Files:** `src/bastet/data/docs/commands.md`, `src/bastet/data/docs/hosts_and_facts.md`, `src/bastet/data/docs/troubleshooting.md`, `docs/ROADMAP.md`, `docs/specs/2026-10-10-bastet-console-output-design.md`. Test: `tests/core/test_docs.py` (must stay green).
 
 - [ ] **Step 1: Docs** (plain, short, example data only)
   - `commands.md`: `bastet log note RUN [-y]` (makes or re-renders the run's note in the vault; the detail is `runs.note_detail`, 1 to 3, default 1) and `bastet log show RUN [-v…]` (prints a run's record: changes and failures by default, `-vv` phases and items, `-vvv` commands, `-vvvv` their output). Mention `runs.note_detail` next to the retention settings.
   - `hosts_and_facts.md`: a short "Runs" paragraph: a run that changes something leaves a short note under `_bastet/runs/` in the same commit; a check that finds nothing to write leaves none; the Runs tables are on the dashboard and at the bottom of each host's facts note, with views for changes, checks and failures and a board by status.
+  - `bastet_guide.md` or `commands.md` (wherever Obsidian setup is described): the Runs tables and board need Obsidian 1.14 or later with the Bases core plugin, which `bastet init` turns on.
   - `troubleshooting.md`: if a run isn't in the Runs table it left no note (nothing was written); `bastet log` lists every run, `bastet log note <run>` makes its note, and `bastet log show <run> -vvv` shows its detail.
 - [ ] **Step 2: Spec.** Check "Plan 3" against what was built and fix anything that differs.
 - [ ] **Step 3: Roadmap.** Mark plan 3 done, the run-logs milestone (3b) done (☑), update "Now" so roles subplan 2 is next, and keep the "Left from the plan 2 review" and "Later" items. Add a "Later" item: "A board of runs by detail, dragged to change a note's detail (the note would hold all levels as folds); decided against for now."
 - [ ] **Step 4: Run** `uv run pytest tests/core/test_docs.py -q` and `scripts/privacy-check` (it must print nothing).
-- [ ] **Step 5: Your check in Obsidian.** In a sandbox inventory opened as a vault (the `run-bastet` skill sets one up), after a `bastet run -c` that finds something to report: the dashboard's Runs section shows the Changes view with that run; the Checks, Failures and All runs views switch; a host's facts note shows only that host's runs; the board shows columns by status (if it shows nothing or an error, the `kanban` type string is wrong: tell me what the view type is called in a Base you make by hand and I'll change `BOARD_VIEW_TYPE`); `bastet log show latest -vvv` prints the detail; and the secrets Base (if you have secrets) still groups by role.
+- [ ] **Step 5: Your check in Obsidian** (Obsidian 1.14 or later). In a sandbox inventory opened as a vault (the `run-bastet` skill sets one up), after a `bastet run -c` that finds something to report: the dashboard's Runs section shows the Changes view with that run; the Checks, Failures and All runs views switch; a host's facts note shows only that host's runs; the board shows columns by status, and dragging a card is refused or changes nothing (the status in the note must not change) (if it shows nothing or an error, the `kanban` type string is wrong: tell me what the view type is called in a Base you make by hand and I'll change `BOARD_VIEW_TYPE`); `bastet log show latest -vvv` prints the detail; and the secrets Base (if you have secrets) still groups by role.
 - [ ] **Step 6: Commit**
 
 ```bash
