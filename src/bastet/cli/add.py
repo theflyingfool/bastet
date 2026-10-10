@@ -261,7 +261,7 @@ def add_role(
                         fg="yellow")
             continue
         # When no values are set, use the minimal body line
-        body = f"No values set; this role uses its defaults. Options: ![[{role} role#Options]]\n"
+        body = f"Docs: [[Roles]] · Options: ![[{role} role#Options]]\n\nNo values set; this role uses its defaults.\n"
         data = {"bastet": "role", "role": role, "applies_to": make_link(doc.name)}
         changes.append(Change(path, None, new_document(data, body)))
         added.append(role)

@@ -29,15 +29,32 @@ DASHBOARD_NAME = "bastet dashboard"
 DASHBOARD_PATH = f"_bastet/{DASHBOARD_NAME}.md"
 DASHBOARD_EMBED = f"![[{DASHBOARD_NAME}]]"
 RECENT = 6
-GUIDE_PATH = "_bastet/Bastet guide.md"
+GUIDE_PATH = "_bastet/Bastet guide.md"  # old location (single note); deleted once docs() replaces it
+DOCS_DIR = "_bastet/docs"
+DOC_TITLES = (
+    "Bastet guide", "Commands", "Hosts and facts", "Hardware", "Roles", "Secrets", "Troubleshooting", "Writing roles",
+)
 MAPS_DIR = "_bastet/maps"
 GROUPS_DIR = "_bastet/groups"
 SECRETS_PATH = "_bastet/Secrets.md"
 
 
-def guide() -> str:
-    text = (resources.files("bastet") / "data" / "guide" / "guide.md").read_text(encoding="utf-8")
-    return _note({}, text)
+def _doc_filename(title: str) -> str:
+    return title.lower().replace(" ", "_") + ".md"
+
+
+def docs() -> dict[str, str]:
+    """Every user doc Bastet ships, keyed by title: written into every inventory under `_bastet/docs/`
+    by `refresh`. Their text is the package's own `data/docs/*.md`, so they always match the Bastet
+    version you run; the version is stamped into the frontmatter, so a package upgrade alone -- with
+    no other content change -- still produces a different note and gets rewritten."""
+    from bastet import __version__
+
+    out = {}
+    for title in DOC_TITLES:
+        text = (resources.files("bastet") / "data" / "docs" / _doc_filename(title)).read_text(encoding="utf-8")
+        out[title] = _note({"bastet_version": __version__}, text)
+    return out
 
 
 def _flat(value: object) -> str:
@@ -159,7 +176,7 @@ def host_summary(
     card, roles_table = _roles(inv, doc, types)
     if card is not None:
         cards.append(card)
-    body = _grid(cards)
+    body = "Docs: [[Hosts and facts]]\n\n" + _grid(cards)
     drift = list(drift or [])
     if drift:
         body += "\n> [!danger] Drift: Proxmox disagrees with this file\n" + "".join(f"> - {_cell(d)}\n" for d in drift)
@@ -249,7 +266,7 @@ def hardware_summary(inv: Inventory, doc: Document) -> str:
         if isinstance(ports, list) and ports:
             cards.append(_card("Ports", len(ports), ", ".join(str(p.get("name")) for p in ports if isinstance(p, dict))))
     cards.append(place)
-    body = _grid(cards)
+    body = "Docs: [[Hosts and facts]]\n\n" + _grid(cards)
     warning = missing_warning(inv, doc)
     if warning:
         body += f"\n> [!warning] {_cell(warning)}\n"
@@ -611,7 +628,11 @@ def generated_changes(
             if message not in dashboard_warnings[name]:
                 dashboard_warnings[name].append(message)
     want(root / DASHBOARD_PATH, dashboard(inv, types, dashboard_warnings, _recent(repo), drift_by_host, secrets_summary))
-    want(root / GUIDE_PATH, guide())
+    old_guide = root / GUIDE_PATH
+    if old_guide.exists():
+        changes.append(Change(old_guide, old_guide.read_text(encoding="utf-8"), None))
+    for title, text in docs().items():
+        want(root / DOCS_DIR / f"{title}.md", text)
     from bastet.core.maps import cabling_map, networks_map, where_map  # lazy: maps builds on render
 
     for title, text, what in (("Cabling", cabling_map(inv, types), "cables, from `links:`"),

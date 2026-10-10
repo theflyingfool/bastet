@@ -35,7 +35,7 @@ def test_new_role_file_with_no_values_gets_the_minimal_body(runner, inventory):
     the role's own Options section, rather than a full copy of its Examples and properties blurb."""
     runner.invoke(app, ["add", "role", "packages", "pve1", "-y"])
     body = (inventory / "_roles" / "hosts" / "pve1" / "packages.md").read_text().split("---\n", 2)[2]
-    assert body == "No values set; this role uses its defaults. Options: ![[packages role#Options]]\n"
+    assert body == "Docs: [[Roles]] · Options: ![[packages role#Options]]\n\nNo values set; this role uses its defaults.\n"
 
 
 def test_add_role_offers_roles_and_targets(runner, inventory):

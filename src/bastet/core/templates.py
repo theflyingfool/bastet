@@ -71,6 +71,7 @@ def _explain_host_fields(type_def: HostType) -> str:
     lines = [
         f"# {type_def.name} - <hostname>\n",
         f"{type_def.description}\n",
+        "Docs: [[Hosts and facts]]\n",
         "## About this template\n",
         "Edit this note's properties (frontmatter) to set up the host. The text below is for reference.\n",
     ]
@@ -118,6 +119,7 @@ def _explain_hardware_fields(category: str) -> str:
     lines = [
         f"# <hardware name>\n",
         f"Category: {category}\n",
+        "Docs: [[Hardware]]\n",
         "\n## About this template\n",
         "Edit this note's properties to document a hardware item. The text below is for reference.\n",
         "\n### Your information\n",
@@ -146,6 +148,8 @@ def _role_file_template() -> str:
     }
     frontmatter = dump_frontmatter(data)
     body = """# <role name> for <target>
+
+Docs: [[Roles]]
 
 Values go in this note's properties (the frontmatter at the top), not in the page text below.
 

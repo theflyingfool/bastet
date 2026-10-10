@@ -235,17 +235,11 @@ def test_recent_changes_ignore_refresh_commits(repo):
 
 
 def test_guide_generated_and_linked(repo):
+    """Superseded in detail by tests/core/test_docs.py; kept to pin the dashboard's own link."""
     changes = {c.path: c for c in generated_changes(inv(repo), TYPES, repo)}
-    guide = changes[repo.root / "_bastet" / "Bastet guide.md"].after
-    assert "generated: true" in guide and "bastet gather" in guide and "bastet refresh" in guide
+    guide = changes[repo.root / "_bastet" / "docs" / "Bastet guide.md"].after
+    assert "generated: true" in guide and "daily loop" in guide
     assert "[[Bastet guide]]" in changes[repo.root / DASHBOARD_PATH].after
-
-
-def test_guide_explains_the_notes_facts_split(repo):
-    changes = {c.path: c for c in generated_changes(inv(repo), TYPES, repo)}
-    guide = changes[repo.root / "_bastet" / "Bastet guide.md"].after
-    assert "your notes hold what you decide" in guide.lower() and "_bastet/facts/" in guide
-    assert "what bastet saw" in guide.lower()
 
 
 def test_mermaid_ids_safe_and_distinct(repo):

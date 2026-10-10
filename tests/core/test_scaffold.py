@@ -38,7 +38,7 @@ def test_new_vps(tmp_path):
     assert draft.change.after == (
         "---\nbastet: host\ncssclasses:\n  - bastet-host\ntype: vps\n"
         "provider: linode\nip: 203.0.113.10\nhostname: edge1\ngather: true\n---\n# edge1\n\n"
-        "![[edge1 facts]]\n\n## Roles\n\n![[roles-here.base]]\n"
+        "Docs: [[Hosts and facts]]\n\n![[edge1 facts]]\n\n## Roles\n\n![[roles-here.base]]\n"
     )
     assert draft.suggested_ip is None
 
@@ -47,7 +47,7 @@ def test_new_physical_host_gets_hardware_and_roles_sections(tmp_path):
     inv = inv_with(tmp_path, {})
     draft = new_host(inv, TYPES, "pve2", "proxmox", ip="10.0.10.12")
     assert draft.change.after.endswith(
-        "# pve2\n\n![[pve2 facts]]\n\n## Hardware\n\n![[hardware-here.base]]\n\n## Roles\n\n![[roles-here.base]]\n"
+        "# pve2\n\nDocs: [[Hosts and facts]]\n\n![[pve2 facts]]\n\n## Hardware\n\n![[hardware-here.base]]\n\n## Roles\n\n![[roles-here.base]]\n"
     )
 
 
@@ -117,7 +117,8 @@ def test_new_hardware_installed(tmp_path):
     assert c.path == tmp_path / "hardware" / "WD Red 4TB WX12.md"
     assert c.after == (
         "---\nbastet: hardware\ncategory: drive\nserial: WX12\nsize: 4 TB\n"
-        'status: in-service\ninstalled_in: "[[pve1]]"\ncssclasses:\n  - bastet-host\n---\n# WD Red 4TB WX12\n\n![[WD Red 4TB WX12 facts]]\n'
+        'status: in-service\ninstalled_in: "[[pve1]]"\ncssclasses:\n  - bastet-host\n---\n'
+        "# WD Red 4TB WX12\n\nDocs: [[Hardware]]\n\n![[WD Red 4TB WX12 facts]]\n"
     )
 
 

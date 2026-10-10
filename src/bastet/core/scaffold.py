@@ -106,7 +106,7 @@ def new_host(
     data.setdefault("gather", types[type_name].gather)
     path = inv.root / "hosts" / f"{name}.md"
     body = (
-        f"# {name}\n\n{facts_embed(name)}\n"
+        f"# {name}\n\nDocs: [[Hosts and facts]]\n\n{facts_embed(name)}\n"
         + (HARDWARE_SECTION if types[type_name].physical else "")
         + ROLES_SECTION
     )
@@ -142,4 +142,4 @@ def new_hardware(
         data["location"] = make_link(inv.get(location).name)
     data["cssclasses"] = ["bastet-host"]
     path = inv.root / "hardware" / f"{name}.md"
-    return Change(path, None, new_document(data, f"# {name}\n\n{facts_embed(name)}\n"))
+    return Change(path, None, new_document(data, f"# {name}\n\nDocs: [[Hardware]]\n\n{facts_embed(name)}\n"))

@@ -13,7 +13,9 @@ from bastet.core.factsnote import hardware_facts_path
 from bastet.core.frontmatter import Document, remove_keys
 from bastet.core.inventory import Inventory, stale_fact_removal, stale_hardware_removal
 from bastet.core.refreshstate import last_reason as last_refresh_skip_reason
-from bastet.core.views import facts_embed
+from bastet.core.views import ensure_page_embed, facts_embed
+
+DOCS_LINE = "Docs: [[Bastet guide]]"
 
 # A key the inventory warning already called removable can still be waiting for its first value:
 # the warning's own wording doesn't require that (it's about what to tell the person), but a fix
@@ -161,12 +163,31 @@ def _other_page_problems(inv: Inventory, doc: Document, retired_targets: set[str
     )]
 
 
+def _lab_docs_link_problem(inv: Inventory) -> Problem | None:
+    """`Homelab.md` (the lab file, so it's yours) should point at [[Bastet guide]]; `init` adds the
+    line on a new lab, but an inventory from before this existed never got it."""
+    lab = inv.lab
+    if lab is None or DOCS_LINE in lab.body:
+        return None
+    rel = _rel(inv.root, lab.path)
+    current = lab.path.read_text(encoding="utf-8")
+    fixed = ensure_page_embed(current, DOCS_LINE)
+    return Problem(
+        where=rel, message=f"{rel} doesn't link the guide; add '{DOCS_LINE}' under its title",
+        severity="warning", fix=Change(lab.path, current, fixed),
+        fix_note=f"{rel}: added '{DOCS_LINE}'",
+    )
+
+
 def diagnose(ctx) -> list[Problem]:
     """Every problem `bastet doctor` lists: today's inventory problems, stale gathered keys on
-    host and hardware notes, pages still embedding a retired note, why the last refresh was
-    skipped, and a pending push."""
+    host and hardware notes, pages still embedding a retired note, the lab file missing its docs
+    link, why the last refresh was skipped, and a pending push."""
     inv = ctx.inventory
     problems: list[Problem] = _inventory_problems(inv)
+    lab_docs = _lab_docs_link_problem(inv)
+    if lab_docs is not None:
+        problems.append(lab_docs)
 
     hosts = inv.of_kind("host")
     hardware = inv.of_kind("hardware")
