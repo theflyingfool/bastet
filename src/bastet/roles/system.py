@@ -38,7 +38,7 @@ def base(v: dict, host) -> list[Batch]:
     res = [Package(name=n) for n in names]
     if v.get("microcode") == "auto" and host.physical:
         if not host.data.get("cpu"):
-            raise BastetError("base.microcode: auto needs the CPU vendor; run bastet gather on this host first")
+            raise BastetError("base.microcode: auto needs the CPU vendor; run bastet run -g on this host first")
         package = MICROCODE.get((_family(host), _vendor(host.data.get("cpu"))))
         if package is None:
             raise BastetError(f"base.microcode: no microcode package known for {host.data.get('os')} "
@@ -104,7 +104,7 @@ def _suite(v: dict, host) -> str:
     m = re.search(r"\(([a-z]+)\)", str(host.data.get("os") or ""))
     if not m:
         raise BastetError(f"proxmox.suite: can't tell the Debian codename from '{host.data.get('os')}'; "
-                          "set suite (e.g. trixie) or run bastet gather")
+                          "set suite (e.g. trixie) or run bastet run -g")
     return m.group(1)
 
 

@@ -21,7 +21,7 @@ def test_lynis_parses_index_warnings_and_date():
     section = r.security_section(cur)
     assert section.startswith("## Lynis") and "59" in section and "SSH-7408" in section and "DEB-0280" in section
     missing = r.current({"report": ok("")})
-    assert not missing["present"] and "run bastet apply" in str(r.compare(missing)[0].before)
+    assert not missing["present"] and "bastet run applies" in str(r.compare(missing)[0].before)
 
 
 def test_arch_audit_parses():

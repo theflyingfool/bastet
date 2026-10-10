@@ -1,4 +1,4 @@
-"""bastet check / bastet apply: make hosts match the desired state their roles describe."""
+"""bastet run: make hosts match the desired state their roles describe."""
 
 import datetime as dt
 import select
@@ -79,10 +79,10 @@ def connect(ctx: Context, doc: Document, tmp: Path, *, yes: bool):
         raise BastetError("no address to connect to; set `address:` or a fixed `ip:`", file=doc.path)
     recorded = host_data(ctx.inventory, doc, ctx.types).get("ssh_host_key")
     if not recorded:
-        raise BastetError("no confirmed host key yet; run `bastet gather` on this host first", file=doc.path)
+        raise BastetError("no confirmed host key yet; run `bastet run -g` on this host first", file=doc.path)
     keys, port = _scan_pinned(doc, str(address), str(recorded), ssh_ports(ctx, doc), scan_keys)
     if hostkeys.check(str(recorded), keys) != "match":
-        raise BastetError("the host's key doesn't match ssh_host_key; run `bastet gather` "
+        raise BastetError("the host's key doesn't match ssh_host_key; run `bastet run -g` "
                           "(with --accept-new-hostkey after a reinstall)", file=doc.path, key="ssh_host_key")
     key = ctx.config.ssh.key
     if key is None:

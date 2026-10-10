@@ -70,7 +70,7 @@ class LynisReport(_Report):
 
     def compare(self, current):
         if not current["present"]:
-            return [FieldChange("report", "no lynis report yet (run bastet apply)", "a report")]
+            return [FieldChange("report", "no lynis report yet (bastet run applies and runs the audit)", "a report")]
         n = len(current["warnings"])
         return [FieldChange("warnings", f"{n} warning{'s' if n != 1 else ''}", "none")] if n else []
 
@@ -79,7 +79,7 @@ class LynisReport(_Report):
 
     def security_section(self, current) -> str:
         if not current["present"]:
-            return "## Lynis\n\nNo report yet. `bastet apply` runs an audit on hosts with `lynis: true`.\n"
+            return "## Lynis\n\nNo report yet. `bastet run` runs an audit on hosts with `lynis: true`.\n"
         out = [f"## Lynis\n\nHardening index **{current['index']}** · audited {current['date']} · lynis {current['version']}\n"]
         if current["warnings"]:
             out.append("\n### Warnings\n\n| Test | Warning |\n|---|---|\n")

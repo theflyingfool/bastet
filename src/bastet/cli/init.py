@@ -52,7 +52,7 @@ def _now() -> str:
 def _confirm_local_hostkey(ctx: Context, *, yes: bool) -> None:
     hosts = [d for d in ctx.inventory.of_kind("host") if d.data.get("connection") == "local"]
     if not hosts:
-        out.echo("No local host in the inventory yet; `bastet gather` will pin its key once you add one.")
+        out.echo("No local host in the inventory yet; `bastet run -g` will pin its key once you add one.")
         return
     try:
         keys = _scan_local()
@@ -68,7 +68,7 @@ def _confirm_local_hostkey(ctx: Context, *, yes: bool) -> None:
             continue
         if recorded:
             out.secho(
-                f"{doc.name}: a different host key is already recorded; run `bastet gather "
+                f"{doc.name}: a different host key is already recorded; run `bastet run -g "
                 "--accept-new-hostkey` if this machine was reinstalled", fg="yellow",
             )
             continue

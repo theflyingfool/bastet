@@ -37,7 +37,7 @@ def test_microcode_only_on_physical_hosts():
 
 
 def test_microcode_needs_cpu_fact():
-    with pytest.raises(BastetError, match="run bastet gather"):
+    with pytest.raises(BastetError, match="run bastet run -g"):
         batches_for([ap("base", {})], host(physical=True))
 
 
