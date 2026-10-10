@@ -17,7 +17,7 @@ from bastet.engine.security import ServiceExposure
 from bastet.engine.systemd import Hostname, Locale, TimeSettings, Unit, drop_in, reload, restart
 from bastet.engine.templates import render_template
 from bastet.engine.users import AuthorizedKey, Group, User, sudoer
-from bastet.roles import system
+from bastet.roles import declarative, system
 from bastet.roles.resolve import Applied
 
 ORDER = ("proxmox", "pacman", "packages", "base", "users", "files", "ssh", "harden", "systemd")  # repositories and pacman.conf before installs
@@ -251,6 +251,12 @@ def batches_for(applied: list[Applied], host: HostInfo) -> list[Batch]:
         host = replace(host, ssh_ports=tuple(ssh.values["port"]))
     batches: list[Batch] = []
     for a in sorted(applied, key=lambda a: ORDER.index(a.role.name) if a.role.name in ORDER else len(ORDER)):
+        if a.role.markdown:
+            built = declarative.build(a.role, a.values, host)
+            if a.secret:
+                built = [replace(b, resources=[replace(r, secret=True) for r in b.resources]) for b in built]
+            batches += built
+            continue
         builder = BUILDERS.get(a.role.name)
         if builder is None:
             raise BastetError(f"role {a.role.name} has no implementation yet")
