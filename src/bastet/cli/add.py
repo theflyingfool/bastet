@@ -5,7 +5,8 @@ from pathlib import Path
 import typer
 
 import bastet.cli.secret as secret_mod
-from bastet.cli.common import finish, handles_errors, load_context, push_or_warn, write_with_confirmation
+from bastet.cli.common import finish, handles_errors, load_context, push_or_warn, write_with_confirmation, next_hint
+from bastet.cli.complete import complete_roles
 from bastet.core.render import lab_embed_changes
 from bastet.core.changes import Change
 from bastet.core.errors import BastetError
@@ -16,6 +17,7 @@ from bastet.core.views import ROLES_SECTION, SECRETS_SECTION, has_roles_section,
 from bastet.roles.contract import load_roles
 from bastet.core.scaffold import new_host, suggested_ip
 from bastet.core.hardware import HARDWARE_CATEGORIES
+from bastet.core.errors import did_you_mean
 
 add_app = typer.Typer(no_args_is_help=True, help="Add a host to the inventory. Asks for anything not given.")
 
@@ -108,6 +110,7 @@ def add_host(
         typer.echo(f"Suggested address: {draft.suggested_ip} (next free in {network})")
     if write_with_confirmation(ctx, [draft.change, *lab_embed_changes(inv)], yes):
         finish(ctx, f"add host {name}")
+        next_hint(f"bastet run -g {name}", yes=yes)
         if local:
             _set_up_this_machine(yes=yes)
 
@@ -210,7 +213,8 @@ def _role_targets(inv) -> list[tuple[str, str]]:
 @add_app.command("role")
 @handles_errors
 def add_role(
-    roles: list[str] | None = typer.Argument(None, help="Roles to add (offered as a list if not given)."),
+    roles: list[str] | None = typer.Argument(None, help="Roles to add (offered as a list if not given).",
+                                            autocompletion=complete_roles),
     to: str | None = typer.Option(None, "--to", help="A host, a group, or `lab` for every host (asked if not given)."),
     yes: bool = typer.Option(False, "--yes", "-y", help="Don't ask; write and commit."),
 ) -> None:
@@ -231,7 +235,12 @@ def add_role(
         names = _choose_many("Roles", [(n, r.description.split(". ")[0].rstrip(".")) for n, r in sorted(known.items())])
     for role in names:
         if role not in known:
-            raise BastetError(f"unknown role {role!r} (roles: {', '.join(sorted(known))})")
+            suggestion = did_you_mean(role, list(known.keys()))
+            if suggestion:
+                msg = f"unknown role {role!r}; {suggestion}"
+            else:
+                msg = f"unknown role {role!r} (roles: {', '.join(sorted(known))})"
+            raise BastetError(msg)
     if to is None:
         to = _choose("Add to", _role_targets(ctx.inventory))
     if to == "lab":
@@ -251,9 +260,8 @@ def add_role(
             typer.secho(f"{doc.name} already has the {role} role ({path.relative_to(ctx.root)}); edit it in Obsidian",
                         fg="yellow")
             continue
-        body = (f"# {role} for {doc.name}\n\nValues go in this note's properties (the frontmatter at the top), "
-                f"not in the page text below.\n\n## Examples\n\n![[{role} role#Examples]]\n\n"
-                f"## Options\n\n![[{role} role#Options]]\n")
+        # When no values are set, use the minimal body line
+        body = f"No values set; this role uses its defaults. Options: ![[{role} role#Options]]\n"
         data = {"bastet": "role", "role": role, "applies_to": make_link(doc.name)}
         changes.append(Change(path, None, new_document(data, body)))
         added.append(role)
@@ -266,3 +274,4 @@ def add_role(
     if write_with_confirmation(ctx, changes, yes):
         _offer_secrets(ctx, added, doc, yes=yes)
         finish(ctx, f"add role {', '.join(added)} to {doc.name}")
+        next_hint("bastet run -c", yes=yes)

@@ -2,7 +2,7 @@ import typer
 
 from bastet import __version__
 
-app = typer.Typer(invoke_without_command=True, add_completion=False, pretty_exceptions_show_locals=False)  # never print a decrypted secret
+app = typer.Typer(invoke_without_command=True, add_completion=True, pretty_exceptions_show_locals=False)  # never print a decrypted secret
 
 
 def _print_version(value: bool) -> None:

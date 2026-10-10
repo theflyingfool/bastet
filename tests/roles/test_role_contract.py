@@ -21,12 +21,12 @@ def test_shorthand_and_reserved_keys():
 
 @pytest.mark.parametrize("role,values,message", [
     ("systemd", {"timezon": "UTC"}, "systemd has no option 'timezon'"),
-    ("systemd", {"ntp": "yes"}, "expected true or false"),
+    ("systemd", {"ntp": "maybe"}, "expected true or false"),
     ("systemd", {"ntp_service": "ntpd"}, "isn't one of keep, timesyncd, chrony"),
     ("files", {"files": {"/etc/x": {"content": "a", "mode": 420}}}, "quote it"),
     ("files", {"files": {"/etc/x": {"contents": "a"}}}, "unknown field contents"),
     ("packages", {"install": "tree"}, "expected a list"),
-    ("users", {"users": {"alice": {"uid": "1000"}}}, "expected a whole number"),
+    ("users", {"users": {"alice": {"uid": "abc"}}}, "expected a whole number"),
 ])
 def test_errors_name_the_option(role, values, message):
     with pytest.raises(BastetError) as e:

@@ -25,6 +25,7 @@ from bastet.cli.common import (
     scan_first,
     ssh_ports,
 )
+from bastet.cli.complete import complete_hosts
 from bastet.core.secrets import health as secret_health
 from bastet.cli.gather import _resolve_address, _scan_pinned, scan_keys, ssh_runner
 from bastet.core import hostkeys
@@ -562,7 +563,8 @@ def _run(selectors: list[str] | None, exclude: list[str] | None, *, apply_change
 @handles_errors
 def run(
     hosts: list[str] | None = typer.Argument(
-        None, help="Hosts to run on: a name, '@type', '@group', '@lab', or a glob. Default: every host that isn't destroyed."
+        None, help="Hosts to run on: a name, '@type', '@group', '@lab', or a glob. Default: every host that isn't destroyed.",
+        autocompletion=complete_hosts,
     ),
     check: bool = typer.Option(False, "--check", "-c", help="Show what would change. Changes nothing."),
     gather: bool = typer.Option(False, "--gather", "-g", help="Collect facts from hosts and write them into their files, after showing the diff."),

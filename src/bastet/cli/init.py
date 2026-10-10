@@ -7,7 +7,7 @@ from pathlib import Path
 
 import typer
 
-from bastet.cli.common import Context, handles_errors, load_context, push_or_warn, refresh_only
+from bastet.cli.common import Context, handles_errors, load_context, push_or_warn, refresh_only, next_hint
 from bastet.core import hostkeys
 from bastet.core.changes import Change, render_diff, write_changes
 from bastet.core.config import config_path, data_dir, inventory_dir, load_config
@@ -274,3 +274,4 @@ def init(
         _setup_this_machine(ctx, result.public_key, yes=yes)
     else:
         typer.echo("This computer isn't managed by Bastet. To manage it later: bastet add host <name> --local")
+    next_hint("bastet add host", yes=yes)

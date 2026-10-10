@@ -4,6 +4,7 @@ from pathlib import Path
 import typer
 
 from bastet.cli.common import handles_errors, load_context, problem_line
+from bastet.cli.complete import complete_hosts
 from bastet.core.errors import BastetError
 from bastet.core.factsnote import facts_path
 from bastet.core.hosttypes import HostType
@@ -73,7 +74,8 @@ def _show_one(inv: Inventory, root: Path, name: str) -> None:
 @handles_errors
 def show(
     names: list[str] | None = typer.Argument(
-        None, help="A name (shows that object), or selectors ('@type', '@group', '@lab', a glob) to list matching hosts."
+        None, help="A name (shows that object), or selectors ('@type', '@group', '@lab', a glob) to list matching hosts.",
+        autocompletion=complete_hosts,
     ),
 ) -> None:
     """List the inventory and any problems, or show one object, or a table of hosts matching a selector."""

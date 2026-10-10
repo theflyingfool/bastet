@@ -8,7 +8,7 @@ from pathlib import Path
 
 import yaml
 
-from bastet.core.errors import BastetError
+from bastet.core.errors import BastetError, did_you_mean
 
 TYPES = ("string", "int", "number", "bool", "list", "map", "object", "any")  # any: checked by the role's builder
 SECRET_PREFIX = "secret:"  # a reference, resolved and re-checked against the option's type later
@@ -93,10 +93,48 @@ def load_roles(directory: Path | None = None) -> dict[str, RoleDef]:
     return roles
 
 
+def _lenient(typ: str, value: object) -> object:
+    """Lenient value parsing: convert string values to the expected type if possible.
+
+    bool accepts "true"/"false"/"yes"/"no" (any case)
+    int and number accept numeric text
+    Returns the converted value on success, or the original value if not applicable.
+    """
+    if not isinstance(value, str):
+        return value
+
+    s = value.strip().lower()
+
+    if typ == "bool":
+        if s in {"true", "yes"}:
+            return True
+        if s in {"false", "no"}:
+            return False
+        return value  # invalid; let the normal check_value error
+
+    if typ == "int":
+        try:
+            return int(value)
+        except (ValueError, TypeError):
+            return value  # invalid; let the normal check_value error
+
+    if typ == "number":
+        try:
+            if "." in value or "e" in value.lower():
+                return float(value)
+            return int(value)
+        except (ValueError, TypeError):
+            return value  # invalid; let the normal check_value error
+
+    return value
+
+
 def check_value(opt: Option, value: object, where: str) -> object:
     """Validate one value; returns it normalised (shorthand expanded, empty fields dropped)."""
     if isinstance(value, str) and value.startswith(SECRET_PREFIX):
         return value  # unresolved reference: the real value is checked against this type once it's resolved
+    # Lenient parsing: convert string values if applicable
+    value = _lenient(opt.type, value)
     if opt.type == "object" and opt.shorthand and isinstance(value, str):
         value = {opt.shorthand: value}
     if opt.type == "any":
@@ -143,8 +181,12 @@ def check_values(role: RoleDef, values: dict, where: str, file: Path | None = No
         if key in RESERVED or value is None:
             continue
         if key not in role.options:
-            raise BastetError(f"{where}: {role.name} has no option {key!r} (options: {', '.join(role.options)})",
-                              file=file, key=key)
+            suggestion = did_you_mean(key, list(role.options.keys()))
+            if suggestion:
+                msg = f"{where}: {role.name} has no option {key!r}; {suggestion}"
+            else:
+                msg = f"{where}: {role.name} has no option {key!r} (options: {', '.join(role.options)})"
+            raise BastetError(msg, file=file, key=key)
         try:
             out[key] = check_value(role.options[key], value, f"{role.name}.{key}")
         except BastetError as exc:

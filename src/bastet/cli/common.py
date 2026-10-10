@@ -1,5 +1,6 @@
 import contextlib
 import functools
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -213,6 +214,20 @@ def print_problems(ctx: Context) -> None:
     for problem in ctx.inventory.problems:
         text, fg = problem_line(ctx.root, problem)
         typer.secho(text, fg=fg)
+
+
+def _stdout_is_tty() -> bool:
+    """Check if stdout is a terminal."""
+    return hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
+
+
+def next_hint(text: str, yes: bool) -> None:
+    """Print a next-step hint if stdout is a terminal and --yes flag is not set.
+
+    Hints are suppressed when -y/--yes is set or when stdout is not a terminal (e.g., piped).
+    """
+    if not yes and _stdout_is_tty():
+        typer.secho(f"next: {text}", fg="green")
 
 
 def find_named_host(ctx: Context, name: str) -> Document:

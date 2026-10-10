@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import fnmatch
 
-from bastet.core.errors import BastetError
+from bastet.core.errors import BastetError, did_you_mean
 from bastet.core.frontmatter import Document
 from bastet.core.hosttypes import HostType
 from bastet.core.inventory import Inventory
@@ -37,9 +37,17 @@ def _at_selector(inv: Inventory, types: dict[str, HostType], name: str) -> list[
     group = _group_doc(inv, name)
     if group is not None:
         return [d for d in _present_hosts(inv) if group.name.lower() in group_distances(inv, d, types)]
-    known_groups = ", ".join(sorted(g.name for g in inv.of_kind("group"))) or "none"
-    known_types = ", ".join(sorted(types)) or "none"
-    raise BastetError(f"no group or type named '{name}' (groups: {known_groups}; types: {known_types})")
+
+    # Try to suggest a close match
+    candidates = list(types.keys()) + [g.name for g in inv.of_kind("group")]
+    suggestion = did_you_mean(name, candidates)
+    if suggestion:
+        msg = f"no group or type named '{name}'; {suggestion}"
+    else:
+        known_groups = ", ".join(sorted(g.name for g in inv.of_kind("group"))) or "none"
+        known_types = ", ".join(sorted(types)) or "none"
+        msg = f"no group or type named '{name}' (groups: {known_groups}; types: {known_types})"
+    raise BastetError(msg)
 
 
 def _glob_selector(inv: Inventory, pattern: str) -> list[Document]:
@@ -52,7 +60,14 @@ def _glob_selector(inv: Inventory, pattern: str) -> list[Document]:
 def _exact_selector(inv: Inventory, name: str) -> list[Document]:
     doc = inv.get(name)
     if doc is None or doc.data.get("bastet") != "host":
-        raise BastetError(f"no host named '{name}' in the inventory")
+        # Try to suggest a close match
+        host_names = [d.name for d in inv.of_kind("host")]
+        suggestion = did_you_mean(name, host_names)
+        if suggestion:
+            msg = f"no host named '{name}'; {suggestion}"
+        else:
+            msg = f"no host named '{name}' in the inventory"
+        raise BastetError(msg)
     return [doc]
 
 
