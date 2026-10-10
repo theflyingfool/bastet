@@ -21,7 +21,7 @@
 | ssh lockout guard | Dropped (2026-10-10): if someone configures it wrong, they own it. The syntax check stays; the ssh role adds a few quick `warn` rules for the obvious cases. The old guard and its tests are removed when ssh is converted |
 | Execution | By phase across all roles, not role by role. Triggers run once, at the end |
 | Role calls role | Reserved (`uses:`), not built. No concrete case yet |
-| Capabilities | `wants` (soft, block side) in the first slice. Hard `needs`, cross-host `needs`/`provides` and `contributes` are reserved, built when a real role needs them |
+| Capabilities | `wants` (soft, block side) in the first slice. Hard `needs`, cross-host `needs`/`provides` and `contributes` are designed (section 4, "Across hosts") and built with the first role that needs them |
 | Migration order | One role at a time, pacman first, evaluate after each |
 | Contract | Draft (`api: 0`) until real roles have shaken it out; promised at 1.0 |
 | Versioning | Light (section 6) |
@@ -73,6 +73,15 @@ An entry can move itself with `before:` or `after:` (below). The first failed st
 - **`before:` / `after:` (entry side)** names a block: the entry runs in the slot just before or after that block's normal slot. It works on an entry of any block, and it says why in words you already use. Example: a user created by hand before packages that would create it is `users: [{name: svc, before: packages}]`. The slots are totally ordered, so it can never create a cycle.
 - **Long-term goal: infer the order from references.** Bastet should work out most orderings from what entries mention (a file owned by `svc` implies the user first; a service `Requires=` another). `before:`/`after:` then remain as the explicit override. Not built in the first slice.
 - **No ordering inside a phase.** Starting an app unit pulls in the units it `Requires=`, so systemd already orders services. Revisit only if restart order turns out to matter.
+
+### Across hosts
+A role that `needs` something another host provides, such as an app that needs a database on another machine, waits for that whole host. This builds on what exists: the parallel runner can already make one host wait for another (guests wait for their node).
+- **Resolution.** `needs: database` is matched to the host whose assigned roles `provide: database`. The match becomes a host-level dependency. Two providers is an ambiguity: the role asks for an explicit choice (an option naming the host). No provider is an error naming the role and the host that needs it (or an offer from `add role`).
+- **The wait is for the whole host.** The dependency host must get all the way through apply and verify, successfully, before the dependent host starts applying. If it failed or was skipped, the dependent is skipped with a reason such as "its database host db1 failed" (as guests are today). Independent hosts still run in parallel.
+- **Check stays parallel.** It only reads, so every host checks at once; a dependent whose provider has not been built yet reports that plainly.
+- **Cycles** (a needs b, b needs a) are found before anything runs and reported, as `runs_on` cycles are today.
+- **Information flows too.** The dependent reads what the provider exposes (address, port, a generated credential) as `needs.database.host` and so on, taken from the provider's resolved options, so nothing is typed twice.
+- **Not built in the first slice.** The keys are reserved and ignored. The existing guest-after-node wait keeps working untouched. A finer wait (the app continues until the step that needs the database) is possible later and is not needed.
 
 ## 5. Roadmap
 
