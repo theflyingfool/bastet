@@ -81,7 +81,9 @@ A role that `needs` something another host provides, such as an app that needs a
 - **Check stays parallel.** It only reads, so every host checks at once; a dependent whose provider has not been built yet reports that plainly.
 - **Cycles** (a needs b, b needs a) are found before anything runs and reported, as `runs_on` cycles are today.
 - **Information flows too.** The dependent reads what the provider exposes (address, port, a generated credential) as `needs.database.host` and so on, taken from the provider's resolved options, so nothing is typed twice.
-- **Not built in the first slice.** The keys are reserved and ignored. The existing guest-after-node wait keeps working untouched. A finer wait (the app continues until the step that needs the database) is possible later and is not needed.
+- **A guest always goes after its host system.** This comes from `runs_on`, not from `needs`/`provides`, is the same whole-host wait, and already works. It applies when both machines are in the same run: running just the guest does not wait for a node you did not select, which is assumed to be built already.
+- **Reboots are a separate problem, parked.** A node reboot takes its guests (and anything that needs it) down with it. That is the reboot plan (earlier spec §7.6) and stays with the infrastructure roles, not this work.
+- **Not built in the first slice.** The `needs`/`provides` keys are reserved and ignored. The existing guest-after-node wait keeps working untouched. A finer wait (the app continues until the step that needs the database) is possible later and is not needed.
 
 ## 5. Roadmap
 
