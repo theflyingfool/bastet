@@ -69,6 +69,8 @@ Needed before the Proxmox and ZFS roles, to see what a run did, in the order it 
 - **Obsidian views:** a Runs Base on `Homelab.md` and a per-host one on each host page, newest first, each with several views: Changes (the default: apply and gather runs plus anything that failed), Checks, Failures and All runs. Directly below each table, a kanban board over the same runs grouped by `status` (ok, failed, interrupted).
 - **Git:** each run's note is committed in the command's one commit (apply, gather and check alike); the JSONL is never committed.
 
+**Left from the plan 2 review (small):** live `-vv` lines from other hosts can land inside a host's report when hosts run in parallel (needs a display queue); `bastet log` times are UTC with no marker; two runs in the same second can sort the wrong way for `latest` and pruning; the recorded command leaves out `-y`, `-j`, `--updates` and `--accept-new-hostkey`; command output in a record isn't size-capped; values that aren't text, lists or dicts aren't masked (nothing emits them yet).
+
 **Later:** a SQLite index built from the JSONL files for cross-run queries and the ARA replacement (JSONL stays the record); every command, not only the run-type ones, emitting events; `refresh` and gather's individual commands emitting events; `hook_ran` and `reboot_step` events once roles subplan 3 adds hooks and the reboot plan.
 
 ## Building blocks
