@@ -18,14 +18,17 @@ work in `docs/plans/`. Update this file whenever a plan lands.
 
 ## Now
 
-**Console primitives** (plan 1 of the run-logs work) are done; the next plan is plan 2, events and the JSONL log.
+**Run logs were pulled forward ahead of the roles redesign** (decided 2026-10-10): you need to see what a run did, in order, before more roles land, and the event tests give the roles work a regression net. The design is `docs/specs/2026-10-10-bastet-console-output-design.md`, built as three plans:
+1. **Console primitives:** done and merged (colour, width-fitting tables, coloured diffs, plain when piped).
+2. **Events and the JSONL record:** **next**, written (`docs/plans/2026-10-10-bastet-console-2-events.md`).
+3. **Run notes** in the vault, the Runs Bases and `--log-level`: not yet planned.
 
 **Simplification and UX** (`docs/plans/2026-10-07-bastet-simplify-ux.md`) is merged: `bastet run`, selectors, `doctor`,
 the hardware split, one Bastet note per object, `_templates/`, user docs in `_bastet/docs/`, type groups and the
 `other` type. The memory facts key is now `memory_type`, and Tasks 7–11 have since been reviewed and their
 follow-ups fixed.
 
-**Next: the roles redesign, subplan 2: role format and library** (`docs/plans/2026-10-07-bastet-roles-2-format-library.md`, written; uses `bastet doctor <dir>` for role linting).
+**After that: the roles redesign, subplan 2: role format and library** (`docs/plans/2026-10-07-bastet-roles-2-format-library.md`, written and updated after an independent audit on 2026-10-10: library copies join the command's one commit, a role with no builder fails its host with a clear marker, `role update` lists changed files; uses `bastet doctor <dir>` for role linting).
 Subplan 1, the host-note split, is merged: gathered facts live in `_bastet/facts/<host> facts.md`, and automatic
 commands never write host notes.
 Its six subplans are tracked in `docs/plans/2026-10-06-bastet-roles-roadmap.md`. After the redesign, roles are
@@ -41,7 +44,7 @@ built in the order of the roles table below.
 | — | Secrets part 1: age-encrypted secret notes, unlock/lock, upstream-change gate | ☑ |
 | — | Parallel hosts: gather/check/apply in parallel, apply asks once | ☑ |
 | 3 | **Roles redesign:** Markdown roles, building-block execution, presets, host-note split | ◐ in progress |
-| 3b | **Run logs:** an ordered record of every run, readable in Obsidian, with its own verbosity (below) | ☐ |
+| 3b | **Run logs:** an ordered record of every run, readable in Obsidian, with its own verbosity (below). Plan 1 of 3 done, plan 2 next | ◐ in progress |
 | 4 | Infrastructure roles: Proxmox node setup, ZFS, guest creation, firewall, container runtime | ☐ |
 | 5 | Secrets part 2: rotation and rekey (once real secret-using roles exist) | ☐ |
 | 6 | App roles, then proxy and DNS roles that configure themselves from the whole lab | ☐ |
@@ -49,36 +52,25 @@ built in the order of the roles table below.
 
 ## Run logs (milestone 3b)
 
-Needed before the Proxmox and ZFS roles, to see what a run did, in the order it did it.
+Needed before the Proxmox and ZFS roles, to see what a run did, in the order it did it. Design:
+`docs/specs/2026-10-10-bastet-console-output-design.md`. Built as three plans.
 
-Plan 1 of 3, the console primitives, is done (`docs/specs/2026-10-10-bastet-console-output-design.md`): colour,
-width-fitting tables, coloured diffs and status marks, plain when piped or `NO_COLOR` is set. Plan 2 (events and
-JSONL) and plan 3 (run notes) are not started.
+**Plan 1, console primitives: done.** One `bastet.ui` console for every command (`out.echo`/`secho`/`diff`/`table`/`block`/`reveal`): colour, width-fitting tables, coloured diffs, status marks. It is plain text (byte-identical to the old output) when piped, under test, or when `NO_COLOR` is set. Secrets are masked inside it.
 
-- **Structured output:**
-  - **One event stream:** every command emits events, not pre-formatted strings, and they're rendered three ways: the terminal (Rich, width-aware), the run note (Markdown) and the JSONL.
-  - **A small shared output layer replaces raw `echo`:** tables that fit the terminal width, per-host headers, consistent status marks, coloured diffs, key/value lists.
-  - **Not a terminal** (piped, or in tests): plain text, no colour, no boxes.
-  - The parallel runner's host blocks hold events too.
-  - Helpers are tested at several widths.
+**Plan 2, events and the JSONL record: next** (`docs/plans/2026-10-10-bastet-console-2-events.md`).
+- **Events:** the engine and `run` emit events (phase, item checked, command with exit code and timing, trigger, host started/finished/skipped, notes). Output is masked once, in one place.
+- **The JSONL record:** every run, always at full detail, in `~/.local/share/bastet/runs/<run-id>.jsonl` (mode `0600`), with retention (`runs.keep_runs`, `runs.keep_days`). `bastet runs` lists past runs and `bastet runs export` prints one.
+- **`-v` counts:** `-v` shows compliant items as before; `-vv` live events; `-vvv` commands with exit code and timing; `-vvvv` their output.
+- A read script's output is never recorded (it holds file contents), and a `secret` resource's command and output are hidden.
 
-- **Raw event log** on the controller: `~/.local/share/bastet/runs/<run-id>.jsonl`. Every step as it happens: phase, host, resource, read/compare result, command, exit code, timing, triggers, hooks, reboot-plan steps. Everything goes through the secret masker.
-- **A run note in the vault:** `_bastet/runs/<date time> <command>.md`.
-  - **Top:** command, who ran it, hosts, changed/failed/skipped/stopped counts, duration.
-  - **Then per host:** a timeline grouped by phase, in execution order.
-  - **Frontmatter stays flat** (`command`, `started`, `hosts`, `changed`, `failed`, `status`) so Bases can list it.
-- **Obsidian views:**
-  - a Runs Base on `Homelab.md`, newest first, each row linking to its run note;
-  - a per-host runs Base on each host page.
-- **Log verbosity,** separate from the terminal's `-v`: `--log-level 1–4`, or `log_level:` in `bastet.yml`.
-  - **1 (default):** changes and failures, with why.
-  - **2:** every item checked, with before/after values.
-  - **3:** every command, with exit code and timing.
-  - **4:** full command output, masked; truncated per step in the note, complete in the JSONL.
-- **To decide when it's planned: what goes into git.** The suggestion:
-  - commit run notes for `apply` and `gather`;
-  - one rolling "last check" note per host for `check`;
-  - keep the JSONL only on the controller, with a retention setting.
+**Plan 3, run notes: not planned yet.**
+- **A run note in the vault:** `_bastet/runs/<date time> <command>.md`, with a summary on top and a per-host timeline grouped by phase.
+- **Flat frontmatter** (`command`, `started`, `hosts`, `changed`, `failed`, `status`) so Bases can list it.
+- **Obsidian views:** a Runs Base on `Homelab.md` and a per-host one on each host page, newest first. Directly below each table, a kanban board over the same runs grouped by `status` (ok, failed, interrupted).
+- **`--log-level 1–4`** (or `log_level:` in `bastet.yml`) shapes only the run note, since that is what lands in git. The JSONL always has everything.
+- **Git:** commit run notes for `apply` and `gather`; one rolling "last check" note per host for `check`; the JSONL is never committed.
+
+**Later:** a SQLite index built from the JSONL files for cross-run queries and the ARA replacement (JSONL stays the record); every command, not only the run-type ones, emitting events; `refresh` and gather's individual commands emitting events; `hook_ran` and `reboot_step` events once roles subplan 3 adds hooks and the reboot plan.
 
 ## Building blocks
 
@@ -132,6 +124,7 @@ in roles-redesign subplan 6.
 ## Deferred
 
 - **Removal:** `state: absent`, `purge`, the "no longer managed" record.
+- **A SQLite index over the run records** (derived from the JSONL, rebuildable) for queries across runs and the ARA replacement.
 - **Turning git off:** a setting for an inventory that isn't a git repository. Needs a design first: no commits, no upstream-secrets alert or confirmed-commit baseline, no history behind run notes, and a loud warning that secrets safety is weaker.
 - **The trust prompt** for third-party `role.py`.
 - **Proxy and DNS roles** that run last.
