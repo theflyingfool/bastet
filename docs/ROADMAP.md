@@ -71,6 +71,8 @@ Needed before the Proxmox and ZFS roles, to see what a run did, in the order it 
 - **Reliability:** the note is best-effort (a failure warns and the command still commits), a failed host's reason is in the note, and an interrupted run's note says so.
 - **Obsidian setup:** `bastet init` and `doctor --fix` enable the Bases core plugin (needs Obsidian 1.14 or later); the status board is read-only.
 
+**Left from the plan 3 review (small):** a failure that emits no event (a reboot failure, "its node failed", a host that never started) makes the run note's status `failed` but its host heading still reads `ok` with no reason; the note's wait for the event queue is capped at 2 seconds; a git error after the note is written can leave an untracked note; doctor keeps flagging an explicit `"bases": false` and a running Obsidian may undo its fix. Unverified against a real Obsidian (checked by hand): the `sort:` key in a view, `hosts.contains(this.host)`, whether the Kanban board refuses drags when grouped by a formula, the `kanban` view type string, the Bases core plugin id `bases`, and "Obsidian 1.14 or later".
+
 **Left from the plan 2 review (small):** live `-vv` lines from other hosts can land inside a host's report when hosts run in parallel (needs a display queue); `bastet log` times are UTC with no marker; two runs in the same second can sort the wrong way for `latest` and pruning; the recorded command leaves out `-y`, `-j`, `--updates` and `--accept-new-hostkey`; command output in a record isn't size-capped; values that aren't text, lists or dicts aren't masked (nothing emits them yet).
 
 **Later (detail board):** a board of runs by detail, dragged to change a note's detail, with the note holding all levels as folds. Decided against for now.
