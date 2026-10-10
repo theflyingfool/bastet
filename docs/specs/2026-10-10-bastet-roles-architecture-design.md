@@ -17,7 +17,8 @@
 | Building blocks | Python, stay. Packages (with repositories), users, files (with settings), systemd, commands, api and templates when a role needs them, reports |
 | Roles | Straight Markdown, about 99% of the time: a contract that hands entries to the blocks. `role.py` is a rare escape hatch (well under 1% of roles). Logic lives in the Markdown contract and in the blocks, not in role Python |
 | Direct use of a block | Stays easy. A role file may carry block entries directly (the thin `packages`, `users` and `files` roles stay): installing one package on a host is one short role file |
-| Config-file settings | A feature of the `files` block, not a new block |
+| Config-file settings | A feature of the `files` block, not a new block. The block always validates the new file (`sshd -t` for sshd) before swapping it in |
+| ssh lockout guard | Dropped (2026-10-10): if someone configures it wrong, they own it. The syntax check stays; the ssh role adds a few quick `warn` rules for the obvious cases. The old guard and its tests are removed when ssh is converted |
 | Execution | By phase across all roles, not role by role. Triggers run once, at the end |
 | Role calls role | Reserved (`uses:`), not built. No concrete case yet |
 | Capabilities | `wants` (soft, block side) in the first slice. Hard `needs`, cross-host `needs`/`provides` and `contributes` are reserved, built when a real role needs them |
@@ -32,8 +33,8 @@
 - **The `files` block gains settings.** An entry says `edit: ini` (later `kv`, `sshd`, and so on): every option with a `key:` that is set becomes a line in that file, and unset options leave the file's defaults alone. This replaces the Python that maps options to lines today (`PACMAN_SETTINGS`, `_sshd_line`).
 - **Where logic lives, so roles need no Python:**
   - **Conditions and computed values** are `when:` conditions, per-OS maps (`{arch: …, debian: …, default: …}`) and short expressions in the frontmatter: microcode by CPU vendor, the Debian suite from the OS string, which NTP service to use.
-  - **Validation** is contract rules: `min`/`max`, `choices`, a text type that forbids newlines, `os:`, and `validate:` expressions that carry their own error message.
-  - **Safety and mechanics are built into the blocks**, so every role gets them: the `sshd` settings format refuses an edit that would lock Bastet out; `packages` knows the AUR bootstrap and update and reboot policy; `files` can replace text with a check before swapping the file in (the Proxmox patch); an ini renderer covers fail2ban.
+  - **Validation** is contract rules: `min`/`max`, `choices`, a text type that forbids newlines, `os:`, and `validate:` expressions that carry their own message and a `level` of `error` (refuses the apply) or `warn` (shown in check, never blocks).
+  - **Safety and mechanics are built into the blocks**, so every role gets them: the `sshd` settings format validates the new config with `sshd -t` before it is swapped in (a syntax error always refuses the edit); `packages` knows the AUR bootstrap and update and reboot policy; `files` can replace text with a check before swapping the file in (the Proxmox patch); an ini renderer covers fail2ban.
 - **Old and new run side by side.** A role with a Markdown body uses one generic builder. A role without one keeps its Python builder. Each role is converted once, contract and body together. The old format and the dual path are deleted when the last role is converted.
 
 ### Example: pacman, Markdown-only (draft)
@@ -77,7 +78,7 @@ The first failed step stops that host; other hosts continue.
 ## 5. Roadmap
 
 1. **First slice:** the draft contract, the generic builder, `files` settings (`edit: ini`), `phase`, `wants`/`provides`, the phase engine with `daemon-reload` and the health check, and pacman as Markdown-only. Done when pacman has no Python, every existing pacman test passes unchanged, and `check` output on an Arch host is identical. Replaces subplan 3, parts of 2 and 4, and the pacman part of 6.
-2. **Evaluate**, then convert **one role at a time**, every one as straight Markdown. Suggested order: ssh (many options; the lockout guard becomes part of `edit: sshd`), base (`when:` for microcode), harden, systemd (time, hostname, locale), the thin `users` and `files` roles, `packages` (the heavy one: AUR, updates and reboot policy become block features), proxmox (repositories, tools and the file patch through the blocks). Each conversion adds only the block or contract features it needs (`when:`, `validate:`, templates, timers, `edit: kv`/`sshd`, and so on).
+2. **Evaluate**, then convert **one role at a time**, every one as straight Markdown. Suggested order: ssh (many options; `edit: sshd` with its `sshd -t` check, and a few `warn` rules for obvious ways to lose access, such as turning off key logins), base (`when:` for microcode), harden, systemd (time, hostname, locale), the thin `users` and `files` roles, `packages` (the heavy one: AUR, updates and reboot policy become block features), proxmox (repositories, tools and the file patch through the blocks). Each conversion adds only the block or contract features it needs (`when:`, `validate:`, templates, timers, `edit: kv`/`sshd`, and so on).
 3. **Capabilities and contributions** beyond `wants`, when a real role needs them: the firewall (same-host contributions), then the Git forge (cross-host: database, runner, proxy). The reserved keys `uses`, `needs`, `provides`, `contributes` are parsed and ignored until then.
 4. **Stabilize last:** the library, `role update`, `doctor <dir>` and role pages (the audited subplan 2 tasks 2 to 6), then presets, boards and the guided `add role` (subplan 5).
 5. **Unchanged:** infrastructure roles (Proxmox node setup, ZFS, guests, firewall, podman) and the reboot plan and power control that go with them; secrets part 2; app roles; the orchestrator; removal; the trust prompt; turning git off.
@@ -94,6 +95,6 @@ Role calls role (`uses:`), hard `needs`, cross-host `needs`/`provides`, `contrib
 
 ## 8. Open questions, to settle during the first slice
 - Which `edit:` formats the first slice needs beyond `ini` (ssh will need `sshd` with `Match` blocks).
-- How rich the expression language in `when:` and `validate:` is allowed to be (a small Jinja subset over option values and facts is the starting point), and how the "does not lock Bastet out" check in `edit: sshd` finds the address, port and user Bastet connects with.
+- How rich the expression language in `when:` and `validate:` is allowed to be (a small Jinja subset over option values and facts is the starting point).
 - Whether the thin `users`, `files` and `packages` roles stay once three or more roles are converted.
 - Whether restart order ever needs more than systemd's own dependencies.
