@@ -12,6 +12,7 @@ import typer
 
 import bastet.cli.gather as gather_mod
 import bastet.cli.secret as secret_mod
+from bastet import events
 from bastet.ui import out
 from bastet.cli.common import (
     confirm_upstream_secrets,
@@ -21,6 +22,7 @@ from bastet.cli.common import (
     handles_errors,
     load_context,
     print_problems,
+    recorded_run,
     push_or_warn,
     resolve_jobs,
     scan_first,
@@ -329,6 +331,7 @@ def _run(selectors: list[str] | None, exclude: list[str] | None, *, apply_change
         host_type = ctx.types.get(str(doc.data.get("type")))
         if host_type is not None and not host_type.managed:
             out.echo(f"{doc.name}: configured through {host_type.managed_by or 'something else'}; not managed by Bastet")
+            events.emit("host_skipped", doc.name, reason="not managed")
             continue
         try:
             applied, batches = plan_for(ctx, doc, roles, updates)
@@ -336,6 +339,7 @@ def _run(selectors: list[str] | None, exclude: list[str] | None, *, apply_change
             role_names = ", ".join(f"{a.role.name} ({', '.join(sorted({s.label for s in a.sources}))})" for a in applied)
             if not applied:
                 out.echo(f"{doc.name}: no roles")
+                events.emit("host_skipped", doc.name, reason="no roles")
                 continue
             for a in applied:
                 for s in a.sources:
@@ -346,6 +350,7 @@ def _run(selectors: list[str] | None, exclude: list[str] | None, *, apply_change
                                     "the properties at the top", fg="yellow")
             if not any(b.resources for b in batches):
                 out.echo(f"{doc.name}: {role_names}: nothing to manage yet")
+                events.emit("host_skipped", doc.name, reason="nothing to manage yet")
                 continue
             ready.append(_Ready(doc, batches, reboots, role_names))
         except BastetError as exc:
@@ -356,6 +361,7 @@ def _run(selectors: list[str] | None, exclude: list[str] | None, *, apply_change
                     continue
             where = f" ({exc.file.name}{':' + exc.key if exc.key else ''})" if exc.file else ""
             out.secho(ctx.secrets.redactor.mask(f"{doc.name}: {exc.message}{where}"), fg="red")
+            events.emit("host_skipped", doc.name, reason=f"error: {exc.message}")
             failed_hosts.add(doc.name)
 
     by_name: dict[str, _Ready] = {r.doc.name: r for r in ready}
@@ -370,13 +376,16 @@ def _run(selectors: list[str] | None, exclude: list[str] | None, *, apply_change
             if ready:
                 def check_work(host: str, log: HostLog):
                     r = by_name[host]
-                    try:
-                        runner, target = connect(ctx, r.doc, Path(tmp), yes=yes)
-                    except BastetError as exc:
-                        raise _with_where(exc) from exc
-                    targets[host] = target  # registered right away, so `close_master` always runs for it
-                    runners[host] = runner
-                    return run_host(runner, host, r.batches, apply=False)
+                    with events.host_scope(host, "check") as scope:
+                        try:
+                            runner, target = connect(ctx, r.doc, Path(tmp), yes=yes)
+                        except BastetError as exc:
+                            raise _with_where(exc) from exc
+                        targets[host] = target  # registered right away, so `close_master` always runs for it
+                        runners[host] = runner
+                        result = run_host(runner, host, r.batches, apply=False)
+                        scope.record(result)
+                        return result
 
                 def on_check_done(outcome: Outcome) -> None:
                     _print_outcome_log(outcome)
@@ -423,22 +432,25 @@ def _run(selectors: list[str] | None, exclude: list[str] | None, *, apply_change
                     apply_errored: set[str] = set()
 
                     def apply_work(host: str, log: HostLog):
-                        r = by_name[host]
-                        runner = runners[host]
-                        done = run_host(runner, host, r.batches, apply=True, should_stop=stopping) if host in chosen else None
-                        fresh = None
-                        if not stopping() and any(isinstance(res, LynisReport) for b in r.batches for res in b.resources):
-                            log.echo(f"{host}: running a lynis audit (1–3 minutes)…")
-                            warning = run_audit(runner, r.doc)
-                            if warning:
-                                log.secho(warning, fg="yellow")
-                            else:
-                                fresh = run_host(runner, host, [Batch("lynis", [LynisReport()])], apply=False).items
-                        if done is not None and not done.ok:
-                            # a failed (not merely erroring) apply still has a result worth showing --
-                            # HostFailed keeps it while still failing this host for `after` dependents.
-                            raise HostFailed(f"{host}: apply failed", (done, fresh))
-                        return done, fresh
+                        with events.host_scope(host, "apply") as scope:
+                            r = by_name[host]
+                            runner = runners[host]
+                            done = run_host(runner, host, r.batches, apply=True, should_stop=stopping) if host in chosen else None
+                            fresh = None
+                            if not stopping() and any(isinstance(res, LynisReport) for b in r.batches for res in b.resources):
+                                log.echo(f"{host}: running a lynis audit (1–3 minutes)…")
+                                warning = run_audit(runner, r.doc)
+                                if warning:
+                                    log.secho(warning, fg="yellow")
+                                else:
+                                    fresh = run_host(runner, host, [Batch("lynis", [LynisReport()])], apply=False).items
+                            if done is not None:
+                                scope.record(done)
+                            if done is not None and not done.ok:
+                                # a failed (not merely erroring) apply still has a result worth showing --
+                                # HostFailed keeps it while still failing this host for `after` dependents.
+                                raise HostFailed(f"{host}: apply failed", (done, fresh))
+                            return done, fresh
 
                     def on_apply_done(outcome: Outcome) -> None:
                         _print_outcome_log(outcome)
@@ -573,7 +585,8 @@ def run(
     exclude: list[str] = typer.Option([], "--exclude", help="Exclude hosts (same forms as the selector). Repeatable."),
     accept_new_hostkey: bool = typer.Option(False, "--accept-new-hostkey", help="Trust a new or changed host key (e.g. after a reinstall)."),
     yes: bool = typer.Option(False, "--yes", "-y", help="Don't ask; go ahead with the defaults."),
-    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show compliant items for every host."),
+    verbose: int = typer.Option(0, "--verbose", "-v", count=True,
+                                help="Show compliant items (-v); live events (-vv), commands (-vvv) and their output (-vvvv)."),
     updates: bool = typer.Option(False, "--updates", help="Apply only: also install pending updates on hosts whose policy is manual."),
     jobs: int | None = typer.Option(None, "--jobs", "-j", min=1, help="How many hosts to run at once (default: the config value)."),
 ) -> None:
@@ -583,24 +596,32 @@ def run(
     """
     if check and apply_:
         raise BastetError("check or apply, not both")
-    with guard_prompts():
-        if gather:
-            combo = check or apply_  # one run, one commit: gather hands its context straight to check/apply
-            try:
-                if combo:
-                    handoff = gather_mod._gather(hosts, accept_new_hostkey, yes, jobs, exclude=exclude, finish_now=False)
-                else:
-                    gather_mod._gather(hosts, accept_new_hostkey, yes, jobs, exclude=exclude)
-                    handoff = None
-            except KeyboardInterrupt:
-                out.secho("interrupted; nothing written", fg="yellow")
-                raise typer.Exit(1) from None
-            gather_ctx, gather_message, gather_warnings, gather_drift = handoff or (None, None, None, None)
-            if check:
-                _run(hosts, exclude, apply_changes=False, yes=yes, verbose=verbose, jobs=jobs,
-                     ctx=gather_ctx, message_prefix=gather_message, extra_warnings=gather_warnings, extra_drift=gather_drift)
-            elif apply_:
-                _run(hosts, exclude, apply_changes=True, yes=yes, verbose=verbose, updates=updates, jobs=jobs,
-                     ctx=gather_ctx, message_prefix=gather_message, extra_warnings=gather_warnings, extra_drift=gather_drift)
-            return
-        _run(hosts, exclude, apply_changes=not check, yes=yes, verbose=verbose, updates=updates, jobs=jobs)
+    command = " ".join(["run", *(["-g"] if gather else []), *(["-c"] if check else []), *(["-a"] if apply_ else []),
+                        *[arg for x in exclude for arg in ("--exclude", x)], *(hosts or [])])
+    with guard_prompts(), recorded_run(command, verbose) as rec:
+        try:
+            if gather:
+                combo = check or apply_  # one run, one commit: gather hands its context straight to check/apply
+                try:
+                    if combo:
+                        handoff = gather_mod._gather(hosts, accept_new_hostkey, yes, jobs, exclude=exclude, finish_now=False)
+                    else:
+                        gather_mod._gather(hosts, accept_new_hostkey, yes, jobs, exclude=exclude)
+                        handoff = None
+                except KeyboardInterrupt:
+                    out.secho("interrupted; nothing written", fg="yellow")
+                    rec.status = "interrupted"
+                    raise typer.Exit(1) from None
+                gather_ctx, gather_message, gather_warnings, gather_drift = handoff or (None, None, None, None)
+                if check:
+                    _run(hosts, exclude, apply_changes=False, yes=yes, verbose=verbose >= 1, jobs=jobs,
+                         ctx=gather_ctx, message_prefix=gather_message, extra_warnings=gather_warnings, extra_drift=gather_drift)
+                elif apply_:
+                    _run(hosts, exclude, apply_changes=True, yes=yes, verbose=verbose >= 1, updates=updates, jobs=jobs,
+                         ctx=gather_ctx, message_prefix=gather_message, extra_warnings=gather_warnings, extra_drift=gather_drift)
+                return
+            _run(hosts, exclude, apply_changes=not check, yes=yes, verbose=verbose >= 1, updates=updates, jobs=jobs)
+        except typer.Exit as exc:
+            if rec.status is None:
+                rec.status = "ok" if (exc.exit_code or 0) == 0 else "failed"
+            raise

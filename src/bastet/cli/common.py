@@ -36,6 +36,32 @@ def _refuse_while_in_worker(fn):
 
 
 @contextlib.contextmanager
+def recorded_run(command: str, verbose: int = 0):
+    """The record of this run: a JSONL file on the controller, plus the live view from -vv."""
+    from bastet.core.config import RunsConfig
+    from bastet.events import new_run_id, recording
+    from bastet.events.jsonl import JsonlSink, prune, runs_dir
+    from bastet.events.terminal import TerminalSink
+
+    try:
+        runs_cfg = load_config(config_path()).runs
+    except BastetError:
+        runs_cfg = RunsConfig()
+    run_id = new_run_id()
+    sinks: list = []
+    try:
+        directory = runs_dir(data_dir())
+        prune(directory, keep_runs=runs_cfg.keep_runs, keep_days=runs_cfg.keep_days)
+        sinks.append(JsonlSink(directory, run_id))
+    except OSError as exc:
+        out.secho(f"warning: not recording this run: {exc}", fg="yellow", err=True)
+    if verbose >= 2:
+        sinks.append(TerminalSink(min(verbose, 4)))
+    with recording(command, sinks, run_id=run_id) as recorder:
+        yield recorder
+
+
+@contextlib.contextmanager
 def guard_prompts():
     """Entered once by a command that may run hosts in parallel: `typer.confirm`/`typer.prompt`
     called from a worker thread raise instead of blocking on a terminal only one host can use.

@@ -9,6 +9,7 @@ from pathlib import Path
 
 import typer
 
+from bastet import events
 from bastet.ui import out
 from bastet.cli.common import (
     Context,
@@ -286,12 +287,14 @@ def _tools_round(
         return set()
 
     def work(host: str, log: HostLog):
-        script, tools = to_run[host]
-        result = prepared[host].runner.run(script, timeout=600)
-        if result.returncode != 0:
-            tail = (result.stderr or result.stdout).strip().splitlines()[-1:] or ["no output"]
-            return ("failed", tail[0])
-        return ("ok", collect(prepared[host].runner, host), tools)
+        with events.host_scope(host, "gather") as scope:
+            script, tools = to_run[host]
+            result = prepared[host].runner.run(script, timeout=600)
+            if result.returncode != 0:
+                tail = (result.stderr or result.stdout).strip().splitlines()[-1:] or ["no output"]
+                scope.status = "failed"
+                return ("failed", tail[0])
+            return ("ok", collect(prepared[host].runner, host), tools)
 
     succeeded: set[str] = set()
 
@@ -383,8 +386,10 @@ def _gather(
         # connect to. A host-level `gather: false` is only a default skip; naming the host overrides it.
         if host_type is not None and not host_type.gather:
             out.echo(f"{doc.name}: skipped (gather: false)")
+            events.emit("host_skipped", doc.name, reason="gather: false")
         elif not hosts and doc.data.get("gather") is False:
             out.echo(f"{doc.name}: skipped (gather: false)")
+            events.emit("host_skipped", doc.name, reason="gather: false")
         else:
             kept.append(doc)
     docs = kept
