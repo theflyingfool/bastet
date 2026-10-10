@@ -429,6 +429,44 @@ def test_roles_index_generated_and_linked(repo):
     assert "[[_bastet/Roles|" in dashboard(inv(repo), TYPES, {}, [])
 
 
+def test_role_file_error_appears_on_the_dashboard_and_the_hosts_facts_note(repo):
+    """A bad value in a role file (caught once, by `load_inventory`) shows up in the dashboard's
+    "Needs attention" list, as well as in the host's own facts note (which already caught it
+    separately via the Roles card, through `resolve()`) -- but it's never folded into the host's
+    stored `warnings:` (that stays gather's alone), so fixing the role file clears it immediately,
+    with no stale warning left behind until the next gather."""
+    role_path = repo.root / "_roles" / "hosts" / "pve1" / "ssh.md"
+    role_path.parent.mkdir(parents=True)
+    role_path.write_text('---\nbastet: role\nrole: ssh\napplies_to: "[[pve1]]"\nclient_alive_interval: maybe\n---\n')
+    i = inv(repo)
+    changes = {c.path: c for c in generated_changes(i, TYPES, repo)}
+    dash = changes[repo.root / DASHBOARD_PATH].after
+    assert "## Needs attention" in dash
+    assert "expected a whole number" in dash
+    facts_text = changes[facts_path(repo.root, "pve1")].after
+    assert "expected a whole number" in facts_text  # via the Roles card
+    facts_doc = parse_document(facts_text, facts_path(repo.root, "pve1"))
+    assert not any("expected a whole number" in str(w) for w in (facts_doc.data.get("warnings") or []))
+
+    write_changes(list(changes.values()))
+    repo.commit([c.path for c in changes.values()], "add a bad ssh role file")
+
+    role_path.write_text('---\nbastet: role\nrole: ssh\napplies_to: "[[pve1]]"\nclient_alive_interval: 300\n---\n')
+    after_fix = {c.path: c for c in generated_changes(inv(repo), TYPES, repo)}
+    assert "expected a whole number" not in after_fix[repo.root / DASHBOARD_PATH].after
+    assert "expected a whole number" not in after_fix[facts_path(repo.root, "pve1")].after
+
+
+def test_role_file_error_on_the_lab_appears_on_the_dashboard_under_the_lab(repo):
+    """A bad value in a lab-scoped role file (`applies_to: lab`) is keyed by its real target
+    (the lab, not a host), and still reaches the dashboard."""
+    role_path = repo.root / "_roles" / "lab" / "ssh.md"
+    role_path.parent.mkdir(parents=True)
+    role_path.write_text('---\nbastet: role\nrole: ssh\napplies_to: "[[Homelab]]"\nclient_alive_interval: maybe\n---\n')
+    dash = {c.path: c for c in generated_changes(inv(repo), TYPES, repo)}[repo.root / DASHBOARD_PATH].after
+    assert "## Needs attention" in dash and "expected a whole number" in dash and "[[Homelab]]" in dash
+
+
 def test_retired_paths_confined_to_the_migration_helpers():
     """`_bastet/summary/` and `_bastet/reports/` are retired -- the only code in `src/` that still
     names them is the one-time upgrade migration in render.py, not any writer."""

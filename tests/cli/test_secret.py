@@ -1,9 +1,11 @@
 import subprocess
+from types import SimpleNamespace
 
 import pytest
 
 import bastet.cli.secret as secret_mod
 from bastet.cli.app import app
+from bastet.cli.complete import complete_hosts, complete_roles, complete_secret_words
 from bastet.core.secrets import crypto
 from bastet.core.secrets.notes import SecretNote, SecretPath
 from conftest import git
@@ -351,3 +353,44 @@ def test_stdout_tty_stdin_not_a_tty_does_not_spin(runner, secret_keys, inventory
     assert "bastet secret lock" in result.output
     note = SecretNote.load(inventory, sp)
     assert note.data["locked"] is False
+
+
+# --- tab completion: host -> role -> option, for `secret set`/`secret show` ---
+
+
+def _ctx(words: tuple[str, ...] = ()) -> SimpleNamespace:
+    return SimpleNamespace(params={"words": words})
+
+
+def test_complete_hosts_lists_host_names_and_selectors(inventory):
+    results = complete_hosts(_ctx(), "")
+    assert "pve1" in results and "@lab" in results
+
+
+def test_complete_roles_lists_the_role_library(inventory):
+    results = complete_roles(_ctx(), "")
+    assert "ssh" in results and "systemd" in results
+
+
+def test_complete_secret_words_first_word_offers_hosts_and_lab(inventory, test_role):
+    results = complete_secret_words(_ctx(()), [], "")
+    assert "box" in results and "lab" in results
+
+
+def test_complete_secret_words_second_word_offers_the_hosts_roles(inventory, test_role):
+    results = complete_secret_words(_ctx(("box",)), [], "")
+    assert "testsecret" in results
+
+
+def test_complete_secret_words_third_word_offers_the_roles_options(inventory, test_role):
+    results = complete_secret_words(_ctx(("box", "testsecret")), [], "")
+    assert "admin_password" in results and "db_password" in results
+
+
+def test_complete_secret_words_filters_by_the_incomplete_prefix(inventory, test_role):
+    results = complete_secret_words(_ctx(("box", "testsecret")), [], "admin")
+    assert results == ["admin_password"]
+
+
+def test_complete_secret_words_unknown_host_offers_nothing_for_roles(inventory):
+    assert complete_secret_words(_ctx(("no-such-host",)), [], "") == []

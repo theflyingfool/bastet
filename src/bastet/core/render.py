@@ -524,6 +524,21 @@ def generated_changes(
     by_host: dict[str, list[str]] = {}
     drift_by_host: dict[str, list[str]] = {}
 
+    # Role-file errors (a bad value, caught once in `load_inventory`) are shown on the dashboard's
+    # "Needs attention" list too, keyed by the role file's own `applies_to` target (a host, a group
+    # or the lab) -- never folded into a host's own stored `warnings:` (that stays gather's alone;
+    # otherwise a fixed role file would still show up as a stale warning until the next gather).
+    role_file_errors_by_target: dict[str, list[str]] = {}
+    for problem in inv.problems:
+        if problem.severity != "error" or problem.error.file is None:
+            continue
+        role_doc = next((rf for rf in inv.role_files if rf.path == problem.error.file), None)
+        if role_doc is None:
+            continue
+        target_doc = inv.get(link_target(role_doc.data.get("applies_to")) or "")
+        if target_doc is not None:
+            role_file_errors_by_target.setdefault(target_doc.name, []).append(problem.error.message)
+
     def want(path: Path, text: str) -> None:
         before = path.read_text(encoding="utf-8") if path.exists() else None
         if before != text:
@@ -589,7 +604,13 @@ def generated_changes(
         want(root / SECRETS_PATH, _note({}, secrets_master_list(inv, types)))
     elif (root / SECRETS_PATH).exists():
         changes.append(Change(root / SECRETS_PATH, (root / SECRETS_PATH).read_text(encoding="utf-8"), None))
-    want(root / DASHBOARD_PATH, dashboard(inv, types, by_host, _recent(repo), drift_by_host, secrets_summary))
+    dashboard_warnings = {name: list(msgs) for name, msgs in by_host.items()}
+    for name, messages in role_file_errors_by_target.items():
+        dashboard_warnings.setdefault(name, [])
+        for message in messages:
+            if message not in dashboard_warnings[name]:
+                dashboard_warnings[name].append(message)
+    want(root / DASHBOARD_PATH, dashboard(inv, types, dashboard_warnings, _recent(repo), drift_by_host, secrets_summary))
     want(root / GUIDE_PATH, guide())
     from bastet.core.maps import cabling_map, networks_map, where_map  # lazy: maps builds on render
 

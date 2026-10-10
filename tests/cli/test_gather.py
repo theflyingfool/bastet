@@ -99,6 +99,33 @@ def test_second_gather_changes_nothing(runner, laptop):
     assert git(laptop, "rev-parse", "HEAD") == head
 
 
+def test_first_gather_hints_at_add_role_on_a_terminal_without_yes(runner, laptop, monkeypatch):
+    import bastet.cli.common as common_mod
+
+    monkeypatch.setattr(common_mod, "_stdout_is_tty", lambda: True)
+    result = runner.invoke(app, ["run", "-g", "hp-13"], input="y\n")
+    assert result.exit_code == 0, result.output
+    assert "next: bastet add role --to hp-13" in result.output
+
+
+def test_first_gather_hint_suppressed_with_yes(runner, laptop, monkeypatch):
+    import bastet.cli.common as common_mod
+
+    monkeypatch.setattr(common_mod, "_stdout_is_tty", lambda: True)
+    result = runner.invoke(app, ["run", "-g", "hp-13", "-y"])
+    assert result.exit_code == 0, result.output
+    assert "next:" not in result.output
+
+
+def test_second_gather_does_not_repeat_the_first_gather_hint(runner, laptop, monkeypatch):
+    import bastet.cli.common as common_mod
+
+    monkeypatch.setattr(common_mod, "_stdout_is_tty", lambda: True)
+    runner.invoke(app, ["run", "-g", "hp-13"], input="y\n")
+    result = runner.invoke(app, ["run", "-g", "hp-13"], input="y\n")
+    assert "next:" not in result.output
+
+
 def test_gather_never_writes_host_notes_only_facts_notes(runner, laptop, monkeypatch):
     """The guard: a two-host gather leaves every hosts/*.md byte-identical, with a facts note per
     host holding the observed values instead."""

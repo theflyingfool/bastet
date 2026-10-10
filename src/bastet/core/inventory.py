@@ -302,14 +302,27 @@ def load_inventory(root: Path, types: dict[str, HostType]) -> Inventory:
                     _add(inv, "error", f'expected a link like "[[name]]", got {item!r}', doc, key)
                 elif inv.get(target) is None:
                     _add(inv, "warning", f"links to [[{target}]], which isn't in the inventory", doc, key)
+    from bastet.roles.contract import check_values, load_roles  # lazy: roles builds on core
+
+    role_defs = load_roles()
     for doc in inv.role_files:
-        if not doc.data.get("role"):
+        role_name = doc.data.get("role")
+        if not role_name:
             _add(inv, "error", "a role file needs `role:` (which role)", doc, "role")
         target = link_target(doc.data.get("applies_to"))
         if target is None:
             _add(inv, "warning", 'a role file needs `applies_to: "[[host, group or lab]]"`', doc, "applies_to")
         elif inv.get(target) is None or inv.get(target).data.get("bastet") not in ("host", "group", "lab"):
             _add(inv, "warning", f"applies_to [[{target}]], which isn't a host, group or the lab", doc, "applies_to")
+        if role_name and role_name in role_defs:
+            # A bad value in the role file's own options -- caught here (once) so it reaches the
+            # terminal (print_problems) and the dashboard, as well as the host's facts note (which
+            # catches it separately, via resolve(), when rendering the Roles card).
+            try:
+                check_values(role_defs[role_name], doc.data, doc.name, file=doc.path)
+            except BastetError as exc:
+                line = doc.key_lines.get(exc.key) if exc.key else None
+                inv.problems.append(Problem("error", BastetError(exc.message, file=exc.file, line=line, key=exc.key)))
     from bastet.core.networks import check_networks  # networks builds on inventory
 
     check_networks(inv, types)

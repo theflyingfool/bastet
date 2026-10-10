@@ -7,7 +7,8 @@ def test_add_role_to_host_writes_file_and_section(runner, inventory):
     result = runner.invoke(app, ["add", "role", "packages", "pve1", "-y"])
     assert result.exit_code == 0, result.output
     text = (inventory / "_roles" / "hosts" / "pve1" / "packages.md").read_text()
-    assert text.startswith('---\nbastet: role\nrole: packages\napplies_to: "[[pve1]]"\n---\n# packages for pve1')
+    assert text.startswith('---\nbastet: role\nrole: packages\napplies_to: "[[pve1]]"\n---\n')
+    assert "No values set; this role uses its defaults." in text
     assert "![[roles-here.base]]" in (inventory / "hosts" / "pve1.md").read_text()
     again = runner.invoke(app, ["add", "role", "packages", "pve1", "-y"])
     assert again.exit_code != 0 and "already exists" in again.output
@@ -29,10 +30,12 @@ def test_refresh_writes_role_pages_view_and_card(runner, inventory):
     assert "[!stat] Roles" in facts and "[[packages role|packages]]" in facts
 
 
-def test_new_role_file_explains_itself(runner, inventory):
+def test_new_role_file_with_no_values_gets_the_minimal_body(runner, inventory):
+    """No properties were set (`-y`, no prompts) -- the body is the one explaining line, pointing at
+    the role's own Options section, rather than a full copy of its Examples and properties blurb."""
     runner.invoke(app, ["add", "role", "packages", "pve1", "-y"])
     body = (inventory / "_roles" / "hosts" / "pve1" / "packages.md").read_text().split("---\n", 2)[2]
-    assert "properties" in body and "![[packages role#Examples]]" in body and "![[packages role#Options]]" in body
+    assert body == "No values set; this role uses its defaults. Options: ![[packages role#Options]]\n"
 
 
 def test_add_role_offers_roles_and_targets(runner, inventory):

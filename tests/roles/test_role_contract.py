@@ -1,6 +1,6 @@
 import pytest
 
-from bastet.core.errors import BastetError
+from bastet.core.errors import BastetError, did_you_mean
 from bastet.roles.contract import Option, check_value, check_values, load_roles, with_defaults
 
 
@@ -85,3 +85,78 @@ def test_missing_required_fields_are_named(role, values):
     with pytest.raises(BastetError) as e:
         check_values(load_roles()[role], values, role)
     assert "needs" in str(e.value)
+
+
+# --- lenient values: Obsidian stores a property as text once it was text anywhere ---
+
+
+@pytest.mark.parametrize("text", ["true", "True", "TRUE", "yes", "Yes", "YES"])
+def test_bool_accepts_true_variants(text):
+    assert check_value(Option(type="bool"), text, "w") is True
+
+
+@pytest.mark.parametrize("text", ["false", "False", "FALSE", "no", "No", "NO"])
+def test_bool_accepts_false_variants(text):
+    assert check_value(Option(type="bool"), text, "w") is False
+
+
+def test_bool_invalid_string_still_errors():
+    with pytest.raises(BastetError, match="expected true or false"):
+        check_value(Option(type="bool"), "maybe", "w")
+
+
+def test_int_accepts_numeric_text():
+    assert check_value(Option(type="int"), "42", "w") == 42
+    assert check_value(Option(type="int"), "-5", "w") == -5
+
+
+def test_int_rejects_float_or_non_numeric_text():
+    with pytest.raises(BastetError, match="expected a whole number"):
+        check_value(Option(type="int"), "3.0", "w")
+    with pytest.raises(BastetError, match="expected a whole number"):
+        check_value(Option(type="int"), "abc", "w")
+
+
+def test_number_accepts_integer_and_float_text():
+    assert check_value(Option(type="number"), "42", "w") == 42
+    assert check_value(Option(type="number"), "3.14", "w") == 3.14
+
+
+def test_number_rejects_non_numeric_text():
+    with pytest.raises(BastetError, match="expected a number"):
+        check_value(Option(type="number"), "abc", "w")
+
+
+def test_string_type_is_not_made_lenient():
+    assert check_value(Option(type="string"), "true", "w") == "true"
+    assert check_value(Option(type="string"), "42", "w") == "42"
+
+
+def test_lenient_parsing_leaves_already_typed_values_unchanged():
+    assert check_value(Option(type="bool"), True, "w") is True
+    assert check_value(Option(type="int"), 42, "w") == 42
+    assert check_value(Option(type="number"), 3.14, "w") == 3.14
+
+
+# --- did you mean: a typo names up to three close matches, instead of the whole option list ---
+
+
+def test_did_you_mean_single_match():
+    result = did_you_mean("permitroot_login", ["permit_root_login", "allow_root_login", "other"])
+    assert "did you mean" in result and "permit_root_login" in result
+
+
+def test_did_you_mean_at_most_three_matches():
+    result = did_you_mean("ntp", ["ntp_service", "manage_ntp", "systemd_ntp", "other1", "other2"])
+    assert result.count("`") <= 6  # up to 3 suggestions, each wrapped in a pair of backticks
+
+
+def test_did_you_mean_no_close_match_is_empty():
+    assert did_you_mean("xyz", ["abc", "def", "ghi"]) == ""
+
+
+def test_check_values_suggests_the_close_option_for_a_typo():
+    pk = load_roles()["packages"]
+    with pytest.raises(BastetError, match="did you mean|install") as e:
+        check_values(pk, {"instll": ["tree"]}, "f")
+    assert "install" in str(e.value)

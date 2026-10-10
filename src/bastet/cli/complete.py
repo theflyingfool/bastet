@@ -1,123 +1,112 @@
-"""Tab completion helpers for Bastet CLI."""
+"""Tab completion helpers for the Bastet CLI: hosts, roles and secret paths, all read from the
+inventory with no network and no git operations. Every function returns [] rather than raising,
+since a completion that can't load the inventory should just offer nothing.
+"""
 
 from __future__ import annotations
 
-from pathlib import Path
-from types import SimpleNamespace
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    import typer
+import typer
 
 
-def _load_inventory_for_completion():
-    """Load the inventory quietly, returning None on any error."""
+def _inventory():
+    """The inventory and its host types, loaded quietly -- None on any error (e.g. no inventory yet)."""
     try:
-        from bastet.core.config import inventory_dir, load_config
-        from bastet.core.inventory import load_inventory
+        from bastet.core.config import config_path, data_dir, inventory_dir, load_config
         from bastet.core.hosttypes import load_host_types
+        from bastet.core.inventory import load_inventory
 
-        config = load_config()
-        inv = load_inventory(inventory_dir(), load_host_types())
-        return inv
+        config = load_config(config_path())
+        types = load_host_types()
+        root = inventory_dir(config, data_dir())
+        inv = load_inventory(root, types)
+        return inv, types
     except Exception:
-        return None
+        return None, None
 
 
-def complete_hosts(ctx: "typer.Context", incomplete: str) -> list[str]:
-    """Complete host names, @groups, @types, and @lab selector."""
+def complete_hosts(ctx: typer.Context, incomplete: str) -> list[str]:
+    """Complete host names, plus `@group`, `@type` and `@lab` selectors (for `run`/`show`)."""
     try:
-        inv = _load_inventory_for_completion()
+        inv, types = _inventory()
         if inv is None:
             return []
-
-        candidates = []
-
-        # Add host names
-        for doc in inv.all():
-            if doc.data.get("bastet") == "host":
-                candidates.append(doc.name)
-
-        # Add @group selectors
-        for group in inv.of_kind("group"):
-            candidates.append(f"@{group.name}")
-
-        # Add @type selectors
-        from bastet.core.hosttypes import load_host_types
-        from bastet.core.config import load_config
-        config = load_config()
-        types = load_host_types()
-        for tname in types:
-            candidates.append(f"@{tname}")
-
-        # Add @lab selector
+        candidates = [doc.name for doc in inv.of_kind("host")]
+        candidates += [f"@{group.name}" for group in inv.of_kind("group")]
+        candidates += [f"@{name}" for name in types]
         candidates.append("@lab")
-
-        # Filter by incomplete prefix
         return [c for c in candidates if c.startswith(incomplete)]
     except Exception:
         return []
 
 
-def complete_roles(ctx: "typer.Context", incomplete: str) -> list[str]:
-    """Complete role names."""
+def complete_roles(ctx: typer.Context, incomplete: str) -> list[str]:
+    """Complete role names (for `add role`)."""
     try:
         from bastet.roles.contract import load_roles
-        roles = load_roles()
-        return [name for name in roles if name.startswith(incomplete)]
+
+        return sorted(name for name in load_roles() if name.startswith(incomplete))
     except Exception:
         return []
 
 
-def complete_hosts_for_secret(ctx: "typer.Context", incomplete: str) -> list[str]:
-    """Complete host names for secret set/show commands."""
-    return complete_hosts(ctx, incomplete)
+def _secret_hosts(incomplete: str) -> list[str]:
+    inv, _types = _inventory()
+    if inv is None:
+        return []
+    candidates = [doc.name for doc in inv.of_kind("host")]
+    candidates.append("lab")
+    return [c for c in candidates if c.startswith(incomplete)]
 
 
-def complete_roles_for_secret(ctx: "typer.Context", incomplete: str) -> list[str]:
-    """Complete role names for secret set/show commands."""
+def _secret_roles(host: str, incomplete: str) -> list[str]:
     try:
-        # Get the host from params if available
-        host_name = ctx.params.get("host")
-        if not host_name:
-            return []
-
-        inv = _load_inventory_for_completion()
-        if inv is None:
-            return []
-
-        # Load the host's roles
-        host_doc = inv.get(host_name)
-        if host_doc is None or host_doc.data.get("bastet") != "host":
-            return []
-
-        from bastet.roles.resolve import roles_for
         from bastet.roles.contract import load_roles
-        roles_defs = load_roles()
-        roles = roles_for(host_doc.data, roles_defs)
-
-        return [name for name in roles if name.startswith(incomplete)]
     except Exception:
         return []
+    roles = load_roles()
+    if host.lower() == "lab":
+        # every role can reach the lab; offer the whole library
+        return sorted(name for name in roles if name.startswith(incomplete))
+    inv, types = _inventory()
+    if inv is None:
+        return []
+    doc = inv.get(host)
+    if doc is None or doc.data.get("bastet") not in ("host", "group"):
+        return []
+    from bastet.core.errors import BastetError
+    from bastet.roles.resolve import resolve
 
-
-def complete_options_for_secret(ctx: "typer.Context", incomplete: str) -> list[str]:
-    """Complete option names for secret set/show commands."""
     try:
-        # Get host and role from params
-        host_name = ctx.params.get("host")
-        role_name = ctx.params.get("role")
+        applied = resolve(inv, doc, types, roles) if doc.data.get("bastet") == "host" else []
+    except BastetError:
+        return []
+    names = sorted({a.role.name for a in applied}) if applied else sorted(roles)
+    return [n for n in names if n.startswith(incomplete)]
 
-        if not host_name or not role_name:
-            return []
 
+def _secret_options(role: str, incomplete: str) -> list[str]:
+    try:
         from bastet.roles.contract import load_roles
-        roles_defs = load_roles()
-
-        if role_name not in roles_defs:
-            return []
-
-        role_def = roles_defs[role_name]
-        return [name for name in role_def.options if name.startswith(incomplete)]
     except Exception:
         return []
+    role_def = load_roles().get(role)
+    if role_def is None:
+        return []
+    return sorted(name for name in role_def.options if name.startswith(incomplete))
+
+
+def complete_secret_words(ctx: typer.Context, args: list[str], incomplete: str) -> list[str]:
+    """Complete `secret set`/`secret show`'s `host role option` words, one at a time: host names
+    (and `lab`) first, then the roles that reach the chosen host, then that role's options.
+    """
+    try:
+        words = list(ctx.params.get("words") or ())
+    except Exception:
+        words = []
+    if len(words) == 0:
+        return _secret_hosts(incomplete)
+    if len(words) == 1:
+        return _secret_roles(words[0], incomplete)
+    if len(words) == 2:
+        return _secret_options(words[1], incomplete)
+    return []

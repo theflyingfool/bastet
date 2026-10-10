@@ -279,3 +279,22 @@ def test_group_named_after_type_is_reserved_name_error(tmp_path):
     assert "proxmox" in error.error.message
     assert "host type" in error.error.message
     assert "rename this group" in error.error.message
+
+
+def test_role_file_bad_value_is_an_inventory_error_with_file_and_key(tmp_path):
+    """A bad value in a role file (e.g. `_roles/hosts/<h>/<role>.md`) is caught once, at load time,
+    with the file and the option key -- so it shows up wherever `inv.problems`/`inv.errors` is used
+    (the terminal, the dashboard), not only inside the host's own facts note."""
+    pve1 = put(tmp_path, "hosts/pve1.md", host("pve1"))
+    role_path = put(
+        tmp_path, "_roles/hosts/pve1/ssh.md",
+        '---\nbastet: role\nrole: ssh\napplies_to: "[[pve1]]"\nclient_alive_interval: maybe\n---\n# ssh for pve1\n',
+    )
+    inv = load_inventory(tmp_path, TYPES)
+    role_errors = [p for p in inv.errors if p.error.file == role_path]
+    assert len(role_errors) == 1
+    error = role_errors[0].error
+    assert error.key == "client_alive_interval"
+    assert error.line == 5  # the `client_alive_interval: maybe` line in the role file above
+    assert "expected a whole number" in error.message
+    assert pve1.exists()

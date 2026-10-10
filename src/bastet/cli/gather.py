@@ -13,6 +13,7 @@ from bastet.cli.common import (
     Context,
     finish,
     load_context,
+    next_hint,
     print_problems,
     resolve_jobs,
     scan_first,
@@ -386,6 +387,7 @@ def _gather(
         typer.echo("No hosts yet. Add one with `bastet add host`.")
         return
 
+    first_gather = {doc.name for doc in docs if inv.facts.get(doc.name.lower()) is None}
     gathered_at = _now()
     changes, notes, gathered = [], [], []
     host_warnings: dict[str, list[str]] = {}
@@ -606,5 +608,8 @@ def _gather(
         return ctx, message, host_warnings, guest_drift_by_host
     if finish_now:
         finish(ctx, message, warnings=host_warnings, drift=guest_drift_by_host)
+        for name in gathered:
+            if name in first_gather:
+                next_hint(f"bastet add role --to {name}", yes=yes)
         return None
     return ctx, message, host_warnings, guest_drift_by_host

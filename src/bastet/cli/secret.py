@@ -13,7 +13,8 @@ from dataclasses import dataclass, field
 import typer
 from rich.progress import Progress
 
-from bastet.cli.common import Context, finish, handles_errors, load_context, pull_or_warn, push_or_warn
+from bastet.cli.common import Context, finish, handles_errors, load_context, print_problems, pull_or_warn, push_or_warn
+from bastet.cli.complete import complete_secret_words
 from bastet.core.changes import Change, write_changes
 from bastet.core.errors import BastetError
 from bastet.core.secrets import crypto, plaintext
@@ -201,6 +202,7 @@ def secret_main(ctx_typer: typer.Context) -> None:
     if ctx_typer.invoked_subcommand is not None:
         return
     ctx = load_context(allow_plaintext=True)  # never shows values; shows which are unlocked
+    print_problems(ctx)
     _print_inventory(ctx)
     found = secret_health.findings(ctx, scope_hosts=None, audit=True)
     by_kind: dict[str, list] = {}
@@ -372,7 +374,9 @@ def _pull_quietly(ctx: Context) -> None:
 @secret_app.command("set")
 @handles_errors
 def secret_set(
-    words: list[str] | None = typer.Argument(None, help="host role option, or host name (lab allowed as host)."),
+    words: list[str] | None = typer.Argument(
+        None, help="host role option, or host name (lab allowed as host).", autocompletion=complete_secret_words,
+    ),
 ) -> None:
     """Set one secret (named), or walk the list of secrets that need a value."""
     ctx = load_context(allow_plaintext=True)
@@ -397,7 +401,9 @@ def secret_set(
 
 @secret_app.command("show")
 @handles_errors
-def secret_show(words: list[str] = typer.Argument(..., help="host role option, or host name.")) -> None:
+def secret_show(
+    words: list[str] = typer.Argument(..., help="host role option, or host name.", autocompletion=complete_secret_words),
+) -> None:
     """The one deliberate way to see a value: display it, or copy it to the clipboard."""
     if not _stdout_is_tty():
         raise BastetError("refuses to show a secret when output isn't a terminal")
