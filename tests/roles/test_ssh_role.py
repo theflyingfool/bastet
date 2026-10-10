@@ -137,7 +137,7 @@ def test_safe_settings_allowed(values):
 
 def test_match_settings_are_typed():
     with pytest.raises(BastetError, match="pubkey_authentication"):
-        out({"match": [{"criteria": "User admin", "settings": {"pubkey_authentication": "no"}}]})
+        out({"match": [{"criteria": "User admin", "settings": {"pubkey_authentication": "maybe"}}]})
 
 
 def test_listen_address_127_allowed_on_a_local_host():
