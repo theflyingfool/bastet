@@ -80,6 +80,20 @@ class ParallelConfig(BaseModel):
         return value
 
 
+class RunsConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    keep_runs: int = 500
+    keep_days: int = 90
+
+    @field_validator("keep_runs", "keep_days")
+    @classmethod
+    def _at_least_one(cls, value: int) -> int:
+        if value < 1:
+            raise ValueError("must be at least 1")
+        return value
+
+
 class Config(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -88,6 +102,7 @@ class Config(BaseModel):
     ssh: SshConfig = SshConfig()
     gather: GatherConfig = GatherConfig()
     parallel: ParallelConfig = ParallelConfig()
+    runs: RunsConfig = RunsConfig()
 
 
 def config_path(env: Mapping[str, str] | None = None) -> Path:

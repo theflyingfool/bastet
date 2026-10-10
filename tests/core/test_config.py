@@ -164,3 +164,12 @@ def test_parallel_jobs_below_one_is_a_named_config_error(tmp_path):
         load_config(p)
     assert e.value.key == "parallel.jobs"
     assert not e.value.message.startswith("Value error")
+
+
+def test_runs_config_defaults_and_limits(tmp_path):
+    from bastet.core.config import RunsConfig
+
+    assert RunsConfig().keep_runs == 500 and RunsConfig().keep_days == 90
+    for bad in ({"keep_runs": 0}, {"keep_days": 0}):
+        with pytest.raises(Exception):
+            RunsConfig(**bad)
