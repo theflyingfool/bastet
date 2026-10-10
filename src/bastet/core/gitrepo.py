@@ -300,7 +300,8 @@ class GitRepo:
 
     def _require_identity(self) -> None:
         """A commit made as you needs git to know who you are; say how to fix it instead of passing git's error on."""
-        if self._git("var", "GIT_COMMITTER_IDENT", check=False).returncode != 0:
+        if any(self._git("var", ident, check=False).returncode != 0
+               for ident in ("GIT_AUTHOR_IDENT", "GIT_COMMITTER_IDENT")):
             raise BastetError(
                 "git doesn't know who you are, so your own edits can't be committed. Run:\n"
                 '  git config --global user.name "Your Name"\n'

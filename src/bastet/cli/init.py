@@ -269,7 +269,7 @@ def init(
     if recovery_private:
         out.echo()
         out.secho(_RECOVERY_WARNING, fg="yellow")
-        out.echo(recovery_private)
+        out.reveal(recovery_private)
     out.echo()
     if manage_this_machine:
         _setup_this_machine(ctx, result.public_key, yes=yes)

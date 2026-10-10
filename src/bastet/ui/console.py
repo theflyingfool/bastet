@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+import re
 import sys
 from collections.abc import Iterator
 from typing import IO
@@ -15,6 +16,13 @@ from rich.text import Text
 
 from bastet.core.secrets.redact import ACTIVE
 from bastet.ui.blocks import Block
+
+
+_ANSI = re.compile(r"\033\[[;?0-9]*[a-zA-Z]")
+
+
+def _strip_ansi(text: str) -> str:
+    return _ANSI.sub("", text)
 
 
 class Console:
@@ -52,12 +60,21 @@ class Console:
     def _text(value: object) -> str:
         return ACTIVE.mask("" if value is None else str(value))
 
+    @staticmethod
+    def _unstyled(stream: IO[str], text: str) -> str:
+        """Like click: escapes inside the data are dropped when the stream is not a terminal."""
+        isatty = getattr(stream, "isatty", None)
+        return text if isatty and isatty() else _strip_ansi(text)
+
     def _emit(self, rich_text: Text | None, plain: str, *, nl: bool, err: bool) -> None:
         stream = self._stream(err)
         if rich_text is not None and self._use_color(stream):
+            # Rich drops "\r"; keep leading ones (a status line redraws itself) by writing them directly.
+            head = plain[:len(plain) - len(plain.lstrip("\r"))]
+            stream.write(head)
             self._rich_for(err).print(rich_text, end="\n" if nl else "", soft_wrap=True)
         else:
-            stream.write(plain + ("\n" if nl else ""))
+            stream.write(self._unstyled(stream, plain) + ("\n" if nl else ""))
         stream.flush()
 
     def echo(self, text: object = "", *, nl: bool = True, err: bool = False) -> None:
@@ -88,6 +105,7 @@ class Console:
         cells = [[self._text(c) for c in row] for row in rows]
         stream = self._stream(False)
         if not self._use_color(stream):
+            cells = [[self._unstyled(stream, c) for c in row] for row in cells]
             widths = [max(len(r[i]) for r in cells) for i in range(len(cells[0]))]
             for r in cells:
                 stream.write(indent + "  ".join(c.ljust(w) for c, w in zip(r, widths)).rstrip() + "\n")
@@ -98,7 +116,11 @@ class Console:
             table.add_column(no_wrap=i == 0, overflow="fold")
         for r in cells:
             table.add_row(*[Text(c) for c in r])
-        self._rich_for(False).print(Padding(table, (0, 0, 0, len(indent))))
+        rich = self._rich_for(False)
+        with rich.capture() as captured:
+            rich.print(Padding(table, (0, 0, 0, len(indent)), expand=False))
+        # Rich pads short cells to the column width; the plain layout rstrips, so do the same here.
+        stream.write(re.sub(r"[ ]+$", "", captured.get(), flags=re.MULTILINE))
         stream.flush()
 
     def block(self, block: Block) -> None:

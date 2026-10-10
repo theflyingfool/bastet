@@ -282,6 +282,9 @@ def test_committing_as_you_without_a_git_identity_says_how_to_fix_it(tmp_path, m
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", "/dev/null")
     monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")  # never guess an identity from the machine's hostname
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", "user.useConfigOnly")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", "true")
     r = GitRepo(tmp_path / "inv")
     r.root.mkdir()
     r.init()
@@ -291,3 +294,38 @@ def test_committing_as_you_without_a_git_identity_says_how_to_fix_it(tmp_path, m
         r.commit([note], "mine", as_bastet=False)
     assert "git config --global user.name" in str(exc.value) and "Author identity unknown" not in str(exc.value)
     assert r.commit([note], "Bastet's own") is True  # Bastet's identity never needs yours
+
+
+def test_an_identity_given_only_through_env_vars_passes_the_check(tmp_path, monkeypatch):
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", "/dev/null")
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", "user.useConfigOnly")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", "true")
+    monkeypatch.setenv("GIT_AUTHOR_NAME", "Example")
+    monkeypatch.setenv("GIT_AUTHOR_EMAIL", "you@example.com")
+    monkeypatch.setenv("GIT_COMMITTER_NAME", "Example")
+    monkeypatch.setenv("GIT_COMMITTER_EMAIL", "you@example.com")
+    r = GitRepo(tmp_path / "inv")
+    r.root.mkdir()
+    r.init()
+    note = r.root / "a.md"
+    note.write_text("x\n")
+    assert r.commit([note], "mine", as_bastet=False) is True
+
+
+def test_an_identity_missing_only_for_the_author_is_reported(tmp_path, monkeypatch):
+    for var in ("GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "EMAIL"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", "/dev/null")
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", "user.useConfigOnly")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", "true")
+    monkeypatch.setenv("GIT_COMMITTER_NAME", "Example")
+    monkeypatch.setenv("GIT_COMMITTER_EMAIL", "you@example.com")
+    r = GitRepo(tmp_path / "inv")
+    r.root.mkdir()
+    r.init()
+    with pytest.raises(BastetError, match="git doesn't know who you are"):
+        r._require_identity()

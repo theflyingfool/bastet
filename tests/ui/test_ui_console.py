@@ -208,3 +208,64 @@ def test_a_host_report_is_stable_at_common_widths(width):
     plain = ANSI.sub("", o.getvalue())
     assert plain == host_block(_run(), full=True).plain() + "\n"  # soft wrap: the terminal wraps, Bastet never reflows
     assert "\x1b[31m" in o.getvalue() and "\x1b[33m" in o.getvalue() and "\x1b[1m" in o.getvalue()
+
+
+RED = "\x1b[31mred\x1b[0m"
+
+
+def test_plain_mode_strips_escapes_that_are_inside_the_data():
+    c, o, e = make(color=False)
+    c.echo(RED)
+    c.secho(RED, fg="green")
+    c.diff(f"+{RED}\n")
+    c.table([["a", RED], ["bb", "x"]])
+    c.block(Block().add(RED))
+    c.echo(RED, err=True)
+    assert "\x1b" not in o.getvalue() + e.getvalue()
+    assert o.getvalue().splitlines()[:3] == ["red", "red", "+red"]
+    assert e.getvalue() == "red\n"
+
+
+def test_reveal_keeps_escapes_raw():
+    c, o, _ = make(color=False)
+    c.reveal(RED)
+    assert o.getvalue() == RED + "\n"
+
+
+def test_colour_mode_still_prints_styled_output():
+    c, o, _ = make(color=True)
+    c.secho("red", fg="red")
+    assert o.getvalue().startswith("\x1b[31m")
+
+
+def test_a_leading_carriage_return_survives_in_colour_mode():
+    c, o, _ = make(color=True)
+    c.secho("\rtick 3", fg="yellow", nl=False)
+    assert o.getvalue().startswith("\r")
+    assert "\x1b[33m" in o.getvalue()
+    assert ANSI.sub("", o.getvalue()) == "\rtick 3"
+
+
+def test_a_leading_carriage_return_is_unchanged_in_plain_mode():
+    c, o, e = make(color=False)
+    c.secho("\rtick 3   ", fg="yellow", nl=False, err=True)
+    assert e.getvalue() == "\rtick 3   " and o.getvalue() == ""
+
+
+def test_coloured_table_lines_have_no_trailing_padding():
+    c, o, _ = make(color=True, width=80)
+    c.table([["pve1", "x"], ["pve22", "yy"]])
+    lines = ANSI.sub("", o.getvalue()).splitlines()
+    assert lines and not any(line.endswith(" ") for line in lines)
+
+
+@pytest.mark.parametrize("width", [60, 80, 120])
+def test_a_report_line_longer_than_the_narrowest_width_is_not_reflowed(width):
+    label = "/etc/" + "long-directory-name/" * 4 + "a-file-with-a-rather-long-name.conf"
+    assert len(label) > 90
+    run = HostRun("pve1", False, [Item(Flag(path=label, value="v", secret=False), ["lab"], [], "compliant",
+                                       [], {}, None, None)])
+    c, o, _ = make(color=True, width=width)
+    c.block(host_block(run, full=True))
+    assert max(len(line) for line in host_block(run, full=True).plain().splitlines()) > 60
+    assert ANSI.sub("", o.getvalue()) == host_block(run, full=True).plain() + "\n"
