@@ -25,8 +25,9 @@ def _kv(text: str) -> dict[str, str]:
     return out
 
 
-def restart(unit: str) -> Trigger:
-    return Trigger(f"restart {unit}", f"systemctl restart {_q(unit)}")
+def restart(unit: str, check: bool = True) -> Trigger:
+    return Trigger(f"restart {unit}", f"systemctl restart {_q(unit)}",
+                   check=f"systemctl is-active --quiet {_q(unit)}" if check else None)
 
 
 def reload(unit: str) -> Trigger:

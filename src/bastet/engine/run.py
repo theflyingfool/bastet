@@ -290,6 +290,15 @@ def run_host(
                         pending.append(t)
         for t in sorted(pending, key=lambda t: t.order):  # phase 5
             ok, error = _exec(runner, [t.command], t.root, fix_timeout, host=host, phase="on_change")
+            if ok and t.check:
+                for attempt in range(t.check_tries):
+                    ok, _ = _exec(runner, [t.check], t.root, fix_timeout, host=host, phase="on_change")
+                    if ok:
+                        break
+                    if attempt + 1 < t.check_tries:
+                        time.sleep(t.check_wait)
+                if not ok:
+                    error = f"{t.label}: still not running after {t.check_tries} checks"
             run.triggers.append(TriggerRun(t, ok, error))
             events.emit("trigger_fired", host, trigger=t.label, ok=ok, error=error)
             if not ok:

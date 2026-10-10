@@ -34,6 +34,9 @@ class Trigger:
     command: str
     order: int = 50
     root: bool = True
+    check: str | None = None  # run after the command succeeds; must pass within check_tries tries
+    check_tries: int = 5
+    check_wait: float = 1.0
 
 
 @dataclass(frozen=True)
