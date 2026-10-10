@@ -42,7 +42,7 @@ class ListSink:
 
 
 def new_run_id() -> str:
-    return datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:4]
+    return datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6]
 
 
 class Recorder:

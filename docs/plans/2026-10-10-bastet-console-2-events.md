@@ -322,7 +322,7 @@ class Recorder:
     run_id: str; status: str | None; dropped: int
     def emit(self, kind: str, host: str | None = None, **data) -> None
     def close(self) -> None          # emits run_finished, drains the queue, closes sinks
-def new_run_id() -> str              # "20261010-120000-ab12" (UTC time, 4 random hex)
+def new_run_id() -> str              # "20261010-120000-ab12" (UTC time, 6 random hex)
 def emit(kind: str, host: str | None = None, **data) -> None     # no-op outside a recording
 def recording(command: str, sinks: list[Sink], *, run_id: str | None = None, **extra) -> ContextManager[Recorder]
 def phase(host: str, name: str) -> ContextManager[None]          # phase_started / phase_finished(duration)

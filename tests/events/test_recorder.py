@@ -166,4 +166,4 @@ def test_a_failed_run_makes_the_host_failed():
 
 def test_run_ids_sort_by_time_and_are_unique():
     ids = [new_run_id() for _ in range(50)]
-    assert len(set(ids)) == 50 and all(len(i) == len("20261010-120000-ab12") for i in ids)
+    assert len(set(ids)) == 50 and all(len(i) == len("20261010-120000-ab12cd") for i in ids)
