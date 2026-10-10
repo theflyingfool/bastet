@@ -4,6 +4,7 @@ Every role Bastet ships. Put values in a role file's properties (`_roles/lab/<ro
 
 | Role | What it does |
 |---|---|
+| [apt](#apt) | apt's own settings, written to /etc/apt/apt.conf.d/90-bastet (Debian-based hosts; aim it at `debian`) |
 | [base](#base) | The basics every host gets: admin tools, and CPU microcode on physical machines |
 | [files](#files) | Files, directories, links, and blocks or lines inside other files |
 | [harden](#harden) | Security knobs and reports |
@@ -13,6 +14,43 @@ Every role Bastet ships. Put values in a role file's properties (`_roles/lab/<ro
 | [ssh](#ssh) | OpenSSH server settings: every sshd_config keyword, plus Match blocks |
 | [systemd](#systemd) | Settings systemd owns: time and time sync, hostname, locale, and services with their drop-ins |
 | [users](#users) | Users, groups, SSH keys and sudoers rules |
+
+## apt
+
+apt's own settings, written to /etc/apt/apt.conf.d/90-bastet (Debian-based hosts; aim it at `debian`). Unset = leave apt's setting as it is. A curated, incomplete list of options. Repositories belong to the packages role.
+
+### Examples
+
+**Go through a proxy (all Debian hosts)**
+
+```yaml
+acquire_http_proxy: http://proxy.example.net:3128
+acquire_https_proxy: http://proxy.example.net:3128
+acquire_retries: 3
+```
+
+**No recommended packages**
+
+```yaml
+install_recommends: false
+```
+
+### Options
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| install_recommends | bool |  | APT::Install-Recommends: install recommended packages too |
+| install_suggests | bool |  | APT::Install-Suggests: install suggested packages too |
+| default_release | string |  | APT::Default-Release: the release to install from by default, e.g. trixie-backports |
+| keep_downloaded_packages | bool |  | APT::Keep-Downloaded-Packages: keep .deb files after installing |
+| autoremove_suggests_important | bool |  | APT::AutoRemove::SuggestsImportant: treat suggested packages as important for autoremove |
+| acquire_retries | int |  | Acquire::Retries: download retries |
+| acquire_http_timeout | int |  | Acquire::http::Timeout: seconds |
+| acquire_https_timeout | int |  | Acquire::https::Timeout: seconds |
+| acquire_http_proxy | string |  | Acquire::http::Proxy: e.g. http://proxy.example.net:3128 |
+| acquire_https_proxy | string |  | Acquire::https::Proxy |
+| acquire_languages | list of string |  | Acquire::Languages: translations to download (en, none, …) |
+| dpkg_options | list of string |  | Dpkg::Options: options passed to dpkg |
 
 ## base
 

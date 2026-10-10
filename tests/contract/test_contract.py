@@ -197,6 +197,17 @@ def test_arch_pacman_all_kinds_contract(arch_host):
     assert "VerbosePkgLists" in arch_host.run("pacman-conf").stdout and "CheckSpace" not in arch_host.run("pacman-conf").stdout
 
 
+def test_debian_apt_role_contract(host):
+    info = HostInfo(name="ct", type="vm", data={"os": "Debian GNU/Linux 13 (trixie)"}, root=Path("/nonexistent"), lab={})
+    batches = batches_for([_applied("apt", {"install_recommends": False, "acquire_retries": 3})], info)
+    first = run_host(host, "ct", batches, apply=True)
+    assert first.ok, render_host(first, full=True)
+    dump = host.run("apt-config dump").stdout
+    assert 'APT::Install-Recommends "false"' in dump and 'Acquire::Retries "3"' in dump
+    again = run_host(host, "ct", batches, apply=True)
+    assert all(i.status == "compliant" for i in again.items) and not again.triggers, render_host(again, full=True)
+
+
 def test_ssh_contract(host):
     info = HostInfo(name="ct", type="vm", data={"os": "Debian GNU/Linux 13 (trixie)"}, root=Path("/nonexistent"), lab={})
     batches = batches_for([_applied("ssh", {"x11_forwarding": False, "max_auth_tries": 4, "port": [22, 2222],

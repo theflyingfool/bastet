@@ -161,4 +161,4 @@ def test_load_roles_yml_unchanged(tmp_path):
 
 
 def test_bundled_set_unchanged():
-    assert set(load_roles()) == {"systemd", "packages", "users", "files", "base", "pacman", "proxmox", "ssh", "harden"}
+    assert set(load_roles()) == {"systemd", "packages", "users", "files", "base", "pacman", "apt", "proxmox", "ssh", "harden"}
