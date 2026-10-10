@@ -86,7 +86,7 @@ def test_gather_local_laptop_writes_facts(runner, laptop, tmp_path):
     assert "os: Arch Linux" in note and "ram: 16 GB" in note and "cpu_cores: 4" in note
     assert (laptop / "hardware" / "HP Spectre x360 Convertible 13-ae0xx 5CD1234XYZ.md").exists()
     assert (laptop / "_bastet" / "hardware-here.base").exists()
-    assert "Bastet gather: hp-13" in git(laptop, "log", "--format=%an %s").splitlines()
+    assert any(line.startswith("Bastet gather: hp-13 (+") for line in git(laptop, "log", "--format=%an %s").splitlines())
     snaps = list((tmp_path / "data" / "bastet" / "snapshots" / "hp-13").glob("*.json"))
     assert len(snaps) == 1 and json.loads(snaps[0].read_text())["host"] == "hp-13"
 
@@ -693,3 +693,16 @@ def test_node_and_guest_same_run_guest_first(runner, server, monkeypatch):
     assert "vmid: 104" in note, "vmid lost"
     assert "os: Arch Linux" in note, "guest facts lost"
     assert "ssh_host_key" in note, "guest's accepted host key lost"
+
+
+# --- `run -g -a`: one commit for the whole run (plan Task 5) ---
+
+
+def test_gather_then_apply_in_one_run_is_one_commit(runner, laptop):
+    before = int(git(laptop, "rev-list", "--count", "HEAD").strip())
+    result = runner.invoke(app, ["run", "-g", "-a", "hp-13", "-y"])
+    assert result.exit_code == 0, result.output
+    after = int(git(laptop, "rev-list", "--count", "HEAD").strip())
+    assert after - before == 1
+    subject = git(laptop, "log", "-1", "--format=%s").strip()
+    assert subject.startswith("gather: hp-13") and "apply: hp-13" in subject

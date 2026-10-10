@@ -5,7 +5,7 @@ from pathlib import Path
 import typer
 
 import bastet.cli.secret as secret_mod
-from bastet.cli.common import handles_errors, load_context, refresh_generated, write_with_confirmation
+from bastet.cli.common import finish, handles_errors, load_context, push_or_warn, write_with_confirmation
 from bastet.core.render import lab_embed_changes
 from bastet.core.changes import Change
 from bastet.core.errors import BastetError
@@ -110,8 +110,8 @@ def add_host(
     )
     if draft.suggested_ip:
         typer.echo(f"Suggested address: {draft.suggested_ip} (next free in {network})")
-    if write_with_confirmation(ctx, [draft.change, *lab_embed_changes(inv)], f"add host {name}", yes):
-        refresh_generated(ctx)
+    if write_with_confirmation(ctx, [draft.change, *lab_embed_changes(inv)], yes):
+        finish(ctx, f"add host {name}")
         if local:
             _set_up_this_machine(yes=yes)
 
@@ -175,8 +175,8 @@ def add_hardware(
         inv, name, category, model=model, serial=serial, size=size,
         installed_in=installed_in, location=location, status=status,
     )
-    if write_with_confirmation(ctx, [change, *lab_embed_changes(inv)], f"add hardware {name}", yes):
-        refresh_generated(ctx)
+    if write_with_confirmation(ctx, [change, *lab_embed_changes(inv)], yes):
+        finish(ctx, f"add hardware {name}")
 
 
 def _choose_many(label: str, options: list[tuple[str, str]]) -> list[str]:
@@ -234,8 +234,8 @@ def _offer_secrets(ctx, added: list[str], doc, *, yes: bool) -> None:
             skipped.append(n)
     if skipped:
         _print_secret_commands(skipped)
-    if ctx.repo.is_repo() and not ctx.repo.push():
-        typer.secho("warning: push failed; the commit(s) are kept locally", fg="yellow", err=True)
+    if ctx.repo.is_repo():
+        push_or_warn(ctx)
     _ensure_secrets_section(ctx, doc)
 
 
@@ -248,8 +248,7 @@ def _ensure_secrets_section(ctx, doc) -> None:
     if has_secrets_section(doc.body):
         return
     text = doc.path.read_text(encoding="utf-8")
-    write_with_confirmation(ctx, [Change(doc.path, text, text.rstrip("\n") + "\n" + SECRETS_SECTION)],
-                            f"add a secrets section to {doc.name}", True)
+    write_with_confirmation(ctx, [Change(doc.path, text, text.rstrip("\n") + "\n" + SECRETS_SECTION)], True)
 
 
 def _role_targets(inv) -> list[tuple[str, str]]:
@@ -317,6 +316,6 @@ def add_role(
     if doc.data.get("bastet") in ("host", "group") and not has_roles_section(doc.body):
         text = doc.path.read_text(encoding="utf-8")
         changes.append(Change(doc.path, text, text.rstrip("\n") + "\n" + ROLES_SECTION))
-    if write_with_confirmation(ctx, changes, f"add role {', '.join(added)} to {doc.name}", yes):
-        refresh_generated(ctx)
+    if write_with_confirmation(ctx, changes, yes):
         _offer_secrets(ctx, added, doc, yes=yes)
+        finish(ctx, f"add role {', '.join(added)} to {doc.name}")

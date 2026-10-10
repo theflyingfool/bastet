@@ -318,7 +318,7 @@ def test_ctrl_c_reports_not_started_closes_masters_and_still_refreshes(runner, t
     monkeypatch.setattr(run_mod, "close_master", lambda target: closed.append(target))
 
     refreshed = []
-    monkeypatch.setattr(run_mod, "refresh_generated", lambda ctx, **kw: refreshed.append(True) or 0)
+    monkeypatch.setattr(run_mod, "finish", lambda ctx, message, **kw: refreshed.append(True) or False)
 
     # Only the first host to finish gets interrupted -- with `-j 1` the other two are still
     # waiting for a slot, so `run_parallel` reports them "not started" once it stops admitting.
@@ -412,7 +412,7 @@ def test_reboot_decision_error_is_one_hosts_red_line_others_still_reboot(runner,
     monkeypatch.setattr(run_mod, "perform_reboot", perform_reboot)
 
     refreshed = []
-    monkeypatch.setattr(run_mod, "refresh_generated", lambda ctx, **kw: refreshed.append(True) or 0)
+    monkeypatch.setattr(run_mod, "finish", lambda ctx, message, **kw: refreshed.append(True) or False)
 
     result = runner.invoke(app, ["run", "-y"])
 

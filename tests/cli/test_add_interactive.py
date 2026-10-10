@@ -14,7 +14,7 @@ def test_interactive_vps(runner, inventory):
     assert result.exit_code == 0, result.output
     text = (inventory / "hosts" / "edge1.md").read_text()
     assert "type: vps\nprovider: linode\nip: 203.0.113.10\n" in text
-    assert head_author(inventory) == "Bastet add host edge1"
+    assert head_author(inventory).startswith("Bastet add host edge1")
 
 
 def test_type_by_number_and_bad_choice_reprompts(runner, inventory):

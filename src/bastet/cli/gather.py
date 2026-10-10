@@ -11,9 +11,9 @@ import typer
 
 from bastet.cli.common import (
     Context,
+    finish,
     load_context,
     print_problems,
-    refresh_generated,
     resolve_jobs,
     scan_first,
     ssh_ports,
@@ -360,9 +360,16 @@ def _offer_guests(ctx: Context, found: list[tuple[str, dict]], yes: bool, facts_
 
 def _gather(
     hosts: list[str] | None, accept_new_hostkey: bool, yes: bool, jobs: int | None,
-    exclude: list[str] | None = None,
-) -> None:
-    ctx = load_context()
+    exclude: list[str] | None = None, *, ctx: Context | None = None, finish_now: bool = True,
+) -> tuple[Context, str, dict[str, list[str]], dict[str, list[str]]] | None:
+    """Gather facts and write them, after showing the diff.
+
+    With `finish_now` (the default), commits and pushes this gather's own changes together with the
+    regenerated notes, in one commit, and returns None. With `finish_now=False` (used by `run -g -a`/
+    `-g -c`), writes but doesn't commit -- the caller folds this gather's context, commit message and
+    warnings/drift into its own `finish`, so the whole run becomes one commit.
+    """
+    ctx = ctx or load_context()
     run_jobs = resolve_jobs(jobs, ctx.config)
     print_problems(ctx)
     inv = ctx.inventory
@@ -588,12 +595,16 @@ def _gather(
         change = hardware_facts_change(ctx.inventory.root, name, facts, gathered_at)
         if change is not None:
             changes.append(change)
-    if changes:
-        message = f"gather: {', '.join(gathered)}" if gathered else "gather"
-        if linked:
-            message += f"; links: {', '.join(linked)}"
-        if added:
-            message += f"; add {len(added)} guest{'s' if len(added) != 1 else ''}"
-        if not write_with_confirmation(ctx, [*changes, *lab_embed_changes(inv)], message, yes):
-            return
-    refresh_generated(ctx, warnings=host_warnings, drift=guest_drift_by_host)
+    message = f"gather: {', '.join(gathered)}" if gathered else "gather"
+    if linked:
+        message += f"; links: {', '.join(linked)}"
+    if added:
+        message += f"; add {len(added)} guest{'s' if len(added) != 1 else ''}"
+    if changes and not write_with_confirmation(ctx, [*changes, *lab_embed_changes(inv)], yes):
+        if finish_now:
+            return None
+        return ctx, message, host_warnings, guest_drift_by_host
+    if finish_now:
+        finish(ctx, message, warnings=host_warnings, drift=guest_drift_by_host)
+        return None
+    return ctx, message, host_warnings, guest_drift_by_host

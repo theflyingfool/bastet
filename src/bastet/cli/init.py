@@ -7,7 +7,7 @@ from pathlib import Path
 
 import typer
 
-from bastet.cli.common import Context, handles_errors, load_context, refresh_generated
+from bastet.cli.common import Context, handles_errors, load_context, push_or_warn, refresh_only
 from bastet.core import hostkeys
 from bastet.core.changes import Change, render_diff, write_changes
 from bastet.core.config import config_path, data_dir, inventory_dir, load_config
@@ -87,7 +87,8 @@ def _confirm_local_hostkey(ctx: Context, *, yes: bool) -> None:
         if change is not None:
             write_changes([change])
             if ctx.repo.is_repo():
-                ctx.repo.commit([change.path], f"init: pin {doc.name}'s host key")
+                if ctx.repo.commit([change.path], f"init: pin {doc.name}'s host key"):
+                    push_or_warn(ctx)
         typer.echo(f"{doc.name}: host key recorded")
 
 
@@ -261,7 +262,7 @@ def init(
     for action in result.actions:
         typer.echo(action)
     ctx = load_context()
-    refresh_generated(ctx)
+    refresh_only(ctx)
     typer.echo(f"\nBastet's public key ({result.public_key}):")
     typer.echo(result.public_key.read_text(encoding="utf-8").strip())
     if recovery_private:

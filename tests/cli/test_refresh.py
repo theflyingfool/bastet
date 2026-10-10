@@ -42,7 +42,7 @@ def test_add_host_embeds_dashboard_and_refreshes(runner, inventory):
     assert "![[bastet dashboard]]" in (inventory / "Homelab.md").read_text()
     assert "![[edge1 facts]]" in (inventory / "hosts" / "edge1.md").read_text()
     assert (inventory / "_bastet" / "facts" / "edge1 facts.md").exists()
-    assert any(line == "Bastet add host edge1" for line in log(inventory))
+    assert any(line.startswith("Bastet add host edge1") for line in log(inventory))
 
 
 def test_refresh_skipped_not_failed_when_pull_fails(runner, inventory, tmp_path):

@@ -257,7 +257,7 @@ def test_check_writes_security_note(runner, box, inventory, monkeypatch):
 
     note = facts_path(inventory, "box")
     assert note.exists() and "## AppArmor\n\nnot enabled" in note.read_text()
-    assert "refresh: security note box" in git(inventory, "log", "--format=%s")
+    assert "check: box" in git(inventory, "log", "--format=%s")
 
 
 def test_security_note_not_recommitted_when_only_time_changes(runner, box, inventory, monkeypatch):
@@ -276,9 +276,9 @@ def test_security_note_not_recommitted_when_only_time_changes(runner, box, inven
     times = iter([real_dt.datetime(2026, 10, 2, 10, 0), real_dt.datetime(2026, 10, 2, 11, 30)])
     monkeypatch.setattr(run_mod, "dt", types.SimpleNamespace(datetime=types.SimpleNamespace(now=lambda: next(times))))
     runner.invoke(app, ["run", "-c", "box"])
-    first = git(inventory, "log", "--format=%s").count("security note box")
+    first = git(inventory, "log", "--format=%s").count("check: box")
     runner.invoke(app, ["run", "-c", "box"])
-    assert first == 1 and git(inventory, "log", "--format=%s").count("security note box") == 1
+    assert first == 1 and git(inventory, "log", "--format=%s").count("check: box") == 1
 
 
 def test_security_note_failure_never_stops_the_check(runner, box, inventory, monkeypatch):
@@ -522,3 +522,14 @@ def test_host_info_reads_os_and_cpu_from_facts_not_stale_host_note(inventory):
     assert host.debian_like is True
     assert host.os_id == "debian"
     assert host.data["cpu"] == "AMD EPYC 7713 64-Core Processor"
+
+
+def test_check_only_regenerating_makes_one_commit(runner, box, inventory):
+    """`box`'s only role (`files`) raises no security items, so `run -c` commits nothing of its own
+    -- but this is the first refresh ever, so it still has generated notes to write, in one commit."""
+    before = int(git(inventory, "rev-list", "--count", "HEAD").strip())
+    result = runner.invoke(app, ["run", "-c", "box"])
+    assert result.exit_code == 0, result.output
+    after = int(git(inventory, "rev-list", "--count", "HEAD").strip())
+    assert after - before == 1
+    assert git(inventory, "log", "-1", "--format=%s").strip().startswith("check: box (+")

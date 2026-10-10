@@ -116,6 +116,8 @@ class Context:
     types: dict[str, HostType]
     inventory: Inventory
     upstream_secrets: list[str] = field(default_factory=list)  # `_secrets/` paths a pull just changed
+    written: set[Path] = field(default_factory=set, repr=False)  # paths written but not yet committed this command
+    pull_error: str | None = field(default=None, repr=False)  # the last pull's failure message, if any
     _secrets: SecretsContext | None = field(default=None, init=False, repr=False)
 
     @property
@@ -168,6 +170,7 @@ def load_context(*, allow_plaintext: bool = False) -> Context:
         raise BastetError("inventory directory does not exist; run `bastet init`", file=root)
     repo = GitRepo(root)
     upstream_secrets: list[str] = []
+    pull_error: str | None = None
     if repo.is_repo():
         repo.ensure_hook()
         # Before pulling: a fresh confirmed-commit baseline is today's HEAD, not tomorrow's -- so a
@@ -178,12 +181,13 @@ def load_context(*, allow_plaintext: bool = False) -> Context:
             repo.pull()
         except BastetError as exc:
             typer.secho(f"warning: {exc}; continuing on the last pulled state", fg="yellow", err=True)
+            pull_error = exc.message
         upstream_secrets = alert_upstream_secrets(repo, root)
     if not allow_plaintext:
         _refuse_if_plaintext(root)
     types = load_host_types()
     return Context(config=config, root=root, repo=repo, types=types, inventory=load_inventory(root, types),
-                   upstream_secrets=upstream_secrets)
+                   upstream_secrets=upstream_secrets, pull_error=pull_error)
 
 
 def problem_line(root: Path, problem) -> tuple[str, str]:
@@ -223,18 +227,40 @@ def find_named_host(ctx: Context, name: str) -> Document:
     raise BastetError(f"no host named '{name}' in the inventory")
 
 
-def write_with_confirmation(ctx: Context, changes: list[Change], message: str, yes: bool) -> bool:
+PUSH_FAILED_LINE = "committed locally; push failed (offline?); it'll be pushed next time"
+
+
+def push_or_warn(ctx: Context) -> None:
+    """The one push-failure line, everywhere: never changes the exit code; the next command pushes what's pending."""
+    if not ctx.repo.push():
+        typer.secho(PUSH_FAILED_LINE, fg="yellow", err=True)
+
+
+def pull_or_warn(ctx: Context) -> None:
+    """Pull, recording the failure (if any) on `ctx.pull_error` so a later `refresh_generated` in the same
+    command can report it without pulling again over what this command has since written."""
+    try:
+        ctx.repo.pull()
+        ctx.pull_error = None
+    except BastetError as exc:
+        typer.secho(f"warning: {exc}; continuing on the last pulled state", fg="yellow", err=True)
+        ctx.pull_error = exc.message
+
+
+def write_with_confirmation(ctx: Context, changes: list[Change], yes: bool) -> bool:
+    """Show the diff, ask (unless `yes`), and write `changes` to disk -- but don't commit: the files
+    are recorded on `ctx.written`, and `finish` commits them (with any regenerated notes) once."""
     if not ctx.repo.is_repo():
         raise BastetError("the inventory is not a git repository; run `bastet init`", file=ctx.root)
     _refuse_if_plaintext(ctx.root)
-    try:
-        ctx.repo.pull()
-    except BastetError as exc:
-        typer.secho(f"warning: {exc}; continuing on the last pulled state", fg="yellow", err=True)
+    pull_or_warn(ctx)
     ctx.upstream_secrets = alert_upstream_secrets(ctx.repo, ctx.root)
     targets = {c.path for c in changes}
     bastet_files = {d.path.resolve() for d in ctx.inventory.objects.values()} | {t.resolve() for t in targets}
-    pending = [p for p in ctx.repo.dirty() if p.suffix == ".md" and p.resolve() in bastet_files]
+    pending = [
+        p for p in ctx.repo.dirty()
+        if p.suffix == ".md" and p.resolve() in bastet_files and p.resolve() not in ctx.written
+    ]
     if pending:
         typer.echo("Uncommitted edits to Bastet files:")
         for path in pending:
@@ -251,40 +277,39 @@ def write_with_confirmation(ctx: Context, changes: list[Change], message: str, y
         typer.echo("Nothing written.")
         return False
     write_changes(changes)
-    ctx.repo.commit(sorted(targets), message)
-    if not ctx.repo.push():
-        typer.secho("warning: push failed; the commit is kept locally", fg="yellow", err=True)
+    ctx.written |= targets
     return True
+
+
+def _refresh_skip(reason: str) -> None:
+    """A refresh that can't run says why, as a normal line -- never red, never an error."""
+    typer.echo(f"refresh skipped: {reason}")
 
 
 def refresh_generated(
     ctx: Context, *, warnings: dict[str, list[str]] | None = None, drift: dict[str, list[str]] | None = None
-) -> int:
-    """Rewrite Bastet's generated notes (summaries, dashboard, views) from the files; commit them as `refresh:`.
+) -> list[Change]:
+    """Compute and write Bastet's generated notes (summaries, dashboard, views) from the files.
 
-    Only files under _bastet/ are touched, so no confirmation is needed.
+    Doesn't pull, commit or push: it trusts `ctx.pull_error` from this command's own pull, and
+    `finish` folds the changes it writes into the command's one commit. Only files under _bastet/
+    are touched, so no confirmation is needed.
     """
     if not ctx.repo.is_repo():
-        return 0
+        return []
     try:
         if ctx.repo.busy():
-            typer.secho("refresh skipped: a git merge or rebase is in progress in the inventory", fg="yellow", err=True)
-            return 0
+            _refresh_skip("a git merge or rebase is in progress in the inventory")
+            return []
         from bastet.core.secrets.plaintext import any_plain
 
         plain = any_plain(ctx.root)
         if plain:
-            typer.secho(
-                f"refresh skipped: {len(plain)} secret(s) are plain text; run `bastet secret lock`",
-                fg="yellow",
-                err=True,
-            )
-            return 0
-        try:
-            ctx.repo.pull()
-        except BastetError as exc:
-            typer.secho(f"refresh skipped: couldn't sync with the remote ({exc.message})", fg="yellow", err=True)
-            return 0
+            _refresh_skip(f"{len(plain)} secret(s) are plain text; run `bastet secret lock`")
+            return []
+        if ctx.pull_error is not None:
+            _refresh_skip(f"couldn't sync with the remote ({ctx.pull_error})")
+            return []
         ctx.inventory = load_inventory(ctx.root, ctx.types)
         from bastet.core.secrets import health as secret_health
 
@@ -294,16 +319,48 @@ def refresh_generated(
         changes = generated_changes(ctx.inventory, ctx.types, ctx.repo, warnings=warnings, drift=drift,
                                     secrets_summary=secrets_summary)
         if not changes:
-            return 0
+            return []
         write_changes(changes)
-        ctx.repo.commit([c.path for c in changes], f"refresh: {len(changes)} generated note{'s' if len(changes) != 1 else ''}")
-        if not ctx.repo.push():
-            typer.secho("warning: push failed; the commit is kept locally", fg="yellow", err=True)
     except Exception as exc:  # refreshing generated notes must never break the command that triggered it
-        typer.secho(f"refresh skipped: {exc.__class__.__name__}: {exc}", fg="yellow", err=True)
-        return 0
+        _refresh_skip(f"{exc.__class__.__name__}: {exc}")
+        return []
     typer.echo(f"Refreshed {len(changes)} generated note{'s' if len(changes) != 1 else ''} in _bastet/.")
-    return len(changes)
+    return changes
+
+
+def refresh_only(ctx: Context) -> list[Change]:
+    """Regenerate and commit on its own (`refresh: N generated notes`) -- for a command with nothing
+    of its own to fold the regenerated notes into."""
+    changes = refresh_generated(ctx)
+    if changes:
+        committed = ctx.repo.commit(
+            [c.path for c in changes], f"refresh: {len(changes)} generated note{'s' if len(changes) != 1 else ''}"
+        )
+        if committed:
+            push_or_warn(ctx)
+    return changes
+
+
+def finish(
+    ctx: Context, message: str, *, warnings: dict[str, list[str]] | None = None, drift: dict[str, list[str]] | None = None
+) -> bool:
+    """Commit this command's own writes (`ctx.written`) together with any regenerated notes, as one
+    commit, and push once. A command with nothing to write makes no commit."""
+    generated = refresh_generated(ctx, warnings=warnings, drift=drift)
+    paths = ctx.written | {c.path for c in generated}
+    ctx.written = set()
+    if not paths:
+        return False
+    full_message = f"{message} (+{len(generated)} generated)" if generated else message
+    if not ctx.repo.commit(sorted(paths), full_message):
+        return False
+    # The dashboard's "Recent changes" can only show this commit once it exists; catch it up now,
+    # folding that into the same commit rather than making a second one.
+    caught_up = refresh_generated(ctx)
+    if caught_up:
+        ctx.repo.amend([c.path for c in caught_up])
+    push_or_warn(ctx)
+    return True
 
 
 def ssh_ports(ctx: Context, doc) -> list[int]:

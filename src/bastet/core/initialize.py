@@ -191,7 +191,7 @@ def initialize(config_file: Path, options: InitOptions, *, keys_dir: Path) -> In
 
     committed = repo.commit(written, "bastet init") if written else False
     if options.remote and committed and not repo.push():
-        actions.append("warning: push failed; the commit is kept locally and pushed on a later run")
+        actions.append("committed locally; push failed (offline?); it'll be pushed next time")
     return InitResult(actions=actions, committed=committed, public_key=_pub(key))
 
 

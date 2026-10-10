@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 import typer
 from rich.progress import Progress
 
-from bastet.cli.common import Context, handles_errors, load_context, refresh_generated
+from bastet.cli.common import Context, finish, handles_errors, load_context, pull_or_warn, push_or_warn
 from bastet.core.changes import Change, write_changes
 from bastet.core.errors import BastetError
 from bastet.core.secrets import crypto, plaintext
@@ -336,17 +336,13 @@ def _set_walk(ctx: Context) -> None:
             # pending before this whole walk started: an upstream change pulled in by this command's
             # own _pull_quietly, just before the walk, must still gate the next apply.
             secrets_confirm.confirm_own_commit(ctx.repo, ctx.root, was_pending)
-        if not ctx.repo.push():
-            typer.secho("warning: push failed; the commit(s) are kept locally", fg="yellow", err=True)
+        push_or_warn(ctx)
 
 
 def _pull_quietly(ctx: Context) -> None:
     if not ctx.repo.is_repo():
         return
-    try:
-        ctx.repo.pull()
-    except BastetError as exc:
-        typer.secho(f"warning: {exc}; continuing on the last pulled state", fg="yellow", err=True)
+    pull_or_warn(ctx)
 
 
 @secret_app.command("set")
@@ -364,8 +360,8 @@ def secret_set(
             result = _set_one(ctx, sp, opt, piped_value=sys.stdin.read())
         else:
             result = _set_one(ctx, sp, opt)
-        if result == "committed" and ctx.repo.is_repo() and not ctx.repo.push():
-            typer.secho("warning: push failed; the commit is kept locally", fg="yellow", err=True)
+        if result == "committed" and ctx.repo.is_repo():
+            push_or_warn(ctx)
         return
     if not _stdin_is_tty():
         raise BastetError("the secret list only works at a terminal; name a secret to pipe a value into it")
@@ -564,8 +560,5 @@ def secret_audit() -> None:
     before = path.read_text(encoding="utf-8") if path.exists() else None
     if before is None or _without_checked(before) != _without_checked(text):
         write_changes([Change(path, before, text)])
-        if ctx.repo.is_repo():
-            ctx.repo.commit([path], "refresh: secret audit")
-            if not ctx.repo.push():
-                typer.secho("warning: push failed; the commit is kept locally", fg="yellow", err=True)
-    refresh_generated(ctx)
+        ctx.written.add(path)
+    finish(ctx, "refresh: secret audit")

@@ -299,3 +299,16 @@ class GitRepo:
         identity = ["-c", f"user.name={BASTET_NAME}", "-c", f"user.email={bastet_email()}"] if as_bastet else []
         self._git(*identity, "commit", "-q", "-m", message, "--", *rel)
         return True
+
+    def amend(self, paths: Iterable[Path]) -> bool:
+        """Fold more files into the last commit, keeping its message and author -- used right after
+        `commit`, before anything is pushed, so the dashboard can catch up to a commit it couldn't
+        see yet when it was first rendered."""
+        rel = [str(Path(p).resolve().relative_to(self.root.resolve())) for p in paths]
+        if not rel:
+            return False
+        self._git("add", "--", *rel)
+        if self._git("diff", "--cached", "--quiet", "--", *rel, check=False).returncode == 0:
+            return False
+        self._git("commit", "-q", "--amend", "--no-edit", "--", *rel)
+        return True

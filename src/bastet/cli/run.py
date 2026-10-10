@@ -15,11 +15,12 @@ import bastet.cli.secret as secret_mod
 from bastet.cli.common import (
     confirm_upstream_secrets,
     Context,
+    finish,
     guard_prompts,
     handles_errors,
     load_context,
     print_problems,
-    refresh_generated,
+    push_or_warn,
     resolve_jobs,
     scan_first,
     ssh_ports,
@@ -30,6 +31,7 @@ from bastet.core import hostkeys
 from bastet.core.errors import BastetError
 from bastet.core.frontmatter import Document, new_document, parse_document
 from bastet.core.hostview import host_data
+from bastet.core.inventory import load_inventory
 from bastet.core.links import link_target
 from bastet.core.parallel import HostFailed, HostLog, Outcome, break_cycles, run_parallel, stopping
 from bastet.core.remote import SshTarget, close_master, control_path
@@ -92,7 +94,7 @@ AUDIT_TIMEOUT = 600
 def _write_security_note(ctx: Context, doc: Document, items) -> bool:
     """Rewrite the security section of the host's facts note from this run's reports (a Bastet-owned
     section: no confirmation). The frontmatter and the rest of the body -- someone else's -- are
-    carried over untouched."""
+    carried over untouched. Recorded on `ctx.written`; `finish` commits it with everything else."""
     from bastet.core.links import make_link
 
     if not security_items(items) or not ctx.repo.is_repo():
@@ -119,7 +121,8 @@ def _write_security_note(ctx: Context, doc: Document, items) -> bool:
         if before == after:
             return False
         write_changes([Change(path, before, after)])
-        return ctx.repo.commit([path], ctx.secrets.redactor.mask(f"refresh: security note {doc.name}"))
+        ctx.written.add(path)
+        return True
     except Exception as exc:  # a note must never stop a check or an apply
         typer.secho(ctx.secrets.redactor.mask(f"{doc.name}: security note not written: {exc.__class__.__name__}: {exc}"),
                     fg="yellow")
@@ -165,8 +168,7 @@ def _generate_missing(ctx: Context, needed: list) -> None:
         message = f"secret: generate {len(texts)} secrets ({', '.join(texts)})"
         ctx.repo.commit(paths, message)
         secrets_confirm.confirm_own_commit(ctx.repo, ctx.root, was_pending)
-        if not ctx.repo.push():
-            typer.secho("warning: push failed; the commit is kept locally", fg="yellow", err=True)
+        push_or_warn(ctx)
 
 
 def _ask_missing(ctx: Context, needed: list, *, yes: bool) -> None:
@@ -178,8 +180,8 @@ def _ask_missing(ctx: Context, needed: list, *, yes: bool) -> None:
         return
     for n in needed:
         secret_mod._set_one(ctx, n.sp, n.contract_opt)
-    if ctx.repo.is_repo() and not ctx.repo.push():
-        typer.secho("warning: push failed; the commit(s) are kept locally", fg="yellow", err=True)
+    if ctx.repo.is_repo():
+        push_or_warn(ctx)
 
 
 UPSTREAM_SECRETS_TIMEOUT = 60
@@ -296,8 +298,14 @@ def _print_outcome_log(outcome: Outcome) -> None:
 
 
 def _run(selectors: list[str] | None, exclude: list[str] | None, *, apply_changes: bool, yes: bool, verbose: bool,
-         updates: bool = False, jobs: int | None = None) -> None:
-    ctx = load_context()
+         updates: bool = False, jobs: int | None = None, ctx: Context | None = None,
+         message_prefix: str | None = None, extra_warnings: dict[str, list[str]] | None = None,
+         extra_drift: dict[str, list[str]] | None = None) -> None:
+    if ctx is None:
+        ctx = load_context()
+    else:
+        # Continuing a `run -g -a`/`-g -c`'s own context: pick up what gather just wrote, uncommitted.
+        ctx.inventory = load_inventory(ctx.root, ctx.types)
     run_jobs = resolve_jobs(jobs, ctx.config)
     print_problems(ctx)
     if apply_changes and ctx.upstream_secrets:
@@ -528,8 +536,7 @@ def _run(selectors: list[str] | None, exclude: list[str] | None, *, apply_change
                 if target is not None:
                     close_master(target)
 
-    # Phase 7: write, serially -- security notes, push warning, secret summary, refresh.
-    notes_written = False
+    # Phase 7: write, serially -- security notes, secret summary, then one commit for everything.
     for r in ready:
         host = r.doc.name
         if host not in checks:
@@ -537,15 +544,17 @@ def _run(selectors: list[str] | None, exclude: list[str] | None, *, apply_change
         items = checks[host].items
         if host in fresh_items:
             items = [i for i in items if not isinstance(i.resource, LynisReport)] + fresh_items[host]
-        notes_written |= _write_security_note(ctx, r.doc, items)
+        _write_security_note(ctx, r.doc, items)
 
-    if notes_written and not ctx.repo.push():
-        typer.secho("warning: push failed; the security notes are committed locally", fg="yellow", err=True)
     scope = [d.name for d in docs]
     if secret_health.relevant_secrets(ctx, scope):
         for line in secret_health.summary_lines(secret_health.findings(ctx, scope_hosts=scope)):
             typer.echo(ctx.secrets.redactor.mask(line))
-    refresh_generated(ctx)
+    own_message = f"{'apply' if apply_changes else 'check'}: {', '.join(scope)}" if scope else (
+        "apply" if apply_changes else "check"
+    )
+    message = f"{message_prefix}; {own_message}" if message_prefix else own_message
+    finish(ctx, ctx.secrets.redactor.mask(message), warnings=extra_warnings, drift=extra_drift)
     if failed_hosts or interrupted:
         raise typer.Exit(1)
 
@@ -573,14 +582,22 @@ def run(
         raise BastetError("check or apply, not both")
     with guard_prompts():
         if gather:
+            combo = check or apply_  # one run, one commit: gather hands its context straight to check/apply
             try:
-                gather_mod._gather(hosts, accept_new_hostkey, yes, jobs, exclude=exclude)
+                if combo:
+                    handoff = gather_mod._gather(hosts, accept_new_hostkey, yes, jobs, exclude=exclude, finish_now=False)
+                else:
+                    gather_mod._gather(hosts, accept_new_hostkey, yes, jobs, exclude=exclude)
+                    handoff = None
             except KeyboardInterrupt:
                 typer.secho("interrupted; nothing written", fg="yellow")
                 raise typer.Exit(1) from None
+            gather_ctx, gather_message, gather_warnings, gather_drift = handoff or (None, None, None, None)
             if check:
-                _run(hosts, exclude, apply_changes=False, yes=yes, verbose=verbose, jobs=jobs)
+                _run(hosts, exclude, apply_changes=False, yes=yes, verbose=verbose, jobs=jobs,
+                     ctx=gather_ctx, message_prefix=gather_message, extra_warnings=gather_warnings, extra_drift=gather_drift)
             elif apply_:
-                _run(hosts, exclude, apply_changes=True, yes=yes, verbose=verbose, updates=updates, jobs=jobs)
+                _run(hosts, exclude, apply_changes=True, yes=yes, verbose=verbose, updates=updates, jobs=jobs,
+                     ctx=gather_ctx, message_prefix=gather_message, extra_warnings=gather_warnings, extra_drift=gather_drift)
             return
         _run(hosts, exclude, apply_changes=not check, yes=yes, verbose=verbose, updates=updates, jobs=jobs)
