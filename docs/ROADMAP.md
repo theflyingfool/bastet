@@ -10,7 +10,8 @@ work in `docs/plans/`. Update this file whenever a plan lands.
 | What | Where |
 |---|---|
 | Main design | `docs/specs/2026-09-30-bastet-design.md` |
-| Roles redesign (wins over the main spec where they differ) | `docs/specs/2026-10-06-bastet-roles-design.md` |
+| Roles architecture: how roles are built, run and ordered (wins over the roles redesign spec where they differ) | `docs/specs/2026-10-10-bastet-roles-architecture-design.md` |
+| Roles redesign: goals and detail (partly superseded by the architecture spec) | `docs/specs/2026-10-06-bastet-roles-design.md` |
 | Current plans | `docs/plans/` |
 | Research and spikes | `docs/research/`, `docs/spikes/` |
 | Reference copies of old Ansible roles, old plans and specs, survey scripts | `refs/` (git-ignored, local only) |
@@ -28,11 +29,7 @@ the hardware split, one Bastet note per object, `_templates/`, user docs in `_ba
 `other` type. The memory facts key is now `memory_type`, and Tasks 7–11 have since been reviewed and their
 follow-ups fixed.
 
-**Next: the roles redesign, subplan 2: role format and library** (`docs/plans/2026-10-07-bastet-roles-2-format-library.md`, written and updated after an independent audit on 2026-10-10: library copies join the command's one commit, a role with no builder fails its host with a clear marker, `role update` lists changed files; uses `bastet doctor <dir>` for role linting).
-Subplan 1, the host-note split, is merged: gathered facts live in `_bastet/facts/<host> facts.md`, and automatic
-commands never write host notes.
-Its six subplans are tracked in `docs/plans/2026-10-06-bastet-roles-roadmap.md`. After the redesign, roles are
-built in the order of the roles table below.
+**Next: the roles architecture, first slice** (`docs/specs/2026-10-10-bastet-roles-architecture-design.md`, approved 2026-10-10; the plan is not written yet). Building blocks stay Python; roles become straight Markdown (about 99%); a host runs by phase across all roles; roles are converted one at a time, starting with pacman. The first slice is the draft contract, the generic builder, `files` settings (`edit: ini`), `before:`/`after:`, `wants`/`provides`, the phase engine (with daemon-reload and a health check), and pacman as Markdown-only. The six old subplans are replaced: subplan 1 (the host-note split) is merged, and the audited library, update, lint and pages work (old subplan 2, `docs/plans/2026-10-07-bastet-roles-2-format-library.md`) is on hold until the end.
 
 ## Milestones
 
@@ -43,12 +40,22 @@ built in the order of the roles table below.
 | — | Hardening round (external audit fixes) | ☑ |
 | — | Secrets part 1: age-encrypted secret notes, unlock/lock, upstream-change gate | ☑ |
 | — | Parallel hosts: gather/check/apply in parallel, apply asks once | ☑ |
-| 3 | **Roles redesign:** Markdown roles, building-block execution, presets, host-note split | ◐ in progress |
+| 3 | **Roles architecture:** Markdown roles over Python building blocks, phase execution, one role converted at a time (host-note split done) | ◐ in progress |
 | 3b | **Run logs:** an ordered record of every run, readable in Obsidian, with its own verbosity (below). All three plans done | ☑ |
 | 4 | Infrastructure roles: Proxmox node setup, ZFS, guest creation, firewall, container runtime | ☐ |
 | 5 | Secrets part 2: rotation and rekey (once real secret-using roles exist) | ☐ |
 | 6 | App roles, then proxy and DNS roles that configure themselves from the whole lab | ☐ |
 | 7 | Orchestrator LXC and web UI; run logs and resilience | ☐ |
+
+## Roles architecture (milestone 3)
+
+Design: `docs/specs/2026-10-10-bastet-roles-architecture-design.md`. Each step ends with merged, working software, and the next is planned only when it is next.
+
+1. ☐ **First slice:** draft contract (`api: 0`), the generic builder next to the old Python builders, `files` settings (`edit: ini`), `before:`/`after:` on entries, `wants`/`provides`, the phase engine across all roles (triggers once at the end, daemon-reload, health check), and **pacman as Markdown-only**. Done when pacman has no Python, every existing pacman test passes unchanged, and `check` output on an Arch host is identical.
+2. ☐ **One role at a time, evaluating after each:** ssh (`edit: sshd` with its `sshd -t` check and a few `warn` rules; the lockout guard is dropped), base (`when:` for microcode), harden, systemd (time, hostname, locale), the thin `users` and `files` roles, `packages` (AUR, update and reboot policy become block features), proxmox. Each adds only the block or contract features it needs.
+3. ☐ **Capabilities and contributions** beyond `wants`, when a real role needs them: the firewall (same-host), then the Git forge (a host waits for the whole provider host; guests already wait for their node).
+4. ☐ **Stabilize:** the library, `role update`, `doctor <dir>` and role pages (the audited old subplan 2), then presets, boards and the guided `add role`.
+5. ☐ **Versioning:** tag `v0.2.0` (run logs done) and bump `pyproject.toml`; tag again at each milestone. Roles use semver plus the content hash; the contract stays a draft until about 1.0.
 
 ## Run logs (milestone 3b)
 
@@ -87,31 +94,32 @@ Generic mechanisms every role is assembled from (roles spec §8). Roles never im
 
 | | Block | What it does | Missing |
 |---|---|---|---|
-| ◐ | packages | Repositories and signing keys, installs, updates, reboot-needed marking | `hold` (pinning distro packages), install-method support (`native`/`container`) |
+| ◐ | packages | Repositories and signing keys, installs, updates, reboot-needed marking | `hold` (pinning distro packages), install-method support (`native`/`container`), AUR bootstrap and update/reboot policy as block options (today in the role), `wants: package-manager` |
 | ☑ | users | Users, groups, authorized keys, sudoers drop-ins | |
-| ☑ | files | Whole files, directories, symlinks, lines, blocks; owner/mode; validate before swap | |
+| ◐ | files | Whole files, directories, symlinks, lines, blocks; owner/mode; validate before swap | Settings edits from options (`edit: ini`, then `kv`, `sshd`), validation by format (`sshd -t`), replace-with-check, `before:`/`after:` |
 | ◐ | templates | Files rendered with Jinja2 (`StrictUndefined`) | Role-folder includes only, plain-data context, `toyaml` |
 | ◐ | systemd | Units, drop-ins, hostname, locale, time | Timers, `.mount` units, sysctl.d, modules-load.d, tmpfiles.d, hardening drop-ins from `access` |
 | ☐ | JSON state | APIs and JSON-speaking CLIs: read, find, compare a subset, create/update/delete; on the host or the controller | Everything |
-| ◐ | commands | A command with a check | Phase hooks (`changed` / `always` / `check:`) |
+| ◐ | commands | A command with a check | `before:`/`after:`; phase hooks (`changed` / `always` / `check:`) later |
 | ◐ | reports | Read-only information: lynis, listening ports, service exposure, vulnerable and unaccounted packages | Report options any role can offer, the per-host reports note |
 | ☐ | power control | On, off and status through IPMI, Redfish or Wake-on-LAN | Everything |
 
-**End-of-run phases** (not blocks):
-- ☑ triggers (restart/reload once);
+**Execution (not blocks):**
+- ☐ the phase engine: entries from all roles ordered by block, `before:`/`after:` on an entry, `wants` on a block, daemon-reload once before restarts, a health check after restarts (replaces the per-role batch order and `ORDER`);
+- ◐ triggers (restart/reload once; today once per role batch, becomes once per host);
 - ◐ reboot: policy and need detection done; missing `before_reboot`/`after_reboot` hooks and the reboot plan for dependent hosts (roles spec §7.6).
 
 ## Roles
 
-In the order we currently expect to build them. The finished ones use the old `role.yml` format and are converted
-in roles-redesign subplan 6.
+In the order we currently expect to build them. The finished ones use the old `role.yml` format and Python builders;
+they are converted one at a time to straight Markdown (roles architecture spec §5), pacman first.
 
 | | # | Role | What it does | Notes |
 |---|---|---|---|---|
 | ☑ | — | systemd | Time, NTP, hostname, locale | Friendly menu over the systemd block |
 | ☑ | — | packages | Installs, updates and reboot policy per host | |
 | ☑ | — | base | Admin tools everywhere; CPU microcode on physical hosts | |
-| ☑ | — | pacman | Every `pacman.conf` option | Arch |
+| ☑ | — | pacman | Every `pacman.conf` option | Arch. First Markdown conversion (the proof) |
 | ☑ | — | proxmox | No-subscription repositories, the subscription-notice patch, libguestfs-tools | Grows into node setup (1) |
 | ☑ | — | users | Users, groups, keys, sudoers | |
 | ☑ | — | files | Files you want on a host | |
@@ -133,6 +141,9 @@ in roles-redesign subplan 6.
 ## Deferred
 
 - **Removal:** `state: absent`, `purge`, the "no longer managed" record.
+- **Role calls role (`uses:`):** reserved, not built; no concrete case yet.
+- **Inferring order from references** (a file owned by `svc` implies the user first): the long-term replacement for most `before:`/`after:`.
+- **Hard `needs` and cross-host `needs`/`provides`:** designed in the architecture spec, built with the first role that needs them (the Git forge).
 - **A SQLite index over the run records** (derived from the JSONL, rebuildable) for queries across runs and the ARA replacement.
 - **Turning git off:** a setting for an inventory that isn't a git repository. Needs a design first: no commits, no upstream-secrets alert or confirmed-commit baseline, no history behind run notes, and a loud warning that secrets safety is weaker.
 - **The trust prompt** for third-party `role.py`.

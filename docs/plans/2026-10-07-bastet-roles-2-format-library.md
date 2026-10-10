@@ -1,5 +1,7 @@
 # Roles Redesign 2: Role Format and Library — Implementation Plan
 
+> **On hold (2026-10-10).** Under `docs/specs/2026-10-10-bastet-roles-architecture-design.md` this plan moves to the end of the roadmap ("stabilize"). Task 1 (converting all nine contracts up front) is replaced by the first slice and one-role-at-a-time conversions. Tasks 2 to 6 (generated options docs and `doctor <dir>`, the library, `role update`, pages, docs) and the audit changes in them stay valid ideas, to be re-checked against the contract once at least three roles are converted.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. In this repo, the `bastet-run-plan` skill supplies the Bastet-specific parts.
 
 **Goal:**

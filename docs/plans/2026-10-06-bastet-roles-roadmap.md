@@ -1,5 +1,7 @@
 # Roles Redesign — Roadmap (the overall plan)
 
+> **Superseded (2026-10-10).** This six-subplan order is replaced by `docs/specs/2026-10-10-bastet-roles-architecture-design.md` (section 5) and the "Roles architecture" section of `docs/ROADMAP.md`: a first slice (draft contract, phase engine, pacman as Markdown-only), then one role at a time, then capabilities, then stabilize. Subplan 1 stays merged. Subplan 2 (role format and library) is on hold and moves to the end ("stabilize"); subplan 3's execution model and the blocks of subplan 4 are built as the first slice and the role conversions need them; subplan 5 comes after stabilizing; subplan 6 is the one-at-a-time conversion. The text below is kept for reference.
+
 **Spec:** `docs/specs/2026-10-06-bastet-roles-design.md` (wins over the main spec where they differ).
 
 The redesign is one plan made of six subplans, run in order. Each subplan:
@@ -12,11 +14,11 @@ The redesign is one plan made of six subplans, run in order. Each subplan:
 | # | Subplan | Status | Depends on | Spec |
 |---|---|---|---|---|
 | 1 | Host-note split | ☑ | — | §2, §2.1, §8.3 (reports note location) |
-| 2 | Role format and library | ☐ | — | §3, §4, §13 (`role check`), §14 |
-| 3 | Execution model | ☐ | 2 (and 4's power control for the reboot plan) | §6, §7 |
-| 4 | New and expanded blocks | ☐ | 3 | §8, §9, §10 |
-| 5 | Presets, boards, guided `add role` | ☐ | 2, 3 | §5, §5.1 |
-| 6 | Convert the nine existing roles | ☐ | 2, 3, 4 | §3, §8, §9 |
+| 2 | Role format and library | on hold, moved to the end | — | §3, §4, §13 (`role check`), §14 |
+| 3 | Execution model | superseded: first slice | 2 (and 4's power control for the reboot plan) | §6, §7 |
+| 4 | New and expanded blocks | superseded: built as roles need them | 3 | §8, §9, §10 |
+| 5 | Presets, boards, guided `add role` | later, after stabilizing | 2, 3 | §5, §5.1 |
+| 6 | Convert the nine existing roles | superseded: one at a time | 2, 3, 4 | §3, §8, §9 |
 
 ## 1. Host-note split
 

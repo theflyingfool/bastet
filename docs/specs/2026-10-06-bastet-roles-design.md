@@ -2,6 +2,8 @@
 
 **Status:** design, approved in conversation 2026-10-06. To be audited independently before planning.
 
+> **Partly superseded (2026-10-10)** by `2026-10-10-bastet-roles-architecture-design.md`. That document wins on: roles being straight Markdown (about 99%) with `role.py` only as a rare escape hatch (§3.4), logic living in the contract and the blocks, the contract being a draft (`api: 0`) until about 1.0 (§3.1), execution by phase across all roles with `before:`/`after:` and `wants` (§7.1, §7.3), config-file settings as a `files` feature, dropping the ssh lockout guard (it keeps the syntax check), cross-host waits (§7.5), and the build order (§15: one role at a time, library and update tooling last). The goals, the option rules, presets, boards, secrets and the rest of this document stand.
+
 **Relationship to the main spec** (`2026-09-30-bastet-design.md`): this document wins where they differ. It replaces:
 - §9.1, the role contract in `role.yml`, the curated options + `settings` pass-through tier, and the `roles/<name>/{ansible,native}` layout;
 - §9.4's role-based execution order within a host;
