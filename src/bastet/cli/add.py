@@ -14,12 +14,10 @@ from bastet.core.inventory import load_inventory
 from bastet.core.links import make_link
 from bastet.core.views import ROLES_SECTION, SECRETS_SECTION, has_roles_section, has_secrets_section
 from bastet.roles.contract import load_roles
-from bastet.core.inventory import HARDWARE_STATUSES
-from bastet.core.scaffold import new_hardware, new_host, suggested_ip
+from bastet.core.scaffold import new_host, suggested_ip
+from bastet.core.hardware import HARDWARE_CATEGORIES
 
-add_app = typer.Typer(no_args_is_help=True, help="Add a host or hardware to the inventory. Asks for anything not given.")
-
-HARDWARE_CATEGORIES = ("drive", "nic", "gpu", "hba", "transceiver", "cpu", "memory", "psu", "usb", "server", "other")
+add_app = typer.Typer(no_args_is_help=True, help="Add a host to the inventory. Asks for anything not given.")
 
 
 def _choose(label: str, options: list[tuple[str, str]], *, default: str | None = None, allow_blank: bool = False) -> str | None:
@@ -42,10 +40,6 @@ def _choose(label: str, options: list[tuple[str, str]], *, default: str | None =
             if value.lower() == answer.lower():
                 return value
         typer.echo(f"  '{answer}' isn't one of the choices.")
-
-
-def _optional(prompt: str) -> str | None:
-    return typer.prompt(f"{prompt} (blank to skip)", default="", show_default=False).strip() or None
 
 
 @add_app.command("host")
@@ -80,25 +74,27 @@ def add_host(
     if asking:
         if "provider" in minimal and provider is None:
             provider = typer.prompt("Provider (e.g. linode)").strip()
-        if "runs_on" in minimal and on is None:
-            hosts = [(d.name, str(d.data.get("type", ""))) for d in inv.of_kind("host")]
-            if not hosts:
-                raise BastetError(f"a {type_} runs on another host; add that host first")
-            on = _choose("Runs on", hosts)
-        networks = (inv.lab.data.get("networks") or {}) if inv.lab else {}
-        if type_ in ("lxc", "vm") and network is None and ip is None and networks:
-            network = _choose("Network", [(n, str((v or {}).get("cidr", ""))) for n, v in networks.items()], allow_blank=True)
-        if ip is None and type_ != "unknown":
-            default = suggested_ip(inv, network) if network else None
-            if "ip" in minimal:
-                ip = typer.prompt("IP address", default=default, show_default=bool(default)).strip()
-            else:
-                ip = typer.prompt("IP (fixed address, 'dhcp', or blank)", default="", show_default=False).strip() or None
-        if ip and ip.lower() == "dhcp" and address is None:
-            address = typer.prompt("Name to reach it by", default=f"{name}.local").strip()
+        # Ask about local status for laptops before IP questions, so we can skip IP when local
         if type_ == "laptop" and local is None:
             here = socket.gethostname().split(".")[0].lower() == name.lower()
             local = typer.confirm("Is this the computer you're running Bastet on?", default=here)
+        if not local:  # Skip these questions when local
+            if "runs_on" in minimal and on is None:
+                hosts = [(d.name, str(d.data.get("type", ""))) for d in inv.of_kind("host")]
+                if not hosts:
+                    raise BastetError(f"a {type_} runs on another host; add that host first")
+                on = _choose("Runs on", hosts)
+            networks = (inv.lab.data.get("networks") or {}) if inv.lab else {}
+            if type_ in ("lxc", "vm") and network is None and ip is None and networks:
+                network = _choose("Network", [(n, str((v or {}).get("cidr", ""))) for n, v in networks.items()], allow_blank=True)
+            if ip is None and type_ != "unknown":
+                default = suggested_ip(inv, network) if network else None
+                if "ip" in minimal:
+                    ip = typer.prompt("IP address", default=default, show_default=bool(default)).strip()
+                else:
+                    ip = typer.prompt("IP (fixed address, 'dhcp', or blank)", default="", show_default=False).strip() or None
+            if ip and ip.lower() == "dhcp" and address is None:
+                address = typer.prompt("Name to reach it by", default=f"{name}.local").strip()
         if location is None:
             locations = [(d.name, "") for d in inv.of_kind("location")]
             if locations:
@@ -128,55 +124,6 @@ def _set_up_this_machine(*, yes: bool) -> None:
         typer.echo("Bastet has no SSH key yet; run `bastet init --manage-this-machine` to create one and set up this machine.")
         return
     init_mod._setup_this_machine(ctx, pub, yes=yes)
-
-
-@add_app.command("hardware")
-@handles_errors
-def add_hardware(
-    name: str | None = typer.Argument(None, help="Hardware name (asked if not given)."),
-    category: str | None = typer.Option(None, "--category", help="drive, nic, gpu, hba, server, psu, ..."),
-    model: str | None = typer.Option(None, "--model"),
-    serial: str | None = typer.Option(None, "--serial"),
-    size: str | None = typer.Option(None, "--size"),
-    installed_in: str | None = typer.Option(None, "--in", help="Host it's installed in."),
-    location: str | None = typer.Option(None, "--location"),
-    status: str | None = typer.Option(None, "--status"),
-    yes: bool = typer.Option(False, "--yes", "-y"),
-) -> None:
-    """Write a hardware file (e.g. a spare drive), asking for anything not given."""
-    ctx = load_context()
-    inv = ctx.inventory
-    asking = not yes
-    if name is None:
-        if not asking:
-            raise BastetError("a hardware name is required with --yes")
-        name = typer.prompt("Hardware name (e.g. 'WD Red 4TB WX12…')").strip()
-    if category is None:
-        if not asking:
-            raise BastetError("--category is required with --yes")
-        category = _choose("Category", [(c, "") for c in HARDWARE_CATEGORIES])
-    if asking:
-        model = model if model is not None else _optional("Model")
-        serial = serial if serial is not None else _optional("Serial")
-        size = size if size is not None else _optional("Size (e.g. 4 TB)")
-        if installed_in is None and location is None:
-            hosts = [(d.name, str(d.data.get("type", ""))) for d in inv.of_kind("host")]
-            if hosts:
-                installed_in = _choose("Installed in (blank if not installed)", hosts, allow_blank=True)
-            if installed_in is None:
-                locations = [(d.name, "") for d in inv.of_kind("location")]
-                if locations:
-                    location = _choose("Location", locations, allow_blank=True)
-        if status is None:
-            status = _choose(
-                "Status", [(s, "") for s in HARDWARE_STATUSES], default="in-service" if installed_in else "spare"
-            )
-    change = new_hardware(
-        inv, name, category, model=model, serial=serial, size=size,
-        installed_in=installed_in, location=location, status=status,
-    )
-    if write_with_confirmation(ctx, [change, *lab_embed_changes(inv)], yes):
-        finish(ctx, f"add hardware {name}")
 
 
 def _choose_many(label: str, options: list[tuple[str, str]]) -> list[str]:

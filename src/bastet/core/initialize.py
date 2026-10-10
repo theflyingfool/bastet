@@ -189,6 +189,52 @@ def initialize(config_file: Path, options: InitOptions, *, keys_dir: Path) -> In
             written.append(appearance)
             actions.append("created Obsidian stylesheet setting (enabled 'bastet')")
 
+    # Set up templates plugin if .obsidian folder exists
+    obsidian_dir = root / ".obsidian"
+    if obsidian_dir.is_dir() or (options.snippet and obsidian_dir.parent.exists()):
+        obsidian_dir.mkdir(exist_ok=True)
+
+        # Update templates.json
+        templates_json = obsidian_dir / "templates.json"
+        try:
+            templates_data = json.loads(templates_json.read_text(encoding="utf-8")) if templates_json.exists() else {}
+        except json.JSONDecodeError as exc:
+            raise BastetError(f"invalid JSON: {exc.msg}", file=templates_json, line=exc.lineno) from None
+        if not isinstance(templates_data, dict):
+            raise BastetError("expected a JSON object", file=templates_json)
+        if templates_data.get("folder") == "_templates":
+            actions.append("kept Obsidian templates plugin setting")
+        else:
+            templates_data["folder"] = "_templates"
+            templates_json.write_text(json.dumps(templates_data, indent=2) + "\n", encoding="utf-8")
+            written.append(templates_json)
+            actions.append("created Obsidian templates plugin setting (folder: _templates)")
+
+        # Update core-plugins.json
+        core_plugins_json = obsidian_dir / "core-plugins.json"
+        try:
+            core_plugins_data = json.loads(core_plugins_json.read_text(encoding="utf-8")) if core_plugins_json.exists() else {}
+        except json.JSONDecodeError as exc:
+            raise BastetError(f"invalid JSON: {exc.msg}", file=core_plugins_json, line=exc.lineno) from None
+
+        # Handle both dict format (modern) and list format (legacy)
+        if isinstance(core_plugins_data, dict):
+            if core_plugins_data.get("templates") is True:
+                actions.append("kept Obsidian templates core plugin enabled")
+            else:
+                core_plugins_data["templates"] = True
+                core_plugins_json.write_text(json.dumps(core_plugins_data, indent=2) + "\n", encoding="utf-8")
+                written.append(core_plugins_json)
+                actions.append("enabled Obsidian templates core plugin")
+        elif isinstance(core_plugins_data, list):
+            if "templates" in core_plugins_data:
+                actions.append("kept Obsidian templates core plugin enabled")
+            else:
+                core_plugins_data.append("templates")
+                core_plugins_json.write_text(json.dumps(core_plugins_data, indent=2) + "\n", encoding="utf-8")
+                written.append(core_plugins_json)
+                actions.append("enabled Obsidian templates core plugin")
+
     committed = repo.commit(written, "bastet init") if written else False
     if options.remote and committed and not repo.push():
         actions.append("committed locally; push failed (offline?); it'll be pushed next time")

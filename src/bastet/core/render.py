@@ -605,6 +605,12 @@ def generated_changes(
 
     for path, text in role_pages(inv, types).items():
         want(path, text)
+    from bastet.core.templates import templates_for_inventory  # lazy: templates builds on core
+
+    templates = templates_for_inventory(types)
+    for name, content in templates.items():
+        want(root / "_templates" / name, content)
+
     snippet = root / ".obsidian" / "snippets" / "bastet.css"
     if snippet.exists():  # only keep it current where the user installed it
         want(snippet, (resources.files("bastet") / "data" / "obsidian" / "bastet.css").read_text(encoding="utf-8"))

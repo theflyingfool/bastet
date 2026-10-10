@@ -23,6 +23,7 @@ DRIVE_TRANSPORTS = {"sata", "sas", "nvme", "ata", "scsi"}
 CARD_CLASSES = {"0300": "gpu", "0302": "gpu", "0380": "gpu", "0100": "hba", "0104": "hba", "0107": "hba", "0200": "nic"}
 MACHINE_CATEGORY = {"laptop": "laptop", "convertible": "laptop", "tablet": "laptop", "server": "server", "desktop": "desktop"}
 MACHINE_CATEGORIES = set(MACHINE_CATEGORY.values()) | {"machine"}
+HARDWARE_CATEGORIES = ("drive", "nic", "gpu", "hba", "transceiver", "cpu", "memory", "psu", "usb") + tuple(sorted(MACHINE_CATEGORIES))
 _UNSAFE = re.compile(r"[^A-Za-z0-9 ._-]+")
 
 

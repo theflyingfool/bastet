@@ -94,7 +94,11 @@ def new_host(
     if connection:
         data["connection"] = connection
     data.update(extra or {})
-    missing = [f for f in types[type_name].minimal if f not in data]
+    # When connection="local" is set, it satisfies the ip requirement (local hosts don't need an address)
+    minimal = types[type_name].minimal
+    if connection == "local" and "ip" in minimal:
+        minimal = [f for f in minimal if f != "ip"]
+    missing = [f for f in minimal if f not in data]
     if missing:
         needs = ", ".join(f"{f} ({OPTION_FOR.get(f, '--' + f)})" for f in missing)
         raise BastetError(f"host type '{type_name}' needs {needs}")

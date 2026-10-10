@@ -46,11 +46,25 @@ def test_add_host_commits_pending_edits_as_user(runner, inventory):
     assert log[1].startswith("Tester ")
 
 
-def test_add_hardware(runner, inventory):
-    result = runner.invoke(app, ["add", "hardware", "WD Red 4TB WX12", "--category", "drive", "--serial", "WX12", "--in", "pve1", "-y"])
+def test_add_host_local_skips_ip_questions(runner, inventory):
+    """add host --local skips IP and address questions."""
+    # Test with --yes for simplicity
+    result = runner.invoke(app, ["add", "host", "laptop1", "--type", "laptop", "--local", "-y"])
     assert result.exit_code == 0, result.output
-    text = (inventory / "hardware" / "WD Red 4TB WX12.md").read_text()
-    assert 'installed_in: "[[pve1]]"' in text and "status: in-service" in text
+    text = (inventory / "hosts" / "laptop1.md").read_text()
+    assert "connection: local" in text
+    assert "ip:" not in text  # no IP field
+    assert "address:" not in text  # no address field
+
+
+def test_add_host_local_interactive(runner, inventory):
+    """add host --local in interactive mode skips IP and address questions."""
+    result = runner.invoke(app, ["add", "host", "mymachine", "--type", "laptop"], input="y\ny\n")  # confirm local, confirm write
+    assert result.exit_code == 0, result.output
+    text = (inventory / "hosts" / "mymachine.md").read_text()
+    assert "connection: local" in text
+    assert "ip:" not in text
+    assert "address:" not in text
 
 
 def test_unreachable_remote_warns_and_continues(runner, inventory, tmp_path):
@@ -73,5 +87,5 @@ def test_pending_personal_notes_left_alone(runner, inventory):
 
 
 def test_hardware_categories_cover_what_bastet_records():
-    from bastet.cli.add import HARDWARE_CATEGORIES
+    from bastet.core.hardware import HARDWARE_CATEGORIES
     assert {"transceiver", "cpu", "memory", "usb"} <= set(HARDWARE_CATEGORIES)

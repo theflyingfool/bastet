@@ -572,3 +572,34 @@ def test_cli_init_no_flag_never_asks(runner, tmp_path, monkeypatch, interactive,
     assert result.exit_code == 0, result.output
     assert "Also manage this computer with Bastet?" not in result.output
     assert _setup_calls(_fake_local_machine) == []
+
+
+def test_cli_init_creates_template_plugin_settings(runner, tmp_path, monkeypatch):
+    """init writes templates.json to enable Obsidian's template plugin."""
+    cfg = tmp_path / "c" / "bastet.yml"
+    monkeypatch.setenv("BASTET_CONFIG", str(cfg))
+    result = runner.invoke(app, ["init", "--inventory", str(tmp_path / "Homelab"), "-y", "--no-manage-this-machine"])
+    assert result.exit_code == 0, result.output
+    # Check that templates plugin is enabled
+    templates_json = tmp_path / "Homelab" / ".obsidian" / "templates.json"
+    assert templates_json.exists(), f"templates.json not created: {tmp_path / 'Homelab' / '.obsidian'}"
+    import json
+    config = json.loads(templates_json.read_text())
+    assert config.get("folder") == "_templates", f"Expected folder: _templates, got {config}"
+
+
+def test_cli_init_enables_templates_core_plugin(runner, tmp_path, monkeypatch):
+    """init enables the core templates plugin in core-plugins.json."""
+    cfg = tmp_path / "c" / "bastet.yml"
+    monkeypatch.setenv("BASTET_CONFIG", str(cfg))
+    result = runner.invoke(app, ["init", "--inventory", str(tmp_path / "Homelab"), "-y", "--no-manage-this-machine"])
+    assert result.exit_code == 0, result.output
+    core_plugins = tmp_path / "Homelab" / ".obsidian" / "core-plugins.json"
+    assert core_plugins.exists()
+    import json
+    config = json.loads(core_plugins.read_text())
+    # Should have templates enabled (either as boolean or in the dict)
+    if isinstance(config, dict):
+        assert config.get("templates") is True
+    else:
+        assert "templates" in config

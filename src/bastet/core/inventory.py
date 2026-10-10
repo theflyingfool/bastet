@@ -12,7 +12,7 @@ from bastet.core.hosttypes import HostType
 from bastet.core.links import link_target
 
 KINDS = ("lab", "host", "hardware", "group", "location", "role", "secret", "facts")
-SKIP_DIRS = {".git", ".obsidian", ".trash", ".bastet"}
+SKIP_DIRS = {".git", ".obsidian", ".trash", ".bastet", "_templates"}
 LINK_FIELDS = {
     "host": ("runs_on", "location", "groups"),
     "hardware": ("installed_in", "location"),
