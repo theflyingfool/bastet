@@ -12,7 +12,7 @@ from bastet.core.changes import Change
 from bastet.core.config import data_dir
 from bastet.core.errors import BastetError
 from bastet.events.jsonl import _files, resolve_run, runs_dir, summarize
-from bastet.events.model import Event
+from bastet.events.model import KINDS, Event
 from bastet.events.runnote import RUNS_DIR, find_notes, note_name, render_run_note
 from bastet.events.runnote import summarize as summarize_events
 from bastet.events.terminal import TerminalSink
@@ -65,9 +65,30 @@ def _read_events(path: Path) -> list[dict]:
             d = json.loads(line)
         except ValueError:
             continue
-        if isinstance(d, dict) and "kind" in d and "data" in d:
+        if _usable(d):
             events.append(d)
     return events
+
+
+def _usable(d: object) -> bool:
+    """A line that is an event this version can read; anything else (hand-edited, another version) is skipped."""
+    return (
+        isinstance(d, dict)
+        and all(isinstance(d.get(key), str) for key in ("kind", "run_id", "t"))
+        and (d.get("host") is None or isinstance(d["host"], str))
+        and isinstance(d.get("data"), dict)
+        and d["kind"] in KINDS
+        and all(key in d["data"] for key in KINDS[d["kind"]])
+        and isinstance(d.setdefault("elapsed", 0.0), (int, float))
+    )
+
+
+def _read_run(path: Path) -> tuple[list[dict], str | None]:
+    """A record's events, and "unfinished" as the status to show when it has no run_finished."""
+    events = _read_events(path)
+    if not any(e["kind"] == "run_started" for e in events):
+        raise BastetError("that record has no start event")
+    return events, (None if any(e["kind"] == "run_finished" for e in events) else "unfinished")
 
 
 @log_app.command("note")
@@ -78,13 +99,11 @@ def note(
 ) -> None:
     """Make (or re-render) a run's note in the vault from its record, at the detail set by runs.note_detail."""
     ctx = load_context()
-    events = _read_events(resolve_run(runs_dir(data_dir()), run))
-    if not any(e["kind"] == "run_started" for e in events):
-        raise BastetError("that record has no start event")
-    s = summarize_events(events)
+    events, status = _read_run(resolve_run(runs_dir(data_dir()), run))
+    s = summarize_events(events, status)
     existing = find_notes(ctx.root, s.run_id)
     target = existing[0] if existing else ctx.root / RUNS_DIR / f"{note_name(s.started, s.mode, s.run_id)}.md"
-    text = render_run_note(events, ctx.config.runs.note_detail)
+    text = render_run_note(events, ctx.config.runs.note_detail, status)
     before = target.read_text(encoding="utf-8") if target.exists() else None
     if before == text:
         out.echo("Already up to date.")
@@ -101,8 +120,8 @@ def show(
                                 help="More detail: -vv phases and items, -vvv commands, -vvvv their output."),
 ) -> None:
     """Print a run's record as the live view shows it (changes and failures by default)."""
-    events = _read_events(resolve_run(runs_dir(data_dir()), run))
-    s = summarize_events(events)
+    events, status = _read_run(resolve_run(runs_dir(data_dir()), run))
+    s = summarize_events(events, status)
     out.echo(f"{s.run_id}  {s.command}  {s.status}")
     sink = TerminalSink(1 if verbose < 2 else min(verbose, 4))
     for d in events:

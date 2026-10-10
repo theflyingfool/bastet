@@ -1,3 +1,4 @@
+import re
 import time
 
 from bastet.core.secrets.redact import ACTIVE
@@ -82,13 +83,16 @@ def test_detail_two_groups_by_phase_and_shows_compliant_items():
 def test_detail_three_adds_commands_but_never_output():
     three = render_run_note(apply_run(), 3)
     assert "$ printf x > /etc/motd" in three and "exit 0" in three and "wrote it" not in three
-    assert "wrote it" not in render_run_note(apply_run(), 9)    # above 3 is treated as 3
+    events = apply_run()
+    assert render_run_note(events, 9) == render_run_note(events, 3)    # above 3 is treated as 3
+    assert "detail: 3" in render_run_note(events, 9)
 
 
 def test_hidden_commands_are_marked():
     events = apply_run()
     events[7]["data"].update(command="(hidden: secret resource)", hidden=True, stdout="", stderr="")
-    assert "(hidden: secret resource)" in render_run_note(events, 3)
+    text = render_run_note(events, 3)
+    assert "$ (hidden: secret resource)" in text and "printf x > /etc/motd" not in text
 
 
 def test_secrets_are_masked_everywhere():
@@ -137,4 +141,56 @@ def test_odd_runs_render():
     assert "tv1" in render_run_note(skipped, 1) and "not managed" in render_run_note(skipped, 1)
     weird = [ev("run_started", command="run -c 'a*/b#[[x]]'", schema=1),
              ev("host_finished", "my host", status="ok", changed=0, failed=0, skipped=0)]
-    assert "my host" in render_run_note(weird, 2)
+    text = render_run_note(weird, 2)
+    assert "## my host: ok" in text and "hosts:\n  - \"[[my host]]\"\n" in text
+    assert not any("[[x]]" in line for line in text.splitlines() if line.startswith(("# ", "  - ", "## ")))
+    assert note_name("2026-10-10T12:18:00Z", "check", weird[0]["run_id"]).endswith("check 22d326")
+    assert "/" not in note_name("2026-10-10T12:18:00Z", "check", weird[0]["run_id"])
+
+
+def test_a_later_clean_scope_does_not_wipe_an_earlier_error_from_the_note():
+    events = [ev("run_started", command="run -c", schema=1),
+              ev("host_finished", "pve1", status="error", error="connection refused", changed=0, failed=0, skipped=0),
+              ev("host_finished", "pve1", status="ok")]
+    s = summarize(events)
+    assert s.failed == 1 and s.status == "failed"          # an exception host counts as one failure
+    text = render_run_note(events, 1)
+    assert "## pve1: error" in text and "- error: connection refused" in text and "failed: 1" in text
+
+
+def test_the_worst_status_and_the_first_error_win_in_any_order():
+    events = [ev("run_started", command="run", schema=1),
+              ev("host_finished", "a", status="failed", error="first", changed=0, failed=1, skipped=0),
+              ev("host_finished", "a", status="error", error="second"),
+              ev("host_finished", "a", status="ok", error="")]
+    text = render_run_note(events, 1)
+    assert "## a: error" in text and "- error: first" in text and "second" not in text
+
+
+def test_a_planning_error_host_heading_says_failed_and_shows_the_reason():
+    events = [ev("run_started", command="run -c", schema=1),
+              ev("host_skipped", "media01", reason="error: role files: unknown option")]
+    text = render_run_note(events, 1)
+    assert "## media01: failed" in text and "- skipped: error: role files: unknown option" in text
+
+
+def test_an_item_line_does_not_repeat_its_name():
+    events = apply_run()
+    events[3]["data"].update(item="updates", changes=["updates: 1 pending → up to date"])
+    text = render_run_note(events, 2)
+    assert "updates: 1 pending → up to date" in text and "updates: updates:" not in text
+
+
+def test_a_very_long_command_is_cut():
+    events = apply_run()
+    events[7]["data"]["command"] = "printf '%s' '" + "A" * 1000 + "' | base64 -d"
+    text = render_run_note(events, 3)
+    assert "AAAA…" in text and "A" * 400 not in text
+
+
+def test_the_heading_time_says_utc_even_without_a_start():
+    start = {"t": "2026-10-10T12:18:00.000Z"}
+    events = [{**ev("run_started", command="run -c", schema=1), **start}]
+    assert "\n# check 2026-10-10 12:18 UTC\n" in render_run_note(events, 1)
+    text = render_run_note([ev("host_finished", "pve1", status="ok")], 1)    # no start event: now, in UTC
+    assert re.search(r"\n# \w+ \d{4}-\d\d-\d\d \d\d:\d\d UTC\n", text)

@@ -105,3 +105,14 @@ def test_missing_config_is_clean_error(runner, tmp_path, monkeypatch):
     assert result.exit_code == 1
     assert "config file not found" in result.output
     assert "Traceback" not in result.output
+
+
+def test_show_does_not_list_run_notes_as_links(runner, inventory):
+    folder = inventory / "_bastet" / "runs"
+    folder.mkdir(parents=True)
+    (folder / "2026-10-10 1218 check 22d326.md").write_text(
+        '---\nbastet: run\ngenerated: true\nrun: 20261010-121800-22d326\nhosts:\n  - "[[pve1]]"\n---\n# check\n'
+    )
+    result = runner.invoke(app, ["show", "pve1"])
+    assert result.exit_code == 0, result.output
+    assert "22d326" not in result.output and "check" not in result.output.split("Linked from")[-1]

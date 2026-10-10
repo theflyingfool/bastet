@@ -572,6 +572,8 @@ def _run(selectors: list[str] | None, exclude: list[str] | None, *, apply_change
         "apply" if apply_changes else "check"
     )
     message = f"{message_prefix}; {own_message}" if message_prefix else own_message
+    if failed_hosts:
+        events.set_status("failed")  # the first status wins, so "interrupted" stays; the note says what the exit code says
     finish(ctx, ctx.secrets.redactor.mask(message), warnings=extra_warnings, drift=extra_drift)
     if failed_hosts or interrupted:
         raise typer.Exit(1)

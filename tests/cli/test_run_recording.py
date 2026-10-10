@@ -232,3 +232,15 @@ def test_a_prune_failure_only_warns_and_the_run_is_still_recorded(runner, box, m
     assert result.exit_code == 0, result.output
     assert "could not remove old run records" in result.output and "not recording" not in result.output
     assert len(records()) == 1 and events_of(records()[0])[-1]["kind"] == "run_finished"
+
+
+def test_a_user_name_that_cannot_be_found_never_stops_a_run(runner, box, monkeypatch):
+    import getpass
+
+    def nobody():
+        raise OSError("no passwd entry")
+
+    monkeypatch.setattr(getpass, "getuser", nobody)
+    result = runner.invoke(app, ["run", "-c", "box"])
+    assert result.exit_code == 0, result.output
+    assert records()

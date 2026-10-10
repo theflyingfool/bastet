@@ -12,6 +12,7 @@ from bastet.core.hosttypes import HostType
 from bastet.core.links import link_target
 
 KINDS = ("lab", "host", "hardware", "group", "location", "role", "secret", "facts", "run")
+RUN_NOTES_DIR = "_bastet/runs"   # Bastet's run notes: nothing in the inventory reads them, so they are never loaded
 SKIP_DIRS = {".git", ".obsidian", ".trash", ".bastet", "_templates"}
 LINK_FIELDS = {
     "host": ("runs_on", "location", "groups"),
@@ -215,7 +216,10 @@ def _generated(root: Path, path: Path) -> bool:
 def load_inventory(root: Path, types: dict[str, HostType]) -> Inventory:
     inv = Inventory(root=root)
     facts_docs: list[Document] = []
+    run_notes = root / RUN_NOTES_DIR
     for path in markdown_files(root):
+        if path.is_relative_to(run_notes):
+            continue
         try:
             doc = parse_document(path.read_text(encoding="utf-8"), path)
         except BastetError as exc:

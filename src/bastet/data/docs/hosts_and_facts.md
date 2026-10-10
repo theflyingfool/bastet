@@ -37,8 +37,8 @@ the drift stays listed until the file and reality agree again.
 
 ## Runs
 
-A run that changes something leaves a short note under `_bastet/runs/` in the same commit. A check
-that finds nothing to write leaves none (it is still in `bastet log`). The dashboard and the
+A run that makes a commit leaves a short note under `_bastet/runs/` in that same commit. A run
+that makes no commit leaves none (it is still in `bastet log`). The dashboard and the
 bottom of each host's facts note have a Runs table, with views for changes, checks, failures and
 all runs, and a board by status below it. The board is read-only: moving a card changes nothing.
 They need Obsidian 1.14 or later with the Bases core plugin, which `bastet init` turns on. Bastet

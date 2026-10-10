@@ -68,6 +68,8 @@ class MemorySink:
         d = event.to_dict()
         if event.kind == "command_run":
             d["data"] = {k: v for k, v in d["data"].items() if k not in ("stdout", "stderr")}
+        elif event.kind == "item_checked":
+            d["data"] = {k: v for k, v in d["data"].items() if k not in ("diff", "origins")}
         self.events.append(d)
 
     def close(self) -> None:

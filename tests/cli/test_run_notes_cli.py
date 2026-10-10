@@ -123,3 +123,50 @@ def test_the_note_never_holds_a_secret(runner, box, inventory, secret_keys):
     made = list((inventory / "_bastet" / "runs").glob("*.md"))
     assert made
     assert all(value not in p.read_text() for p in made)
+
+
+def test_a_failure_with_no_event_still_makes_the_note_say_failed(runner, box, inventory, monkeypatch):
+    def refuse(*args, **kwargs):
+        raise run_mod.BastetError("box: cannot decide about a reboot")
+
+    monkeypatch.setattr(run_mod, "reboot_decision", refuse)
+    result = runner.invoke(app, ["run", "box", "-y"])
+    assert result.exit_code == 1, result.output
+    apply_notes = [n for n in notes(inventory) if " apply " in n.name]
+    assert apply_notes and "status: failed" in apply_notes[-1].read_text()
+
+
+def test_a_skipped_refresh_with_writes_still_commits_the_note(runner, box, inventory, monkeypatch):
+    import bastet.cli.common as common
+
+    def write_something(ctx, doc, items):
+        path = ctx.root / "hosts" / "scratch.md"
+        path.write_text("scratch\n")
+        ctx.written.add(path)
+        return True
+
+    monkeypatch.setattr(common, "refresh_generated", lambda *a, **k: [])
+    monkeypatch.setattr(run_mod, "_write_security_note", write_something)
+    before = commit_count(inventory)
+    result = runner.invoke(app, ["run", "-c", "box"])
+    assert result.exit_code == 0, result.output
+    assert commit_count(inventory) == before + 1
+    [note] = notes(inventory)
+    assert note.relative_to(inventory).as_posix() in git(inventory, "show", "--name-only", "HEAD")
+
+
+def test_the_note_survives_the_dashboard_catch_up_amend(runner, box, inventory):
+    result = runner.invoke(app, ["run", "-c", "box"])
+    assert result.exit_code == 0, result.output
+    [note] = notes(inventory)
+    assert note.relative_to(inventory).as_posix() in git(inventory, "show", "--name-only", "HEAD")
+
+
+def test_a_run_that_raises_before_finish_leaves_no_note(runner, box, inventory, monkeypatch):
+    def explode(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(run_mod, "run_parallel", explode)
+    runner.invoke(app, ["run", "-c", "box"])
+    assert notes(inventory) == []
+    assert "_bastet/runs" not in git(inventory, "status", "--porcelain", "-uall")

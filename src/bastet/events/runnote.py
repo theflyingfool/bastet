@@ -4,15 +4,17 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
+from bastet.core.inventory import RUN_NOTES_DIR
 from bastet.core.secrets.redact import ACTIVE
 from bastet.core.yamlstyle import dump_frontmatter
 from bastet.events.model import level_of
 
-RUNS_DIR = "_bastet/runs"
+RUNS_DIR = RUN_NOTES_DIR
 MAX_DETAIL = 3
+MAX_COMMAND = 300   # a files fix carries a whole file body
 MARKS = {"changed": "✓", "compliant": "·", "would-change": "~", "attention": "⚠", "failed": "✗", "skipped": "–"}
 
 
@@ -76,6 +78,9 @@ def summarize(events: list[dict], status: str | None = None) -> RunSummary:
             row = host_row(e["host"])               # a planning error: a failed host
             row["status"] = max(row["status"], "failed", key=_RANK.get)
             row["failed"] = max(row["failed"], 1)
+    for row in latest.values():
+        if row["status"] != "ok":                   # a host that failed to run counts, even with no failed items
+            row["failed"] = max(row["failed"], 1)
     bad = any(r["status"] != "ok" or r["failed"] for r in latest.values())
     command = data.get("command", "")
     return RunSummary(
@@ -90,7 +95,8 @@ def summarize(events: list[dict], status: str | None = None) -> RunSummary:
 
 def _item_line(d: dict) -> list[str]:
     mark = MARKS.get(d["status"], "·")
-    lines = [f"- {mark} {d['item']}" + (f": {'; '.join(d['changes'])}" if d.get("changes") else f" ({d['status']})")]
+    changes = [c.removeprefix(f"{d['item']}: ") for c in d.get("changes") or []]  # change text starts with the item's name
+    lines = [f"- {mark} {d['item']}" + (f": {'; '.join(changes)}" if changes else f" ({d['status']})")]
     if d.get("error"):
         lines.append(f"  - {d['error']}")
     return lines
@@ -98,14 +104,18 @@ def _item_line(d: dict) -> list[str]:
 
 def _host_section(host: str, events: list[dict], detail: int) -> list[str]:
     mine = [e for e in events if e["host"] == host]
-    done = next((e["data"] for e in reversed(mine) if e["kind"] == "host_finished"), None)
+    finished = [e["data"] for e in mine if e["kind"] == "host_finished"]
+    status = max((d.get("status", "ok") for d in finished), key=lambda v: _RANK.get(v, 0), default=None)
+    error = next((d["error"] for d in finished if d.get("error")), None)   # a later clean scope never wipes these
     skip = next((e["data"] for e in mine if e["kind"] == "host_skipped"), None)
     failed_plan = skip and str(skip.get("reason", "")).startswith("error:")
-    lines = ["", f"## {host}: {done['status'] if done else ('failed' if failed_plan else 'skipped')}"]
+    if failed_plan and status in (None, "ok"):
+        status = "failed"
+    lines = ["", f"## {host}: {status or 'skipped'}"]
     if skip:
         lines.append(f"- skipped: {skip['reason']}")
-    if done and done.get("error"):
-        lines.append(f"- error: {done['error']}")
+    if error:
+        lines.append(f"- error: {error}")
     lines += [f"- ✗ trigger {e['data']['trigger']}: {e['data'].get('error') or 'failed'}"
               for e in mine if e["kind"] == "trigger_fired" and not e["data"]["ok"]]
     if detail == 1:
@@ -128,7 +138,8 @@ def _host_section(host: str, events: list[dict], detail: int) -> list[str]:
             lines += _item_line(d)
         elif kind == "command_run":
             result = "error" if d["exit"] is None else f"exit {d['exit']}"
-            lines.append(f"- `$ {d['command']}` → {result} ({d['duration']:.1f}s)")
+            command = d["command"] if len(d["command"]) <= MAX_COMMAND else d["command"][:MAX_COMMAND] + "…"
+            lines.append(f"- `$ {command}` → {result} ({d['duration']:.1f}s)")
         elif kind == "trigger_fired" and d["ok"]:
             lines.append(f"- trigger {d['trigger']} ✓")
         elif kind == "note":
@@ -139,7 +150,7 @@ def _host_section(host: str, events: list[dict], detail: int) -> list[str]:
 def render_run_note(events: list[dict], detail: int, status: str | None = None) -> str:
     detail = max(1, min(detail, MAX_DETAIL))
     s = summarize(events, status)
-    when = _when(s.started) if s.started else datetime.now()
+    when = _when(s.started) if s.started else datetime.now(timezone.utc)
     frontmatter = {
         "bastet": "run", "generated": True, "run": s.run_id, "command": s.command, "mode": s.mode, "started": s.started,
         "hosts": [f"[[{h}]]" for h in s.hosts], "changed": s.changed, "failed": s.failed, "status": s.status,
@@ -147,7 +158,7 @@ def render_run_note(events: list[dict], detail: int, status: str | None = None) 
     }
     plural = "host" if len(s.hosts) == 1 else "hosts"
     lines = [
-        f"# {s.mode} {when.strftime('%Y-%m-%d %H:%M')}", "",
+        f"# {s.mode} {when.astimezone(timezone.utc).strftime('%Y-%m-%d %H:%M')} UTC", "",
         f"`{s.command}` · by {s.user or 'unknown'} · {len(s.hosts)} {plural} · {s.changed} changed · "
         f"{s.failed} failed · took {s.duration:.1f}s · {s.status}",
     ]

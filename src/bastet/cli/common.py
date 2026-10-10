@@ -65,7 +65,11 @@ def recorded_run(command: str, verbose: int = 0, *, mode: str | None = None):
     if verbose >= 2:
         sinks.append(TerminalSink(min(verbose, 4)))
     sinks.append(MemorySink(max_level=runs_cfg.note_detail))
-    with recording(command, sinks, run_id=run_id, mode=mode or infer_mode(command), user=getpass.getuser()) as recorder:
+    try:
+        user = getpass.getuser()
+    except Exception:   # no USER and no passwd entry (some containers): the name is cosmetic
+        user = "unknown"
+    with recording(command, sinks, run_id=run_id, mode=mode or infer_mode(command), user=user) as recorder:
         yield recorder
 
 

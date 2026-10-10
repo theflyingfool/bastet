@@ -28,7 +28,7 @@ lists them. They are kept forever unless you set `runs.keep_runs` (how many to k
 `runs.keep_days` in `bastet.yml`; both are empty until you do. The record hides secrets, but it
 does contain command output, so treat it like any other log. Files are readable only by you.
 
-A run that isn't in the Runs table left no note, because it wrote nothing. `bastet log` lists
+A run that isn't in the Runs table left no note, because it made no commit. `bastet log` lists
 every run, `bastet log note <run>` makes its note, and `bastet log show <run> -vvv` shows its
 detail in the terminal. If the Runs tables are empty or show raw text, enable Bases (Settings,
 Core plugins) or run `bastet doctor --fix`.

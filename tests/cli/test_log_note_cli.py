@@ -132,6 +132,7 @@ def test_note_for_a_run_with_odd_command_text_makes_a_safe_file_name(runner, inv
     [note] = notes(inventory)
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2} \d{4} (apply|check|gather) [0-9a-f]+\.md", note.name)
     assert note.parent == inventory / "_bastet" / "runs"
+    assert note.name.endswith(" apply 22d326.md") and "[" not in note.name and "*" not in note.name
 
 
 def test_note_never_holds_a_secret(runner, inventory):
@@ -197,3 +198,41 @@ def test_show_writes_nothing(runner, inventory):
     assert notes(inventory) == []
     assert sorted(p.name for p in runs_dir(data_dir()).iterdir()) == data_before
     assert path.read_text() == text_before
+
+
+def clean_unfinished():
+    events = apply_events()[:-1]
+    events[-1] = ev("host_finished", "pve1", status="ok", changed=0, failed=0, skipped=0)   # no failed items, no run_finished
+    return [e for e in events if e["kind"] != "item_checked" or e["data"]["status"] != "failed"]
+
+
+def test_note_and_show_call_a_record_with_no_run_finished_unfinished(runner, inventory):
+    record(clean_unfinished())
+    assert runner.invoke(app, ["log", "note", "latest", "-y"]).exit_code == 0
+    [note] = notes(inventory)
+    assert "status: unfinished" in note.read_text()
+    shown = runner.invoke(app, ["log", "show", "latest"])
+    assert shown.exit_code == 0 and shown.output.splitlines()[0].endswith("  unfinished")
+
+
+def test_a_finished_record_keeps_its_own_status(runner, inventory):
+    record()
+    assert runner.invoke(app, ["log", "show", "latest"]).output.splitlines()[0].endswith("  failed")
+
+
+def test_odd_lines_are_skipped_not_a_traceback(runner, inventory):
+    good = [json.dumps(e) for e in apply_events()]
+    odd = ['{"kind": "note", "data": {}}', '{"kind": "note", "run_id": "r", "t": "x", "host": 3, "data": {}}',
+           '{"kind": "note", "run_id": "r", "t": "x", "data": "text"}', '[1, 2]', '{"kind": 7, "data": {}}',
+           '{"kind": "mystery", "run_id": "r", "t": "x", "host": null, "data": {}}']
+    record(raw="\n".join([good[0], *odd, *good[1:]]) + "\n")
+    for args in (["log", "show", "latest", "-vvvv"], ["log", "note", "latest", "-y"]):
+        result = runner.invoke(app, args)
+        assert result.exit_code == 0, result.output
+        assert "Traceback" not in result.output
+
+
+def test_show_on_a_record_with_no_start_event_is_a_clear_error(runner, inventory):
+    record(raw='{"kind": "run_star')
+    result = runner.invoke(app, ["log", "show", "latest"])
+    assert result.exit_code == 1 and "that record has no start event" in result.output

@@ -312,7 +312,16 @@ def test_an_empty_link_field_is_unset_not_an_error(tmp_path, value):
 
 def test_a_run_note_loads_without_problems(tmp_path):
     put(tmp_path, "Homelab.md", "---\nbastet: lab\nname: Homelab\n---\n# Lab\n")
-    put(tmp_path, "_bastet/runs/2026-10-10 1218 apply 22d326.md",
+    put(tmp_path, "somewhere/2026-10-10 1218 apply 22d326.md",
         '---\nbastet: run\ngenerated: true\nrun: 20261010-121800-22d326\nmode: apply\nhosts:\n  - "[[pve1]]"\n---\n# apply\n')
     inv = load_inventory(tmp_path, TYPES)
     assert not inv.problems and len(inv.of_kind("run")) == 1
+
+
+def test_notes_under_bastet_runs_are_not_loaded(tmp_path):
+    put(tmp_path, "Homelab.md", "---\nbastet: lab\nname: Homelab\n---\n# Lab\n")
+    put(tmp_path, "_bastet/runs/2026-10-10 1218 apply 22d326.md",
+        '---\nbastet: run\nrun: 20261010-121800-22d326\nhosts:\n  - "[[pve1]]"\n---\n# apply\n')
+    put(tmp_path, "_bastet/runs/broken.md", "---\nbastet: [unclosed\n---\n")
+    inv = load_inventory(tmp_path, TYPES)
+    assert inv.of_kind("run") == [] and not inv.problems and inv.linking_to("pve1") == []

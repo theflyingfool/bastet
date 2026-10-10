@@ -6,7 +6,7 @@ import pytest
 from bastet import events
 from bastet.core.secrets.redact import ACTIVE
 import bastet.events.recorder as recorder_mod
-from bastet.events.recorder import ListSink, Recorder, new_run_id, recording
+from bastet.events.recorder import ListSink, MemorySink, Recorder, new_run_id, recording
 
 
 def kinds(sink):
@@ -369,8 +369,22 @@ def test_note_change_is_none_outside_a_recording_or_without_a_memory_sink(tmp_pa
 
 
 def test_forced_flush_waits_even_without_a_live_sink():
-    sink = ListSink()
+    class SlowSink(ListSink):
+        def handle(self, event):
+            time.sleep(0.3)             # the consumer is still busy when flush is asked to wait
+            super().handle(event)
+
+    sink = SlowSink()
     with recording("run", [sink]) as rec:
         events.emit("note", None, message="x")
         rec.flush(force=True)
         assert any(e.kind == "note" for e in sink.events)
+
+
+def test_the_memory_sink_drops_what_the_note_never_shows():
+    sink = MemorySink(max_level=3)
+    with recording("run", [sink]):
+        events.emit("item_checked", "pve1", item="/etc/motd", status="would-change", phase="compare",
+                    changes=["x"], error=None, diff="--- big diff", origins=["role files"])
+    kept = next(e for e in sink.events if e["kind"] == "item_checked")["data"]
+    assert "diff" not in kept and "origins" not in kept and kept["changes"] == ["x"]
