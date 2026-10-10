@@ -9,6 +9,7 @@ from pathlib import Path
 
 import typer
 
+from bastet.ui import out
 from bastet.cli.common import (
     Context,
     finish,
@@ -124,7 +125,7 @@ def _pin(ctx: Context, doc: Document, tmp: Path, *, yes: bool, accept: bool,
     if status == "new" and not accept:
         if yes:
             raise BastetError("first contact: run without -y to confirm the host key, or pass --accept-new-hostkey")
-        typer.echo(f"{doc.name}: first contact, host key {offered}")
+        out.echo(f"{doc.name}: first contact, host key {offered}")
         if not typer.confirm("Trust this key?", default=False):
             raise BastetError("host key not trusted; nothing gathered")
     if status == "match":
@@ -204,7 +205,7 @@ def _prepare(ctx: Context, doc: Document, host_type, tmp: Path, *, yes: bool, ac
             pass
     user = ctx.config.ssh.bootstrap_user or getpass.getuser()
     own = SshTarget(str(address), user, None, known, port=port)
-    typer.echo(f"{doc.name}: the bastet user is not set up; using {user}@{address}")
+    out.echo(f"{doc.name}: the bastet user is not set up; using {user}@{address}")
     if key is not None and not yes and typer.confirm(
         f"Set up the bastet user on {doc.name} now (key login only, passwordless sudo)?", default=True
     ):
@@ -218,9 +219,9 @@ def _prepare(ctx: Context, doc: Document, host_type, tmp: Path, *, yes: bool, ac
                 runner.run("true\n")
                 return Prepared(hostkey, runner, False)
             except AuthFailed:
-                typer.secho(f"{doc.name}: bastet user set up, but its login was refused; continuing as {user}", fg="yellow")
+                out.secho(f"{doc.name}: bastet user set up, but its login was refused; continuing as {user}", fg="yellow")
         else:
-            typer.secho(f"{doc.name}: setting up the bastet user failed; continuing as {user}", fg="yellow")
+            out.secho(f"{doc.name}: setting up the bastet user failed; continuing as {user}", fg="yellow")
     return Prepared(hostkey, ssh_runner(own), False)
 
 
@@ -237,11 +238,11 @@ def _collect_one(prepared: Prepared, host: str):
 def _echo_outcome(outcome: Outcome, done: str) -> None:
     """Print a finished parallel host's buffered lines, then its own result line."""
     for text, fg in outcome.log.lines:
-        typer.secho(ACTIVE.mask(text), fg=fg)
+        out.secho(ACTIVE.mask(text), fg=fg)
     if outcome.status == "done":
-        typer.echo(ACTIVE.mask(f"{outcome.host}: {done}"))
+        out.echo(ACTIVE.mask(f"{outcome.host}: {done}"))
     elif outcome.status == "error":
-        typer.secho(ACTIVE.mask(f"{outcome.host}: {outcome.error}"), fg="yellow")
+        out.secho(ACTIVE.mask(f"{outcome.host}: {outcome.error}"), fg="yellow")
     # "not-started" (e.g. after Ctrl-C): nothing to report, this host never ran.
 
 
@@ -256,7 +257,7 @@ def _tools_ask(ctx: Context, doc: Document, host_type, snapshot: Snapshot, insta
     manager = (snapshot.results.get("pkg_mgr").output.strip() if snapshot.results.get("pkg_mgr") else "") or None
     script = install_script(manager, tools)
     if script is None:
-        typer.secho(f"{doc.name}: missing {', '.join(tools)}, but no supported package manager was found", fg="yellow")
+        out.secho(f"{doc.name}: missing {', '.join(tools)}, but no supported package manager was found", fg="yellow")
         return None
     if mode == "ask" and not typer.confirm(
         f"{doc.name}: install {', '.join(tools)} for fuller hardware info?", default=True
@@ -296,9 +297,9 @@ def _tools_round(
 
     def on_done(outcome: Outcome) -> None:
         for text, fg in outcome.log.lines:
-            typer.secho(ACTIVE.mask(text), fg=fg)
+            out.secho(ACTIVE.mask(text), fg=fg)
         if outcome.status == "error":
-            typer.secho(ACTIVE.mask(f"{outcome.host}: {outcome.error}"), fg="yellow")
+            out.secho(ACTIVE.mask(f"{outcome.host}: {outcome.error}"), fg="yellow")
             collected.pop(outcome.host, None)  # a real failure here drops the host, same as any other phase
             return
         if outcome.status == "not-started":
@@ -307,7 +308,7 @@ def _tools_round(
         kind = outcome.value[0]
         if kind == "failed":
             tools = to_run[outcome.host][1]
-            typer.secho(
+            out.secho(
                 ACTIVE.mask(f"{outcome.host}: installing {', '.join(tools)} failed: {outcome.value[1]}"), fg="yellow"
             )
             return
@@ -315,7 +316,7 @@ def _tools_round(
         collected[outcome.host] = new_snapshot
         installed[outcome.host] += tools
         succeeded.add(outcome.host)
-        typer.echo(ACTIVE.mask(f"{outcome.host}: installed {', '.join(tools)}"))
+        out.echo(ACTIVE.mask(f"{outcome.host}: installed {', '.join(tools)}"))
 
     run_parallel(list(to_run), work, jobs=jobs, on_done=on_done)
     return succeeded
@@ -328,14 +329,14 @@ def _guest_command(node: str, guest: dict) -> str:
 
 def _offer_guests(ctx: Context, found: list[tuple[str, dict]], yes: bool, facts_acc: FactsAcc) -> list:
     """List guests found on Proxmox nodes that aren't in the inventory; with confirmation, draft host files for all."""
-    typer.echo(f"\n{len(found)} guest{'s' if len(found) != 1 else ''} aren't in the inventory:")
+    out.echo(f"\n{len(found)} guest{'s' if len(found) != 1 else ''} aren't in the inventory:")
     for node, g in found:
         kind = "lxc" if g.get("type") == "lxc" else "vm"
         where = {"config": g.get("ip"), "neighbour": f"seen at {g.get('ip')}"}.get(g.get("ip_source"), "address unknown")
-        typer.echo(f"  {g['name']} ({kind} {g['vmid']} on {node}, {where})")
-    typer.echo("To add only some, answer N and run, for example:")
+        out.echo(f"  {g['name']} ({kind} {g['vmid']} on {node}, {where})")
+    out.echo("To add only some, answer N and run, for example:")
     for node, g in found[:3]:
-        typer.echo(f"  {_guest_command(node, g)}")
+        out.echo(f"  {_guest_command(node, g)}")
     if yes or not typer.confirm(f"Add all {len(found)} to the inventory? (y adds every one listed)", default=False):
         return []
     drafts, names = [], set()
@@ -348,14 +349,14 @@ def _offer_guests(ctx: Context, found: list[tuple[str, dict]], yes: bool, facts_
         try:
             draft = new_host(ctx.inventory, ctx.types, name, kind, on=node, ip=ip, address=address)
         except BastetError as exc:
-            typer.secho(f"  skipped {name}: {exc}", fg="yellow")
+            out.secho(f"  skipped {name}: {exc}", fg="yellow")
             continue
         drafts.append(draft.change)
         # vmid is a fact, not something to set on the host note: it goes into the new guest's facts
         # note, via the same accumulator as every other facts-note source this run.
         _merge_facts(facts_acc, ctx.inventory, name, {"vmid": g["vmid"]})
         if not address and ip == "dhcp":
-            typer.secho(f"  {name}: no address known; set address: (a DNS name or IP) before gathering it", fg="yellow")
+            out.secho(f"  {name}: no address known; set address: (a DNS name or IP) before gathering it", fg="yellow")
     return drafts
 
 
@@ -381,14 +382,14 @@ def _gather(
         # A type that never gathers (e.g. `other`) is skipped even when named -- there's nothing to
         # connect to. A host-level `gather: false` is only a default skip; naming the host overrides it.
         if host_type is not None and not host_type.gather:
-            typer.echo(f"{doc.name}: skipped (gather: false)")
+            out.echo(f"{doc.name}: skipped (gather: false)")
         elif not hosts and doc.data.get("gather") is False:
-            typer.echo(f"{doc.name}: skipped (gather: false)")
+            out.echo(f"{doc.name}: skipped (gather: false)")
         else:
             kept.append(doc)
     docs = kept
     if not docs:
-        typer.echo("No hosts yet. Add one with `bastet add host`.")
+        out.echo("No hosts yet. Add one with `bastet add host`.")
         return
 
     first_gather = {doc.name for doc in docs if inv.facts.get(doc.name.lower()) is None}
@@ -408,16 +409,16 @@ def _gather(
         prepared: dict[str, Prepared] = {}
         live_docs: list[Document] = []
         for doc in docs:
-            typer.echo(f"{doc.name}: gathering…")
+            out.echo(f"{doc.name}: gathering…")
             host_type = ctx.types.get(str(doc.data.get("type")), ctx.types["unknown"])
             host_types[doc.name] = host_type
             try:
                 prepared[doc.name] = _prepare(ctx, doc, host_type, tmp_path, yes=yes, accept=accept_new_hostkey)
                 live_docs.append(doc)
             except BastetError as exc:
-                typer.secho(f"{doc.name}: {exc}", fg="yellow")
+                out.secho(f"{doc.name}: {exc}", fg="yellow")
             except Exception as exc:  # one host's surprise must not lose the others' results
-                typer.secho(f"{doc.name}: unexpected error: {exc.__class__.__name__}: {exc}", fg="yellow")
+                out.secho(f"{doc.name}: unexpected error: {exc.__class__.__name__}: {exc}", fg="yellow")
 
         # Collect, in parallel.
         collected: dict[str, object] = {}
@@ -487,10 +488,10 @@ def _gather(
                     plan_hardware(inv, doc, view, run=run_state, gathered=gathered_at) if view else ([], [], False)
                 )
             except BastetError as exc:
-                typer.secho(f"{doc.name}: {exc}", fg="yellow")
+                out.secho(f"{doc.name}: {exc}", fg="yellow")
                 continue
             except Exception as exc:  # one host's surprise must not lose the others' results
-                typer.secho(f"{doc.name}: unexpected error: {exc.__class__.__name__}: {exc}", fg="yellow")
+                out.secho(f"{doc.name}: unexpected error: {exc.__class__.__name__}: {exc}", fg="yellow")
                 continue
             for probe in extracted.missing_required:
                 notes.append(Note(doc.name, "warn", f"required probe '{probe}' failed or its tool is missing"))
@@ -524,7 +525,7 @@ def _gather(
                     found_guests.append((doc.name, guest))
             host_warnings[doc.name] = [n.message for n in notes if n.host == doc.name and n.severity == "warn"]
             if update.change is None and not hw_changes and not hw_touched:
-                typer.echo(f"{doc.name}: up to date")
+                out.echo(f"{doc.name}: up to date")
             else:
                 changes.extend(hw_changes)
                 gathered.append(doc.name)
@@ -565,7 +566,7 @@ def _gather(
                 notes.extend(Note(target.name, "info", f"link {link['port']} → {link['to']} port {link['to_port']}")
                              for link in links if str(link["port"]) not in prior_ports)
             except Exception as exc:  # one host's links must not lose the rest of the run
-                typer.secho(f"{proposal_host}: links not updated: {exc.__class__.__name__}: {exc}", fg="yellow")
+                out.secho(f"{proposal_host}: links not updated: {exc.__class__.__name__}: {exc}", fg="yellow")
                 continue
 
         # Unplugged: a host no device proposes a link for any more, but whose facts note still carries
@@ -587,7 +588,7 @@ def _gather(
 
     for note in notes:
         mark = "⚠" if note.severity == "warn" else "·"
-        typer.secho(f"{mark} {note.host}: {note.message}", fg="yellow" if note.severity == "warn" else None)
+        out.secho(f"{mark} {note.host}: {note.message}", fg="yellow" if note.severity == "warn" else None)
     added = _offer_guests(ctx, found_guests, yes, facts_acc) if found_guests else []
     changes.extend(added)
     for name, facts in facts_acc.values():  # exactly one Change per facts note, built once everything merged

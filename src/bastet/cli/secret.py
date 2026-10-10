@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 import typer
 from rich.progress import Progress
 
+from bastet.ui import out
 from bastet.cli.common import Context, finish, handles_errors, load_context, print_problems, pull_or_warn, push_or_warn
 from bastet.cli.complete import complete_secret_words
 from bastet.core.changes import Change, write_changes
@@ -174,9 +175,9 @@ def _print_inventory(ctx: Context) -> None:
     bad_texts = {b.rel: b for b in bad}
     texts = sorted(set(notes) | set(uses) | set(bad_texts))
     if not texts:
-        typer.echo("No secrets yet.")
+        out.echo("No secrets yet.")
         return
-    typer.echo(f"{'secret':35} {'source':10} {'created':17} {'status':9} used by")
+    out.echo(f"{'secret':35} {'source':10} {'created':17} {'status':9} used by")
     for text in texts:
         note = notes.get(text)
         used_by = ", ".join(uses[text].used_by) if text in uses else ""
@@ -187,7 +188,7 @@ def _print_inventory(ctx: Context) -> None:
         else:
             source, created = str(note.data.get("source") or ""), str(note.data.get("created") or "")
             status = "set" if note.is_sealed else "unlocked"
-        typer.echo(f"{text:35} {source:10} {created:17} {status:9} {used_by}")
+        out.echo(f"{text:35} {source:10} {created:17} {status:9} {used_by}")
 
 
 def _without_checked(text: str) -> str:
@@ -209,14 +210,14 @@ def secret_main(ctx_typer: typer.Context) -> None:
     for f in found:
         by_kind.setdefault(f.kind, []).append(f)
     if not found:
-        typer.echo("No findings.")
+        out.echo("No findings.")
     for kind in secret_health.AUDIT_KIND_ORDER:
         items = by_kind.get(kind)
         if not items:
             continue
-        typer.echo(f"{kind}:")
+        out.echo(f"{kind}:")
         for f in sorted(items, key=lambda f: f.text):
-            typer.echo(ctx.secrets.redactor.mask(f"  {f.text}"))
+            out.echo(ctx.secrets.redactor.mask(f"  {f.text}"))
     path = ctx.root / secret_health.AUDIT_PATH
     when = _now()
     text = secret_health.audit_note(found, when)
@@ -262,7 +263,7 @@ def _write_fill_in_note(ctx: Context, sp: SecretPath, exists: bool) -> None:
     note.data["locked"] = False
     note.body = ""
     note.write(ctx.root)
-    typer.echo(f"Wrote an unlocked note for {sp.text}; fill in the value, then run `bastet secret lock`.")
+    out.echo(f"Wrote an unlocked note for {sp.text}; fill in the value, then run `bastet secret lock`.")
 
 
 def _set_one(
@@ -283,7 +284,7 @@ def _set_one(
     else:
         if exists:
             if not typer.confirm(f"Replace {sp.text}? The old value stays only in encrypted git history", default=False):
-                typer.echo("Not replaced.")
+                out.echo("Not replaced.")
                 return "declined"
         value = None
         source = "chosen"
@@ -299,7 +300,7 @@ def _set_one(
                 if opt and opt.generate:
                     value, source = _generate(opt.generate), "generated"
                 else:
-                    typer.echo("Enter a value, or e to fill it in yourself.")
+                    out.echo("Enter a value, or e to fill it in yourself.")
                     continue
             elif first.strip().lower() == "e":
                 _write_fill_in_note(ctx, sp, exists)
@@ -307,12 +308,12 @@ def _set_one(
             else:
                 second = typer.prompt("Confirm", hide_input=True)
                 if second != first:
-                    typer.echo("Values didn't match; try again.")
+                    out.echo("Values didn't match; try again.")
                     continue
                 value, source = first, (opt.source if opt and opt.source else "chosen")
     _write_note(ctx, sp, value, source, exists)
     ctx.secrets.redactor.add(value)
-    typer.echo(f"Set {sp.text} ({source}, {len(value)} characters).")
+    out.echo(f"Set {sp.text} ({source}, {len(value)} characters).")
     from bastet.core.secrets import confirm as secrets_confirm
 
     was_pending = secrets_confirm.pending(ctx.repo, ctx.root)
@@ -334,11 +335,11 @@ def _set_walk(ctx: Context) -> None:
         needed = needed_secrets(ctx)
         if not needed:
             if not committed:
-                typer.echo("Nothing to set.")
+                out.echo("Nothing to set.")
             break
-        typer.echo("Secrets that need a value:")
+        out.echo("Secrets that need a value:")
         for i, n in enumerate(needed, 1):
-            typer.echo(f"  {i}. {n.sp.text} (used by {', '.join(n.used_by)})")
+            out.echo(f"  {i}. {n.sp.text} (used by {', '.join(n.used_by)})")
         choice = typer.prompt(f"Choice [1-{len(needed)}, 0=all, q=quit]").strip().lower()
         if choice == "q":
             break
@@ -352,7 +353,7 @@ def _set_walk(ctx: Context) -> None:
             if _set_one(ctx, n.sp, n.contract_opt) == "committed":
                 committed.append(n.sp)
             continue
-        typer.echo(f"'{choice}' isn't a choice.")
+        out.echo(f"'{choice}' isn't a choice.")
     if ctx.repo.is_repo() and committed:
         if len(committed) > 1 and base is not None:
             words = ", ".join(sp.text for sp in committed)
@@ -414,12 +415,14 @@ def secret_show(
     menu = "1) display  2) clipboard  q) cancel" if tool else "1) display  q) cancel"
     choice = typer.prompt(menu, default="q", show_default=False).strip().lower()
     if choice == "1":
-        typer.echo(value)
+        # The one place a value is meant to be seen: out.echo would mask it.
+        sys.stdout.write(value + "\n")
+        sys.stdout.flush()
     elif choice == "2" and tool:
         _copy_to_clipboard(tool, value)
-        typer.echo("Copied to the clipboard; it clears in 45s.")
+        out.echo("Copied to the clipboard; it clears in 45s.")
     else:
-        typer.echo("Cancelled.")
+        out.echo("Cancelled.")
 
 
 # --- `bastet secret unlock` / `bastet secret lock` ---
@@ -472,15 +475,15 @@ def _format_remaining(seconds: float) -> str:
 def _render_countdown(remaining: float) -> None:
     text = f"Unlocked. Locks in {_format_remaining(remaining)} — Enter: +15m, q/Esc: lock now"
     colour = "red" if remaining <= 60 else "yellow"
-    typer.secho(f"\r{text}   ", fg=colour, nl=False, err=True)
+    out.secho(f"\r{text}   ", fg=colour, nl=False, err=True)
 
 
 def _interactive_countdown() -> None:
     import time
 
-    typer.echo(err=True)  # keep the countdown line from overwriting the progress bar's own line
+    out.echo(err=True)  # keep the countdown line from overwriting the progress bar's own line
     plaintext.run_countdown(_read_key, time.monotonic, _render_countdown)
-    typer.echo(err=True)
+    out.echo(err=True)
 
 
 def _wait_then_relock(ctx: Context) -> plaintext.LockResult:
@@ -522,16 +525,16 @@ def secret_unlock(words: list[str] | None = typer.Argument(None, help="host role
         # countdown falls back to the no-countdown path below): that's exactly the case where the
         # note is left unlocked on disk indefinitely, until a person watching runs `secret lock`
         # themselves -- they still need the warning about backups taken in the meantime.
-        typer.secho(_BACKUP_WARNING, fg="yellow", err=True)
+        out.secho(_BACKUP_WARNING, fg="yellow", err=True)
     with Progress(disable=not on_tty) as progress:
         task = progress.add_task("Decrypting", total=None)
         unlocked = plaintext.unlock(ctx.root, ctx.secrets, which)
         progress.update(task, completed=1)
     if not interactive:
-        typer.echo("Unlocked. Run `bastet secret lock` when done.")
+        out.echo("Unlocked. Run `bastet secret lock` when done.")
         return
     if not unlocked:
-        typer.echo("Nothing to unlock.")
+        out.echo("Nothing to unlock.")
         return
     result = _wait_then_relock(ctx)
     _print_lock_summary(result)
@@ -539,12 +542,12 @@ def secret_unlock(words: list[str] | None = typer.Argument(None, help="host role
 
 def _print_lock_summary(result: plaintext.LockResult) -> None:
     if result.locked == 0:
-        typer.echo("Nothing to lock.")
+        out.echo("Nothing to lock.")
         return
     summary = f"{result.locked} locked · {result.changed} changed"
     if result.changed:
         summary += " · committed"
-    typer.echo(summary)
+    out.echo(summary)
 
 
 @secret_app.command("lock")

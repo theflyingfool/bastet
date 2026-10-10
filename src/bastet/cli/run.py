@@ -12,6 +12,7 @@ import typer
 
 import bastet.cli.gather as gather_mod
 import bastet.cli.secret as secret_mod
+from bastet.ui import out
 from bastet.cli.common import (
     confirm_upstream_secrets,
     Context,
@@ -43,7 +44,7 @@ from bastet.core.changes import Change, write_changes
 from bastet.core.secrets.redact import ACTIVE
 from bastet.core.factsnote import facts_path, split_security
 from bastet.core.security_note import security_items, security_section
-from bastet.engine.report import render_host
+from bastet.engine.report import host_block
 from bastet.engine.script import exec_script, new_mark
 from bastet.engine.security import LYNIS_AUDIT, LynisReport
 from bastet.engine.run import Batch, run_host
@@ -102,7 +103,7 @@ def _write_security_note(ctx: Context, doc: Document, items) -> bool:
         return False
     try:
         if ctx.repo.busy():
-            typer.secho(f"{doc.name}: security note not written: a git merge or rebase is in progress", fg="yellow")
+            out.secho(f"{doc.name}: security note not written: a git merge or rebase is in progress", fg="yellow")
             return False
         path = facts_path(ctx.root, doc.name)
         before = path.read_text(encoding="utf-8") if path.exists() else None
@@ -125,7 +126,7 @@ def _write_security_note(ctx: Context, doc: Document, items) -> bool:
         ctx.written.add(path)
         return True
     except Exception as exc:  # a note must never stop a check or an apply
-        typer.secho(ctx.secrets.redactor.mask(f"{doc.name}: security note not written: {exc.__class__.__name__}: {exc}"),
+        out.secho(ctx.secrets.redactor.mask(f"{doc.name}: security note not written: {exc.__class__.__name__}: {exc}"),
                     fg="yellow")
         return False
 
@@ -161,7 +162,7 @@ def _generate_missing(ctx: Context, needed: list) -> None:
         ctx.secrets.redactor.add(value)
         paths.append(ctx.root / n.sp.rel)
         texts.append(n.sp.text)
-        typer.echo(f"Generated {n.sp.text}.")
+        out.echo(f"Generated {n.sp.text}.")
     if ctx.repo.is_repo():
         from bastet.core.secrets import confirm as secrets_confirm
 
@@ -190,7 +191,7 @@ UPSTREAM_SECRETS_TIMEOUT = 60
 
 def _wait_answer(prompt: str, timeout: float) -> str | None:
     """Reads one line from stdin, waiting up to `timeout` seconds; None on timeout. Patchable for tests."""
-    typer.echo(prompt, nl=False)
+    out.echo(prompt, nl=False)
     ready, _, _ = select.select([sys.stdin], [], [], timeout)
     if not ready:
         return None
@@ -201,11 +202,11 @@ def _confirm_upstream_secrets(ctx: Context) -> bool:
     """Spec 15.8: a pull that changed a secret note asks before `apply` goes on, even with `-y`; no terminal,
     no answer within 60s, or "no" stops the whole run (no host is touched)."""
     if not secret_mod._stdin_is_tty():
-        typer.secho("Secrets changed upstream and no terminal is attached; stopping.", fg="red", err=True)
+        out.secho("Secrets changed upstream and no terminal is attached; stopping.", fg="red", err=True)
         return False
     answer = _wait_answer("Use these? [y/N] ", UPSTREAM_SECRETS_TIMEOUT)
     if answer is None:
-        typer.secho(f"No answer within {UPSTREAM_SECRETS_TIMEOUT}s; stopping.", fg="red", err=True)
+        out.secho(f"No answer within {UPSTREAM_SECRETS_TIMEOUT}s; stopping.", fg="red", err=True)
         return False
     return answer.strip().lower() in ("y", "yes")
 
@@ -257,7 +258,7 @@ def _node_of_map(by_name: dict[str, _Ready], names: Sequence[str], inv) -> dict[
             out[name] = node_doc.name
     out, cycles = break_cycles(out, names)
     for cycle in cycles:
-        typer.secho(f"runs_on loop: {' → '.join(cycle)}; ignoring it for ordering", fg="yellow")
+        out.secho(f"runs_on loop: {' → '.join(cycle)}; ignoring it for ordering", fg="yellow")
     return out
 
 
@@ -275,11 +276,11 @@ def _choose_hosts(pending: list[str], checks: dict, *, yes: bool) -> list[str]:
     """The one question for apply: which pending hosts to apply to. `-y` means all, no question."""
     if not pending or yes:
         return list(pending)
-    typer.echo("Changes to apply:")
+    out.echo("Changes to apply:")
     width = max(len(h) for h in pending)
     for i, h in enumerate(pending, 1):
         n = checks[h].count("would-change")
-        typer.echo(f"  {i}) {h:<{width}}  {n} change{'s' if n != 1 else ''}")
+        out.echo(f"  {i}) {h:<{width}}  {n} change{'s' if n != 1 else ''}")
     question = f"Apply to all {len(pending)}? [y]es / [n]o / numbers (e.g. 1,3): "
     for _ in range(3):
         answer = typer.prompt(question, default="", show_default=False).strip().lower()
@@ -295,7 +296,7 @@ def _choose_hosts(pending: list[str], checks: dict, *, yes: bool) -> list[str]:
 
 def _print_outcome_log(outcome: Outcome) -> None:
     for text, fg in outcome.log.lines:
-        typer.secho(ACTIVE.mask(text), fg=fg)
+        out.secho(ACTIVE.mask(text), fg=fg)
 
 
 def _run(selectors: list[str] | None, exclude: list[str] | None, *, apply_changes: bool, yes: bool, verbose: bool,
@@ -327,34 +328,34 @@ def _run(selectors: list[str] | None, exclude: list[str] | None, *, apply_change
     for doc in docs:
         host_type = ctx.types.get(str(doc.data.get("type")))
         if host_type is not None and not host_type.managed:
-            typer.echo(f"{doc.name}: configured through {host_type.managed_by or 'something else'}; not managed by Bastet")
+            out.echo(f"{doc.name}: configured through {host_type.managed_by or 'something else'}; not managed by Bastet")
             continue
         try:
             applied, batches = plan_for(ctx, doc, roles, updates)
             reboots = [r for b in batches for r in b.resources if isinstance(r, Reboot)]
             role_names = ", ".join(f"{a.role.name} ({', '.join(sorted({s.label for s in a.sources}))})" for a in applied)
             if not applied:
-                typer.echo(f"{doc.name}: no roles")
+                out.echo(f"{doc.name}: no roles")
                 continue
             for a in applied:
                 for s in a.sources:
                     found = options_in_body(a.role, s.doc.body) if s.doc is not None else []
                     if found:
-                        typer.secho(f"{doc.name}: {s.doc.path.relative_to(ctx.root)} has "
+                        out.secho(f"{doc.name}: {s.doc.path.relative_to(ctx.root)} has "
                                     f"{', '.join(k + ':' for k in found)} in the page text; Bastet only reads "
                                     "the properties at the top", fg="yellow")
             if not any(b.resources for b in batches):
-                typer.echo(f"{doc.name}: {role_names}: nothing to manage yet")
+                out.echo(f"{doc.name}: {role_names}: nothing to manage yet")
                 continue
             ready.append(_Ready(doc, batches, reboots, role_names))
         except BastetError as exc:
             if not apply_changes and isinstance(exc, MissingSecret):
                 opt = secret_mod._opt_for(exc.sp)
                 if opt and opt.generate:
-                    typer.echo(f"{doc.name}: would generate {exc.sp.text}")
+                    out.echo(f"{doc.name}: would generate {exc.sp.text}")
                     continue
             where = f" ({exc.file.name}{':' + exc.key if exc.key else ''})" if exc.file else ""
-            typer.secho(ctx.secrets.redactor.mask(f"{doc.name}: {exc.message}{where}"), fg="red")
+            out.secho(ctx.secrets.redactor.mask(f"{doc.name}: {exc.message}{where}"), fg="red")
             failed_hosts.add(doc.name)
 
     by_name: dict[str, _Ready] = {r.doc.name: r for r in ready}
@@ -380,17 +381,17 @@ def _run(selectors: list[str] | None, exclude: list[str] | None, *, apply_change
                 def on_check_done(outcome: Outcome) -> None:
                     _print_outcome_log(outcome)
                     if outcome.status == "not-started":
-                        typer.echo(f"{outcome.host}: not started")
+                        out.echo(f"{outcome.host}: not started")
                         failed_hosts.add(outcome.host)
                         return
                     if outcome.status == "error":
-                        typer.secho(ctx.secrets.redactor.mask(f"{outcome.host}: {outcome.error}"), fg="red")
+                        out.secho(ctx.secrets.redactor.mask(f"{outcome.host}: {outcome.error}"), fg="red")
                         failed_hosts.add(outcome.host)
                         return
                     check = outcome.value
                     checks[outcome.host] = check
-                    typer.echo(f"{outcome.host}: roles: {by_name[outcome.host].role_names}")
-                    typer.echo(ctx.secrets.redactor.mask(render_host(check, full=full)))
+                    out.echo(f"{outcome.host}: roles: {by_name[outcome.host].role_names}")
+                    out.block(host_block(check, full=full))
                     if check.count("failed") > 0:
                         failed_hosts.add(outcome.host)
 
@@ -412,7 +413,7 @@ def _run(selectors: list[str] | None, exclude: list[str] | None, *, apply_change
                 chosen = _choose_hosts(pending_hosts, checks, yes=yes)
                 for h in pending_hosts:
                     if h not in chosen:
-                        typer.echo(f"{h}: nothing applied")
+                        out.echo(f"{h}: nothing applied")
 
                 run_set_ordered = [h for h in checked_names if h in chosen or h in clean_hosts]
 
@@ -442,19 +443,19 @@ def _run(selectors: list[str] | None, exclude: list[str] | None, *, apply_change
                     def on_apply_done(outcome: Outcome) -> None:
                         _print_outcome_log(outcome)
                         if outcome.status == "not-started":
-                            typer.echo(f"{outcome.host}: not started")
+                            out.echo(f"{outcome.host}: not started")
                             failed_hosts.add(outcome.host)
                             apply_errored.add(outcome.host)
                             return
                         if outcome.status == "error":
                             failed_hosts.add(outcome.host)
                             if outcome.value is None:
-                                typer.secho(ctx.secrets.redactor.mask(f"{outcome.host}: {outcome.error}"), fg="red")
+                                out.secho(ctx.secrets.redactor.mask(f"{outcome.host}: {outcome.error}"), fg="red")
                                 apply_errored.add(outcome.host)
                                 return
                             done, fresh = outcome.value
                             if done is not None:
-                                typer.echo(ctx.secrets.redactor.mask(render_host(done, full=full)))
+                                out.block(host_block(done, full=full))
                             apply_failed_map[outcome.host] = True
                             if fresh is not None:
                                 fresh_items[outcome.host] = fresh
@@ -463,7 +464,7 @@ def _run(selectors: list[str] | None, exclude: list[str] | None, *, apply_change
                         if done is not None:
                             # `apply_work` raises `HostFailed` whenever `not done.ok`, so a "done"
                             # outcome here always had a clean apply (or no apply at all).
-                            typer.echo(ctx.secrets.redactor.mask(render_host(done, full=full)))
+                            out.block(host_block(done, full=full))
                             apply_failed_map[outcome.host] = False
                         else:
                             apply_failed_map[outcome.host] = checks[outcome.host].count("failed") > 0
@@ -492,13 +493,13 @@ def _run(selectors: list[str] | None, exclude: list[str] | None, *, apply_change
                                 yes=yes, apply_failed=apply_failed_map.get(h, False),
                             )
                         except BastetError as exc:
-                            typer.secho(ctx.secrets.redactor.mask(exc.message), fg="red")
+                            out.secho(ctx.secrets.redactor.mask(exc.message), fg="red")
                             failed_hosts.add(h)
                             continue
                         if result is None:
                             continue
                         if isinstance(result, str):
-                            typer.echo(ctx.secrets.redactor.mask(result))
+                            out.echo(ctx.secrets.redactor.mask(result))
                         else:
                             plans[h] = result
 
@@ -517,13 +518,13 @@ def _run(selectors: list[str] | None, exclude: list[str] | None, *, apply_change
                         def on_reboot_done(outcome: Outcome) -> None:
                             _print_outcome_log(outcome)
                             if outcome.status == "error":
-                                typer.secho(ctx.secrets.redactor.mask(f"{outcome.host}: {outcome.error}"), fg="red")
+                                out.secho(ctx.secrets.redactor.mask(f"{outcome.host}: {outcome.error}"), fg="red")
                                 failed_hosts.add(outcome.host)
                             elif outcome.status == "not-started":
-                                typer.echo(f"{outcome.host}: not started")
+                                out.echo(f"{outcome.host}: not started")
                                 failed_hosts.add(outcome.host)
                             else:
-                                typer.echo(ctx.secrets.redactor.mask(outcome.value))
+                                out.echo(ctx.secrets.redactor.mask(outcome.value))
 
                         try:
                             if wave1:
@@ -550,7 +551,7 @@ def _run(selectors: list[str] | None, exclude: list[str] | None, *, apply_change
     scope = [d.name for d in docs]
     if secret_health.relevant_secrets(ctx, scope):
         for line in secret_health.summary_lines(secret_health.findings(ctx, scope_hosts=scope)):
-            typer.echo(ctx.secrets.redactor.mask(line))
+            out.echo(ctx.secrets.redactor.mask(line))
     own_message = f"{'apply' if apply_changes else 'check'}: {', '.join(scope)}" if scope else (
         "apply" if apply_changes else "check"
     )
@@ -592,7 +593,7 @@ def run(
                     gather_mod._gather(hosts, accept_new_hostkey, yes, jobs, exclude=exclude)
                     handoff = None
             except KeyboardInterrupt:
-                typer.secho("interrupted; nothing written", fg="yellow")
+                out.secho("interrupted; nothing written", fg="yellow")
                 raise typer.Exit(1) from None
             gather_ctx, gather_message, gather_warnings, gather_drift = handoff or (None, None, None, None)
             if check:
