@@ -14,7 +14,7 @@
 
 | Decision | Choice |
 |---|---|
-| Building blocks | Python, stay. Packages (with repositories), users, files (with settings), systemd, commands, api and templates when a role needs them, reports |
+| Building blocks | Python, stay. Packages (with repositories), users, files (with settings, Jinja2 templates and format checking), systemd, commands, api when a role needs it, reports |
 | Roles | Straight Markdown, about 99% of the time: a contract that hands entries to the blocks. `role.py` is a rare escape hatch (well under 1% of roles). Logic lives in the Markdown contract and in the blocks, not in role Python |
 | Direct use of a block | Stays easy. A role file may carry block entries directly (the thin `packages`, `users` and `files` roles stay): installing one package on a host is one short role file |
 | Config-file settings | A feature of the `files` block, not a new block. The block always validates the new file (`sshd -t` for sshd) before swapping it in |
@@ -31,6 +31,8 @@
 - **A role is a Markdown file.** Its frontmatter is the contract: options and the entries it hands to the blocks. Its body is the documentation. Optional `role.py` (`validate()` and `build()`, as in the earlier spec §3.4) exists as an escape hatch for the rare case nothing else covers; needing it is a sign a block or the contract is missing something.
 - **Every option of the thing a role manages is exposed**, named as upstream names it (the earlier spec §3.1). An option carries `key:` (the upstream name), `section:` and, for config lines, `as: flag|value`.
 - **The `files` block gains settings.** An entry says `edit: ini` (later `kv`, `sshd`, and so on): every option with a `key:` that is set becomes a line in that file, and unset options leave the file's defaults alone. This replaces the Python that maps options to lines today (`PACMAN_SETTINGS`, `_sshd_line`).
+- **The `files` block checks content before swapping it in.** By format: YAML, JSON, TOML and INI are parsed on the controller, so a mistake (including one a template caused) is caught at check time before any host is touched; tool-based checks run on the host against the new file before it replaces the old one: `visudo -cf` for sudoers, `sshd -t` for sshd, `systemd-analyze verify` for units, and more as roles need them. A role can also give its own `validate:` command. A failed check refuses that edit and shows the file and the tool's message. Checkers are added as roles need them, not all up front: ini first (pacman), then sshd, sudoers and yaml.
+- **Templates are Jinja2 and belong to the `files` block.** A files entry can render its content from a template in the role's folder: the full language, with `StrictUndefined`, includes limited to the role's own folder, plain data in the context, and the `toyaml`, `tojson` and `quote` filters (earlier spec §3.3). The whole of Jinja2 is available; whoever needs a feature gets it, and bundled roles are kept simple by convention.
 - **Where logic lives, so roles need no Python:**
   - **Conditions and computed values** are `when:` conditions, per-OS maps (`{arch: …, debian: …, default: …}`) and short expressions in the frontmatter: microcode by CPU vendor, the Debian suite from the OS string, which NTP service to use.
   - **Validation** is contract rules: `min`/`max`, `choices`, a text type that forbids newlines, `os:`, and `validate:` expressions that carry their own message and a `level` of `error` (refuses the apply) or `warn` (shown in check, never blocks).
@@ -95,7 +97,7 @@ A role that `needs` something another host provides, such as an app that needs a
 
 ## 6. Versioning
 
-- **Bastet releases:** `0.x`, with a git tag and a version bump in `pyproject.toml` at each milestone and no release machinery. Pre-1.0, a minor bump may break things. Tag `v0.2.0` now (run logs done), then at milestone boundaries.
+- **Bastet releases:** `0.x`, written in one place (`pyproject.toml`; `bastet --version` reads it) and bumped at each milestone. No git tags and no release machinery for now. Pre-1.0, a minor bump may break things. 0.2.0 marks run logs done.
 - **Role versions:** semver per role in its contract. Major means an option was renamed or removed or behaviour needs attention; minor adds options; patch is fixes and docs. The content hash (`source_hash`) is the machine signal that something changed, so the version is only the human one and no tooling enforces bumps.
 - **Contract version:** `api: N`, an integer that changes only for a breaking change to the role format or engine API. It is `0` (a draft, no promise) until the first outside role exists, which is about 1.0. After that, Bastet supports the current and the previous number for one release, with a warning from `doctor`.
 - **Inventory format** is a fourth axis, and stays unversioned until 1.0 ("Bastet isn't stable", no migrations).
@@ -107,7 +109,7 @@ A role that `needs` something another host provides, such as an app that needs a
 Role calls role (`uses:`), hard `needs`, cross-host `needs`/`provides`, `contributes`/`collects`, ordering inside a phase, backups of replaced files, removal, the `role.py` trust prompt, proxy and DNS roles.
 
 ## 8. Open questions, to settle during the first slice
-- Which `edit:` formats the first slice needs beyond `ini` (ssh will need `sshd` with `Match` blocks).
+- Which format checkers and `edit:` formats the first slice needs beyond `ini` (ssh will need `sshd` with `Match` blocks).
 - How rich the expression language in `when:` and `validate:` is allowed to be (a small Jinja subset over option values and facts is the starting point).
 - Whether the thin `users`, `files` and `packages` roles stay once three or more roles are converted.
 - Whether restart order ever needs more than systemd's own dependencies.

@@ -55,7 +55,7 @@ Design: `docs/specs/2026-10-10-bastet-roles-architecture-design.md`. Each step e
 2. ☐ **One role at a time, evaluating after each:** ssh (`edit: sshd` with its `sshd -t` check and a few `warn` rules; the lockout guard is dropped), base (`when:` for microcode), harden, systemd (time, hostname, locale), the thin `users` and `files` roles, `packages` (AUR, update and reboot policy become block features), proxmox. Each adds only the block or contract features it needs.
 3. ☐ **Capabilities and contributions** beyond `wants`, when a real role needs them: the firewall (same-host), then the Git forge (a host waits for the whole provider host; guests already wait for their node).
 4. ☐ **Stabilize:** the library, `role update`, `doctor <dir>` and role pages (the audited old subplan 2), then presets, boards and the guided `add role`.
-5. ☐ **Versioning:** tag `v0.2.0` (run logs done) and bump `pyproject.toml`; tag again at each milestone. Roles use semver plus the content hash; the contract stays a draft until about 1.0.
+5. ◐ **Versioning:** ☑ version 0.2.0 (run logs done), written only in `pyproject.toml`; bump at each milestone; no git tags for now. Roles use semver plus the content hash; the contract stays a draft until about 1.0.
 
 ## Run logs (milestone 3b)
 
@@ -96,8 +96,8 @@ Generic mechanisms every role is assembled from (roles spec §8). Roles never im
 |---|---|---|---|
 | ◐ | packages | Repositories and signing keys, installs, updates, reboot-needed marking | `hold` (pinning distro packages), install-method support (`native`/`container`), AUR bootstrap and update/reboot policy as block options (today in the role), `wants: package-manager` |
 | ☑ | users | Users, groups, authorized keys, sudoers drop-ins | |
-| ◐ | files | Whole files, directories, symlinks, lines, blocks; owner/mode; validate before swap | Settings edits from options (`edit: ini`, then `kv`, `sshd`), validation by format (`sshd -t`), replace-with-check, `before:`/`after:` |
-| ◐ | templates | Files rendered with Jinja2 (`StrictUndefined`) | Role-folder includes only, plain-data context, `toyaml` |
+| ◐ | files | Whole files, directories, symlinks, lines, blocks; owner/mode; validate before swap; Jinja2 templates (below) | Settings edits from options (`edit: ini`, then `kv`, `sshd`); format checking (YAML, JSON, TOML, INI parsed on the controller; `visudo -cf`, `sshd -t`, `systemd-analyze verify` on the host; a role's own `validate:`); replace-with-check; `before:`/`after:` |
+| ◐ | templates (part of files) | Files rendered with Jinja2 (`StrictUndefined`) | The full language; role-folder includes only, plain-data context, `toyaml`/`tojson`/`quote` |
 | ◐ | systemd | Units, drop-ins, hostname, locale, time | Timers, `.mount` units, sysctl.d, modules-load.d, tmpfiles.d, hardening drop-ins from `access` |
 | ☐ | JSON state | APIs and JSON-speaking CLIs: read, find, compare a subset, create/update/delete; on the host or the controller | Everything |
 | ◐ | commands | A command with a check | `before:`/`after:`; phase hooks (`changed` / `always` / `check:`) later |
