@@ -66,6 +66,55 @@ def test_no_remote_pull_push_are_noops(repo):
     assert repo.push() is True
 
 
+def test_pending_push_false_with_no_remote(repo):
+    a = repo.root / "a.md"
+    a.write_text("a\n")
+    repo.commit([a], "add a")
+    assert repo.pending_push() is False
+
+
+def test_pending_push_false_with_nothing_committed(tmp_path, repo):
+    bare = tmp_path / "remote.git"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(bare)], check=True)
+    repo.add_remote(str(bare))
+    assert repo.pending_push() is False
+
+
+def test_pending_push_true_before_the_first_push(tmp_path, repo):
+    bare = tmp_path / "remote.git"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(bare)], check=True)
+    repo.add_remote(str(bare))
+    a = repo.root / "a.md"
+    a.write_text("a\n")
+    repo.commit([a], "add a")
+    assert repo.pending_push() is True
+
+
+def test_pending_push_false_once_pushed(tmp_path, repo):
+    bare = tmp_path / "remote.git"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(bare)], check=True)
+    repo.add_remote(str(bare))
+    a = repo.root / "a.md"
+    a.write_text("a\n")
+    repo.commit([a], "add a")
+    assert repo.push() is True
+    assert repo.pending_push() is False
+
+
+def test_pending_push_true_after_a_local_commit_the_remote_never_saw(tmp_path, repo):
+    bare = tmp_path / "remote.git"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(bare)], check=True)
+    repo.add_remote(str(bare))
+    a = repo.root / "a.md"
+    a.write_text("a\n")
+    repo.commit([a], "add a")
+    repo.push()
+    b = repo.root / "b.md"
+    b.write_text("b\n")
+    repo.commit([b], "add b")
+    assert repo.pending_push() is True
+
+
 def test_pull_and_push_with_remote(tmp_path, repo):
     bare = tmp_path / "remote.git"
     subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(bare)], check=True)

@@ -1,5 +1,5 @@
 import re
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -112,6 +112,26 @@ def set_keys(text: str, updates: Mapping[str, object], path: Path) -> str:
             else:
                 fm += new
         result = "\n".join(["---", *fm, "---", *lines[end + 1 :]])
+    return result.replace("\n", newline) if newline != "\n" else result
+
+
+def remove_keys(text: str, keys: Iterable[str], path: Path) -> str:
+    """Delete whole top-level frontmatter blocks for `keys`; every other key's exact text, and the
+    body, stay untouched byte for byte -- never a YAML re-dump. A key that isn't there, or no
+    frontmatter at all, is a no-op."""
+    newline = "\r\n" if "\r\n" in text else "\n"
+    text = text.replace("\r\n", "\n")
+    lines = text.split("\n")
+    end = _fence(lines, path)
+    if end is None:
+        return text.replace("\n", newline) if newline != "\n" else text
+    fm = lines[1:end]
+    for key in keys:
+        blocks = _blocks(fm)
+        if key in blocks:
+            a, b = blocks[key]
+            del fm[a:b]
+    result = "\n".join(["---", *fm, "---", *lines[end + 1 :]])
     return result.replace("\n", newline) if newline != "\n" else result
 
 

@@ -1,4 +1,4 @@
-"""Secret health: findings behind `check`'s summary and `bastet secret audit`."""
+"""Secret health: findings behind `check`'s summary and `bastet secret`."""
 
 from __future__ import annotations
 
@@ -330,7 +330,7 @@ def relevant_secrets(ctx, scope_hosts: list[str] | None = None) -> bool:
 
 
 def findings(ctx, scope_hosts: list[str] | None = None, *, audit: bool = False) -> list[Finding]:
-    """Every secret-health finding. `scope_hosts=None` means everything (`bastet secret audit`);
+    """Every secret-health finding. `scope_hosts=None` means everything (`bastet secret`);
     otherwise only those hosts plus the lab secrets they use (`check`'s summary).
     """
     out: list[Finding] = []
@@ -428,7 +428,7 @@ def audit_note(found: list[Finding], when: str) -> str:
     by_kind: dict[str, list[Finding]] = {}
     for f in found:
         by_kind.setdefault(f.kind, []).append(f)
-    parts = ["Secret hygiene, from `bastet secret audit`. Never shows a value.\n"]
+    parts = ["Secret hygiene, from `bastet secret`. Never shows a value.\n"]
     if not found:
         parts.append("\nNo findings.\n")
     for kind in AUDIT_KIND_ORDER:
@@ -452,7 +452,7 @@ def summary_lines(found: list[Finding]) -> list[str]:
     rest = [f for f in found if f.severity != "block"]
     lines = [f"Secrets: {f.text}" for f in blocking]
     if rest:
-        lines.append(f"Secrets: {len(rest)} audit finding{'s' if len(rest) != 1 else ''}; run `bastet secret audit`")
+        lines.append(f"Secrets: {len(rest)} audit finding{'s' if len(rest) != 1 else ''}; run `bastet secret`")
     if not lines:
         lines = ["Secrets: healthy."]
     return lines

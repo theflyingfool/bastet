@@ -72,7 +72,7 @@ def test_skip_reason_plaintext_secret_is_plain_stdout(runner, secret_keys, inven
     git(inventory, "commit", "-q", "-m", "seed secret")
     runner.invoke(app, ["secret", "unlock"])
 
-    result = runner.invoke(app, ["secret", "audit"])
+    result = runner.invoke(app, ["secret"])
     assert result.exit_code == 0, result.output
     assert "refresh skipped: 1 secret(s) are plain text" in result.stdout
     assert "refresh skipped" not in result.stderr

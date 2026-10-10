@@ -15,7 +15,7 @@ def _seed_unused_secret(inventory, pub) -> None:
 
 def test_audit_prints_grouped_findings_and_never_a_value(runner, secret_keys, inventory):
     _seed_unused_secret(inventory, secret_keys["pub"])
-    result = runner.invoke(app, ["secret", "audit"])
+    result = runner.invoke(app, ["secret"])
     assert result.exit_code == 0, result.output
     assert "unused:" in result.output
     assert "lab/unused_token" in result.output
@@ -25,7 +25,7 @@ def test_audit_prints_grouped_findings_and_never_a_value(runner, secret_keys, in
 
 def test_audit_writes_dashboard_section_with_date(runner, secret_keys, inventory):
     _seed_unused_secret(inventory, secret_keys["pub"])
-    result = runner.invoke(app, ["secret", "audit"])
+    result = runner.invoke(app, ["secret"])
     assert result.exit_code == 0, result.output
     note = (inventory / "_bastet" / "secret-audit.md").read_text()
     assert "checked:" in note and "## unused" in note and "lab/unused_token" in note
@@ -35,11 +35,16 @@ def test_audit_writes_dashboard_section_with_date(runner, secret_keys, inventory
 
 def test_audit_not_recommitted_when_only_the_date_changes(runner, secret_keys, inventory):
     _seed_unused_secret(inventory, secret_keys["pub"])
-    runner.invoke(app, ["secret", "audit"])
+    runner.invoke(app, ["secret"])
     first = git(inventory, "log", "--format=%s").count("refresh: secret audit")
-    runner.invoke(app, ["secret", "audit"])
+    runner.invoke(app, ["secret"])
     second = git(inventory, "log", "--format=%s").count("refresh: secret audit")
     assert first == 1 and second == 1
+
+
+def test_secret_audit_subcommand_is_gone(runner, inventory):
+    result = runner.invoke(app, ["secret", "audit"])
+    assert result.exit_code != 0
 
 
 def test_secrets_md_lists_a_used_by_entry_for_a_shared_credential(runner, secret_keys, inventory, test_role):

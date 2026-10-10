@@ -13,6 +13,8 @@ from bastet.core.gitrepo import GitRepo
 from bastet.core.hosttypes import HostType, load_host_types
 from bastet.core.inventory import Inventory, load_inventory
 from bastet.core.parallel import in_worker
+from bastet.core.refreshstate import clear as _clear_refresh_skipped
+from bastet.core.refreshstate import write as _write_refresh_skipped
 from bastet.core.render import generated_changes
 from bastet.core.secrets import confirm as secrets_confirm
 from bastet.core.secrets.notes import SecretNote, SecretPath
@@ -281,9 +283,11 @@ def write_with_confirmation(ctx: Context, changes: list[Change], yes: bool) -> b
     return True
 
 
-def _refresh_skip(reason: str) -> None:
-    """A refresh that can't run says why, as a normal line -- never red, never an error."""
+def _refresh_skip(ctx: Context, reason: str) -> None:
+    """A refresh that can't run says why, as a normal line -- never red, never an error -- and
+    remembers it (`.bastet/refresh-skipped`) so `bastet doctor` can list it until a refresh succeeds."""
     typer.echo(f"refresh skipped: {reason}")
+    _write_refresh_skipped(ctx.root, reason)
 
 
 def refresh_generated(
@@ -299,16 +303,16 @@ def refresh_generated(
         return []
     try:
         if ctx.repo.busy():
-            _refresh_skip("a git merge or rebase is in progress in the inventory")
+            _refresh_skip(ctx, "a git merge or rebase is in progress in the inventory")
             return []
         from bastet.core.secrets.plaintext import any_plain
 
         plain = any_plain(ctx.root)
         if plain:
-            _refresh_skip(f"{len(plain)} secret(s) are plain text; run `bastet secret lock`")
+            _refresh_skip(ctx, f"{len(plain)} secret(s) are plain text; run `bastet secret lock`")
             return []
         if ctx.pull_error is not None:
-            _refresh_skip(f"couldn't sync with the remote ({ctx.pull_error})")
+            _refresh_skip(ctx, f"couldn't sync with the remote ({ctx.pull_error})")
             return []
         ctx.inventory = load_inventory(ctx.root, ctx.types)
         from bastet.core.secrets import health as secret_health
@@ -319,11 +323,13 @@ def refresh_generated(
         changes = generated_changes(ctx.inventory, ctx.types, ctx.repo, warnings=warnings, drift=drift,
                                     secrets_summary=secrets_summary)
         if not changes:
+            _clear_refresh_skipped(ctx.root)
             return []
         write_changes(changes)
     except Exception as exc:  # refreshing generated notes must never break the command that triggered it
-        _refresh_skip(f"{exc.__class__.__name__}: {exc}")
+        _refresh_skip(ctx, f"{exc.__class__.__name__}: {exc}")
         return []
+    _clear_refresh_skipped(ctx.root)
     typer.echo(f"Refreshed {len(changes)} generated note{'s' if len(changes) != 1 else ''} in _bastet/.")
     return changes
 

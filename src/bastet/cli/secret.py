@@ -189,16 +189,40 @@ def _print_inventory(ctx: Context) -> None:
         typer.echo(f"{text:35} {source:10} {created:17} {status:9} {used_by}")
 
 
+def _without_checked(text: str) -> str:
+    return "\n".join(line for line in text.splitlines() if not line.startswith("checked:"))
+
+
 @secret_app.callback(invoke_without_command=True)
 @handles_errors
 def secret_main(ctx_typer: typer.Context) -> None:
-    """The secret inventory: every secret, its host/role/option, whether it's set, and who uses it."""
+    """The secret inventory: every secret, its host/role/option, whether it's set, who uses it, and
+    every health finding, grouped by kind (never a value). Writes the dashboard's audit section."""
     if ctx_typer.invoked_subcommand is not None:
         return
     ctx = load_context(allow_plaintext=True)  # never shows values; shows which are unlocked
     _print_inventory(ctx)
-    for line in secret_health.summary_lines(secret_health.findings(ctx)):
-        typer.echo(ctx.secrets.redactor.mask(line))
+    found = secret_health.findings(ctx, scope_hosts=None, audit=True)
+    by_kind: dict[str, list] = {}
+    for f in found:
+        by_kind.setdefault(f.kind, []).append(f)
+    if not found:
+        typer.echo("No findings.")
+    for kind in secret_health.AUDIT_KIND_ORDER:
+        items = by_kind.get(kind)
+        if not items:
+            continue
+        typer.echo(f"{kind}:")
+        for f in sorted(items, key=lambda f: f.text):
+            typer.echo(ctx.secrets.redactor.mask(f"  {f.text}"))
+    path = ctx.root / secret_health.AUDIT_PATH
+    when = _now()
+    text = secret_health.audit_note(found, when)
+    before = path.read_text(encoding="utf-8") if path.exists() else None
+    if before is None or _without_checked(before) != _without_checked(text):
+        write_changes([Change(path, before, text)])
+        ctx.written.add(path)
+    finish(ctx, "refresh: secret audit")
 
 
 # --- `bastet secret set` ---
@@ -527,38 +551,3 @@ def secret_lock() -> None:
         result = plaintext.lock(ctx.root, ctx.secrets)
         progress.update(task, completed=1)
     _print_lock_summary(result)
-
-
-# --- `bastet secret audit` ---
-
-
-def _without_checked(text: str) -> str:
-    return "\n".join(line for line in text.splitlines() if not line.startswith("checked:"))
-
-
-@secret_app.command("audit")
-@handles_errors
-def secret_audit() -> None:
-    """Secret hygiene: every finding, grouped by kind. Never shows a value; writes the dashboard's audit section."""
-    ctx = load_context(allow_plaintext=True)
-    found = secret_health.findings(ctx, scope_hosts=None, audit=True)
-    by_kind: dict[str, list] = {}
-    for f in found:
-        by_kind.setdefault(f.kind, []).append(f)
-    if not found:
-        typer.echo("No findings.")
-    for kind in secret_health.AUDIT_KIND_ORDER:
-        items = by_kind.get(kind)
-        if not items:
-            continue
-        typer.echo(f"{kind}:")
-        for f in sorted(items, key=lambda f: f.text):
-            typer.echo(ctx.secrets.redactor.mask(f"  {f.text}"))
-    path = ctx.root / secret_health.AUDIT_PATH
-    when = _now()
-    text = secret_health.audit_note(found, when)
-    before = path.read_text(encoding="utf-8") if path.exists() else None
-    if before is None or _without_checked(before) != _without_checked(text):
-        write_changes([Change(path, before, text)])
-        ctx.written.add(path)
-    finish(ctx, "refresh: secret audit")

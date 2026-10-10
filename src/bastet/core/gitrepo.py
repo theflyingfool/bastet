@@ -192,6 +192,15 @@ class GitRepo:
         except BastetError:
             return False
 
+    def pending_push(self) -> bool:
+        """Local commits not on the remote yet -- an earlier push offline, or one never attempted.
+        Read-only (no network): `doctor` uses it to say so without trying to push itself."""
+        if not self.has_remote() or self.head_or_none() is None:
+            return False
+        if not self._has_upstream():
+            return True
+        return bool(self._unpushed())
+
     def dirty(self) -> list[Path]:
         out = self._git("status", "--porcelain=v1", "-z", "--untracked-files=all").stdout
         entries = out.split("\0")

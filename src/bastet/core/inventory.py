@@ -101,21 +101,26 @@ def _bare_ip(value: object) -> str | None:
 FALLBACK_KEYS_WITH_NO_EARLY_REMOVE = ("ssh_host_key", "vmid")
 
 
-def _check_stale_facts(inv: Inventory, doc: Document, types: dict[str, HostType]) -> None:
+def stale_fact_removal(inv: Inventory, doc: Document, types: dict[str, HostType]) -> tuple[list[str], list[str]]:
+    """A host note's stale fact-note keys, split into (removable now, pending until gather runs) --
+    the split behind the inventory warning's own wording (`doctor`'s fix is stricter: see
+    `bastet.core.doctor`). `ssh_host_key` and `vmid` are also honoured as a fallback
+    (hostview.FALLBACK_KEYS) until the facts note has its own value: telling the user to remove one
+    before that would silently undo the pin."""
     from bastet.core.hostview import stale_fact_keys  # hostview builds on inventory
     from bastet.core.units import same_value
 
     stale = stale_fact_keys(doc, types)
-    if not stale:
-        return
     facts = inv.facts_for(doc.name)
-    # ssh_host_key and vmid are also honoured as a fallback (hostview.FALLBACK_KEYS) until the facts
-    # note has its own value: telling the user to remove one before that would silently undo the pin.
     removable = [
         key for key in stale
         if key not in FALLBACK_KEYS_WITH_NO_EARLY_REMOVE or (key in facts and same_value(key, facts[key], doc.data.get(key)))
     ]
     pending = [key for key in stale if key not in removable]
+    return removable, pending
+
+
+def stale_fact_message(doc: Document, removable: list[str], pending: list[str]) -> str:
     note_path = f"{FACTS_DIR}/{doc.name} facts.md"
     parts = []
     if removable:
@@ -125,7 +130,17 @@ def _check_stale_facts(inv: Inventory, doc: Document, types: dict[str, HostType]
             f"{', '.join(pending)} are gathered facts; they now live in {note_path} once gather runs "
             f"(kept here until then, so the next gather copies them in instead of losing them)"
         )
-    message = " ".join(parts)
+    return " ".join(parts)
+
+
+def _check_stale_facts(inv: Inventory, doc: Document, types: dict[str, HostType]) -> None:
+    from bastet.core.hostview import stale_fact_keys  # hostview builds on inventory
+
+    removable, pending = stale_fact_removal(inv, doc, types)
+    if not removable and not pending:
+        return
+    stale = stale_fact_keys(doc, types)
+    message = stale_fact_message(doc, removable, pending)
     line = doc.key_lines.get(stale[0])
     inv.problems.append(Problem("warning", BastetError(message, file=doc.path, line=line)))
 
@@ -160,17 +175,18 @@ def _check_host(inv: Inventory, doc: Document, types: dict[str, HostType], ips: 
             ips[bare] = doc
 
 
-def _check_stale_hardware(inv: Inventory, doc: Document) -> None:
+def stale_hardware_removal(inv: Inventory, doc: Document) -> list[str]:
     """A gathered-looking key on a hardware note is only reported once Bastet's own facts note holds
     a value for it -- until then it's a legitimate hand-typed value (a spare's serial, a never-
     regathered item's model and size), kept quietly as a fallback (`hostview.hardware_data`)."""
     from bastet.core.hostview import stale_hardware_keys  # hostview builds on inventory
 
-    stale = stale_hardware_keys(doc)
-    if not stale:
-        return
     facts = inv.facts_for(doc.name)
-    removable = [key for key in stale if key in facts]
+    return [key for key in stale_hardware_keys(doc) if key in facts]
+
+
+def _check_stale_hardware(inv: Inventory, doc: Document) -> None:
+    removable = stale_hardware_removal(inv, doc)
     if not removable:
         return
     note_path = hardware_facts_path(inv.root, doc.name).relative_to(inv.root).as_posix()

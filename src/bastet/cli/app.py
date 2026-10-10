@@ -59,3 +59,6 @@ app.command()(run)
 from bastet.cli.secret import secret_app  # noqa: E402
 
 app.add_typer(secret_app, name="secret")
+from bastet.cli.doctor import doctor  # noqa: E402
+
+app.command()(doctor)

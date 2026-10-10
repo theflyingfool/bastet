@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from bastet.core.errors import BastetError
-from bastet.core.frontmatter import new_document, parse_document, set_keys
+from bastet.core.frontmatter import new_document, parse_document, remove_keys, set_keys
 
 P = Path("/v/hosts/pve1.md")
 
@@ -113,3 +113,47 @@ def test_set_keys_comment_at_column_zero_inside_list():
     out = set_keys(text, {"interfaces": [{"name": "c"}]}, P)
     assert "name: b" not in out and "name: a" not in out
     assert "  - name: c\nram: 8 GB\n" in out
+
+
+def test_remove_keys_drops_scalar_keeps_rest():
+    out = remove_keys(TEXT, ["ip"], P)
+    assert "ip:" not in out
+    assert "type: proxmox" in out and "# a comment" in out and "Prose." in out
+
+
+def test_remove_keys_drops_a_list_value():
+    out = remove_keys(TEXT, ["interfaces"], P)
+    assert "interfaces" not in out and "eno1" not in out
+    assert "type: proxmox\nip: 10.0.10.11\n" in out
+
+
+def test_remove_keys_several_at_once():
+    text = "---\nbastet: host\nos: Debian 12\nkernel: 6.9\ncpu: Ryzen\nip: 10.0.10.5\n---\n# a\n"
+    out = remove_keys(text, ["os", "kernel", "cpu"], P)
+    assert out == "---\nbastet: host\nip: 10.0.10.5\n---\n# a\n"
+
+
+def test_remove_keys_missing_key_is_a_noop():
+    out = remove_keys(TEXT, ["nope"], P)
+    assert out == TEXT
+
+
+def test_remove_keys_preserves_crlf():
+    text = "---\r\na: 1\r\nb: 2\r\n---\r\nbody\r\n"
+    assert remove_keys(text, ["a"], P) == "---\r\nb: 2\r\n---\r\nbody\r\n"
+
+
+def test_remove_keys_quoted_key():
+    text = '---\n"my key": 1\nother: 2\n---\n'
+    out = remove_keys(text, ["my key"], P)
+    assert "my key" not in out and "other: 2" in out
+
+
+def test_remove_keys_comment_at_column_zero_inside_list():
+    text = "---\ninterfaces:\n  - name: a\n# note\n  - name: b\nram: 8 GB\n---\n"
+    out = remove_keys(text, ["interfaces"], P)
+    assert out == "---\nram: 8 GB\n---\n"
+
+
+def test_remove_keys_no_frontmatter_is_a_noop():
+    assert remove_keys("# just a note\n", ["a"], P) == "# just a note\n"
