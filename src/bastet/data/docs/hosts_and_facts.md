@@ -21,6 +21,13 @@ rewritten on every `bastet run` (or `bastet run -g`).
 - `install_tools: false` stops Bastet from installing its helper tools on that host. What's been
   installed is listed in the host's `bastet_tools`.
 
+## Things Bastet doesn't manage
+
+For a TV, a game console or a printer, add a host of type `other`:
+`bastet add host tv1 --type other --ip 10.1.30.40`. It can have `ip`, `mac`, `address`,
+`location` and `links`. It appears on the network and cabling maps and the dashboard, but Bastet
+never connects to it: `bastet run` skips it as "not managed".
+
 ## Drift
 
 Your files are the source of truth. When something changes outside Bastet (say, a guest's IP

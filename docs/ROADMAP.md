@@ -20,15 +20,15 @@ work in `docs/plans/`. Update this file whenever a plan lands.
 
 **Run logs were pulled forward ahead of the roles redesign** (decided 2026-10-10): you need to see what a run did, in order, before more roles land, and the event tests give the roles work a regression net. The design is `docs/specs/2026-10-10-bastet-console-output-design.md`, built as three plans:
 1. **Console primitives:** done and merged (colour, width-fitting tables, coloured diffs, plain when piped).
-2. **Events and the JSONL record:** **next**, written (`docs/plans/2026-10-10-bastet-console-2-events.md`).
-3. **Run notes** in the vault, the Runs Bases and `bastet log note`: not yet planned.
+2. **Events and the JSONL record:** done (`docs/plans/2026-10-10-bastet-console-2-events.md`): events, the JSONL record, the `-vv` live view and `bastet log`.
+3. **Run notes** in the vault, `bastet log note` and the Runs Bases: **next**, not yet planned.
 
 **Simplification and UX** (`docs/plans/2026-10-07-bastet-simplify-ux.md`) is merged: `bastet run`, selectors, `doctor`,
 the hardware split, one Bastet note per object, `_templates/`, user docs in `_bastet/docs/`, type groups and the
 `other` type. The memory facts key is now `memory_type`, and Tasks 7–11 have since been reviewed and their
 follow-ups fixed.
 
-**After that: the roles redesign, subplan 2: role format and library** (`docs/plans/2026-10-07-bastet-roles-2-format-library.md`, written and updated after an independent audit on 2026-10-10: library copies join the command's one commit, a role with no builder fails its host with a clear marker, `role update` lists changed files; uses `bastet doctor <dir>` for role linting).
+**After plan 3: the roles redesign, subplan 2: role format and library** (`docs/plans/2026-10-07-bastet-roles-2-format-library.md`, written and updated after an independent audit on 2026-10-10: library copies join the command's one commit, a role with no builder fails its host with a clear marker, `role update` lists changed files; uses `bastet doctor <dir>` for role linting).
 Subplan 1, the host-note split, is merged: gathered facts live in `_bastet/facts/<host> facts.md`, and automatic
 commands never write host notes.
 Its six subplans are tracked in `docs/plans/2026-10-06-bastet-roles-roadmap.md`. After the redesign, roles are
@@ -44,7 +44,7 @@ built in the order of the roles table below.
 | — | Secrets part 1: age-encrypted secret notes, unlock/lock, upstream-change gate | ☑ |
 | — | Parallel hosts: gather/check/apply in parallel, apply asks once | ☑ |
 | 3 | **Roles redesign:** Markdown roles, building-block execution, presets, host-note split | ◐ in progress |
-| 3b | **Run logs:** an ordered record of every run, readable in Obsidian, with its own verbosity (below). Plan 1 of 3 done, plan 2 next | ◐ in progress |
+| 3b | **Run logs:** an ordered record of every run, readable in Obsidian, with its own verbosity (below). Plans 1 and 2 of 3 done, plan 3 (run notes, `bastet log note`, the Runs Base) next | ◐ in progress |
 | 4 | Infrastructure roles: Proxmox node setup, ZFS, guest creation, firewall, container runtime | ☐ |
 | 5 | Secrets part 2: rotation and rekey (once real secret-using roles exist) | ☐ |
 | 6 | App roles, then proxy and DNS roles that configure themselves from the whole lab | ☐ |
@@ -57,13 +57,13 @@ Needed before the Proxmox and ZFS roles, to see what a run did, in the order it 
 
 **Plan 1, console primitives: done.** One `bastet.ui` console for every command (`out.echo`/`secho`/`diff`/`table`/`block`/`reveal`): colour, width-fitting tables, coloured diffs, status marks. It is plain text (byte-identical to the old output) when piped, under test, or when `NO_COLOR` is set. Secrets are masked inside it.
 
-**Plan 2, events and the JSONL record: next** (`docs/plans/2026-10-10-bastet-console-2-events.md`).
+**Plan 2, events and the JSONL record: done** (`docs/plans/2026-10-10-bastet-console-2-events.md`).
 - **Events:** the engine and `run` emit events (phase, item checked, command with exit code and timing, trigger, host started/finished/skipped, notes). Output is masked once, in one place.
 - **The JSONL record:** every run, always at full detail, in `~/.local/share/bastet/runs/<run-id>.jsonl` (mode `0600`), kept forever unless limited (`runs.keep_runs`, `runs.keep_days`; `bastet init` asks, and Enter keeps everything). `bastet log` lists past runs and `bastet log export` prints one.
 - **`-v` counts:** `-v` shows compliant items as before; `-vv` live events; `-vvv` commands with exit code and timing; `-vvvv` their output.
 - A read script's output is never recorded (it holds file contents), and a `secret` resource's command and output are hidden.
 
-**Plan 3, run notes: not planned yet.**
+**Plan 3, run notes: next, not planned yet.**
 - **Every run gets a short note** in the vault (`_bastet/runs/<date time> <command> <id suffix>.md`), so the Runs Base lists every run by name. Flat frontmatter (`run`, `command`, `mode`, `started`, `hosts`, `changed`, `failed`, `status`, `detail`).
 - **More detail on demand:** `bastet log note <run> [-v…]` re-renders a run's note from its JSONL at the detail you ask for (the same `-v` scale as the terminal); `--remove` deletes it. There is no log-level setting.
 - **Obsidian views:** a Runs Base on `Homelab.md` and a per-host one on each host page, newest first, each with several views: Changes (the default: apply and gather runs plus anything that failed), Checks, Failures and All runs. Directly below each table, a kanban board over the same runs grouped by `status` (ok, failed, interrupted).

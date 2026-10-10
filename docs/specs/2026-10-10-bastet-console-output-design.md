@@ -55,22 +55,32 @@ One `Console` wrapper around `rich.console.Console`, created once per command, r
 
 ## Plan 2: events and JSONL (`bastet/events/`)
 
-- **Events** are small frozen dataclasses. Every event carries `run_id`, a timestamp, `host` (none for run-level
-  events) and `kind`. Kinds: `run_started`, `run_finished`, `host_started`, `host_finished`, `host_skipped`,
-  `phase_started`, `phase_finished`, `item_checked` (before/after values and status), `command_run` (command,
-  exit code, duration, output), `trigger_fired`, `hook_ran`, `reboot_step`, `note` (warnings).
-- **Emission points:** the six phases in `engine/run.py` (collect, read, compare, apply, on change, verify), and
-  the runner's `run()` in `core/remote.py` for commands, exit codes and timings. `emit(event)` is a module-level
+- **Events** are one small frozen `Event` dataclass: `kind`, `run_id`, a timestamp, seconds elapsed, `host` (none
+  for run-level events) and a `data` dict. A table says which keys each kind must carry. Kinds: `run_started`
+  (with the schema version), `run_finished`, `host_started`, `host_finished`, `host_skipped`, `phase_started`,
+  `phase_finished`, `item_checked` (item, status, phase), `command_run` (command, exit code, duration, output),
+  `trigger_fired`, `note` (warnings). `hook_ran` and `reboot_step` are added with hooks and the reboot plan.
+- **Emission points:** the phases in `engine/run.py` and its command helpers, which record commands, exit codes and timings.
+  Phase start/finish pairs exist for collect, read, compare, apply and verify; `on_change` is a value of the
+  `phase` field on command and trigger events, not a pair. `gather` emits only host-level events, and `refresh`
+  emits nothing yet. `emit(event)` is a module-level
   function, so phase functions and resource classes keep their signatures.
 - **Parallel runs:** workers put events on a thread-safe queue; one consumer feeds the renderers, so JSONL lines
   never interleave and the terminal gets whole host blocks.
 - **Masking:** the consumer masks every string field before any renderer sees it. One place, not three.
-- **Normal display** is the events folded into the existing `HostRun` summary, so there is a single source of truth.
+- **Normal display** still renders from the `HostRun` that `run_host` returns; the same code produces the events,
+  and a test checks the two agree. Below `-vv` the output is unchanged. The live view is a renderer over the events.
+- **`-v` counts:** `-v` shows compliant items, `-vv` live events, `-vvv` commands with exit code and timing,
+  `-vvvv` their output.
+- **What is recorded:** a read script's output is never recorded (it carries file contents); fix and trigger output
+  is, except for a command with a resource marked `secret`, whose command text and output are hidden. The runs
+  folder is mode `0700` and each file `0600`. The record is masked but holds command output: treat it like logs.
 - **JSONL:** `~/.local/share/bastet/runs/<run-id>.jsonl`, one file per run, every event at full detail (the
   equivalent of level 4), flushed per event so an interrupted run leaves a usable log. Retention is a setting
   (`runs.keep_runs` and/or `runs.keep_days` in `bastet.yml`), unset by default so every run is kept forever; when
   set, pruned at the start of a run. `bastet init` asks once for the number of days (Enter keeps everything).
-  `bastet log` lists the runs and `bastet log export <run>` copies a run's events out.
+  `bastet log` lists the runs and `bastet log export <run> [--out FILE]` prints or writes one run's events.
+  Old runs are only ever deleted, never compressed.
 - **Event levels** (what the run note and `-v` use to filter): 1 changes and failures, with why; 2 every item
   checked, with before/after; 3 every command, with exit code and timing; 4 full command output.
 

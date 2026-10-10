@@ -21,6 +21,13 @@ itself) catches it back up.
 Bastet commits its own changes locally even when it can't reach the remote; `bastet doctor` lists
 unpushed commits so you notice, and the next successful push catches up.
 
+## The run record
+
+Every run is recorded under `~/.local/share/bastet/runs/`, one file per run, and `bastet log`
+lists them. They are kept forever unless you set `runs.keep_runs` (how many to keep) or
+`runs.keep_days` in `bastet.yml`; both are empty until you do. The record hides secrets, but it
+does contain command output, so treat it like any other log. Files are readable only by you.
+
 ## Colour
 
 Bastet colours its output on a terminal. Set `NO_COLOR=1` to turn that off. Piped or redirected
