@@ -1,5 +1,6 @@
 """`bastet log`: the record of past runs on this computer."""
 
+import os
 import sys
 from pathlib import Path
 
@@ -43,6 +44,8 @@ def export(
     path = resolve_run(runs_dir(data_dir()), run)
     text = path.read_text(encoding="utf-8")
     if out_path is not None:
-        out_path.write_text(text, encoding="utf-8")
+        fd = os.open(out_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)  # output may hold command output
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
         return
     sys.stdout.write(text)  # the record was masked when written; print it exactly

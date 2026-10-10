@@ -104,6 +104,11 @@ class Config(BaseModel):
     parallel: ParallelConfig = ParallelConfig()
     runs: RunsConfig = RunsConfig()
 
+    @field_validator("runs", mode="before")
+    @classmethod
+    def _empty_runs(cls, value):
+        return {} if value is None else value
+
 
 def config_path(env: Mapping[str, str] | None = None) -> Path:
     env = os.environ if env is None else env

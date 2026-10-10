@@ -105,3 +105,15 @@ def test_resolve_run_by_id_prefix_latest_and_errors(tmp_path):
 def test_latest_with_no_runs_is_a_clear_error(tmp_path):
     with pytest.raises(BastetError, match="no runs"):
         resolve_run(tmp_path / "runs", "latest")
+
+
+def test_summarize_copes_with_data_that_is_not_an_object(tmp_path):
+    d = tmp_path / "runs"
+    d.mkdir()
+    odd = d / "20261010-160000-eeee.jsonl"
+    odd.write_text('{"kind": "run_started", "data": [1, 2]}\n{"kind": "run_finished", "data": "x"}\n')
+    info = summarize(odd)
+    assert info["status"] == "unfinished" and info["command"] == ""
+    null = d / "20261010-170000-ffff.jsonl"
+    null.write_text('{"kind": "run_started", "data": null}\n')
+    assert summarize(null)["command"] == ""

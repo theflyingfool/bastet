@@ -13,9 +13,11 @@ MARKS = {
 
 class TerminalSink:
     name = "terminal"
+    live = True  # shows events as they happen, so the recorder lets it catch up before a host's report
 
     def __init__(self, level: int) -> None:
         self.level = level
+        self._modes: dict[str | None, str] = {}
 
     def close(self) -> None:
         pass
@@ -30,9 +32,12 @@ class TerminalSink:
         h = f"{e.host}: " if e.host else ""
         d = e.data
         if e.kind == "host_started":
+            self._modes[e.host] = d["mode"]
             return [(f"{h}{d['mode']} started", "dim")]
         if e.kind == "host_finished":
-            counts = f"{d.get('changed', 0)} changed · {d.get('failed', 0)} failed · {d.get('skipped', 0)} skipped"
+            change = (f"{d['would_change']} to change" if d.get("would_change") and self._modes.get(e.host) == "check"
+                      else f"{d.get('changed', 0)} changed")
+            counts = f"{change} · {d.get('failed', 0)} failed · {d.get('skipped', 0)} skipped"
             bad = d["status"] in ("error", "failed")
             return [(f"{h}{d['status']}: {counts}", "red" if bad else "green")]
         if e.kind == "host_skipped":

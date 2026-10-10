@@ -144,10 +144,12 @@ def _assess(item: Item, results: dict) -> None:
 def _item_event(host: str, item: Item, phase: str) -> None:
     from bastet.engine.report import change_text  # lazy: report imports this module
 
+    # A failed secret resource's error may echo its content; the report keeps its text, the record does not.
+    error = "(hidden: secret resource)" if item.resource.secret and item.status == "failed" else item.error
     events.emit(
         "item_checked", host, item=item.resource.label, family=item.resource.family, status=item.status, phase=phase,
         changes=[change_text(c, secret=item.resource.secret) for c in item.changes],
-        error=item.error, diff=item.diff, origins=list(item.origins),
+        error=error, diff=item.diff, origins=list(item.origins),
     )
 
 

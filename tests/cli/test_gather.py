@@ -123,3 +123,16 @@ def test_naming_an_other_host_still_skips_its_gather(runner, inventory):
     runner.invoke(app, ["add", "host", "printer", "--type", "other", "--ip", "10.0.20.50", "-y"])
     result = runner.invoke(app, ["run", "-g", "printer"])
     assert "printer: skipped (gather: false)" in result.output
+
+
+def test_run_dash_g_records_a_gather_scope_for_each_host(runner, laptop):
+    result = runner.invoke(app, ["run", "-g", "hp-13", "-y"])
+    assert result.exit_code == 0, result.output
+    from bastet.core.config import data_dir
+    from bastet.events.jsonl import runs_dir
+
+    [path] = runs_dir(data_dir()).glob("*.jsonl")
+    recorded = [json.loads(line) for line in path.read_text().splitlines()]
+    mine = [(e["kind"], e["data"].get("mode"), e["data"].get("status")) for e in recorded if e.get("host") == "hp-13"]
+    assert ("host_started", "gather", None) in mine and ("host_finished", None, "ok") in mine
+    assert recorded[-1]["kind"] == "run_finished" and recorded[-1]["data"]["hosts"] == 1

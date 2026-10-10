@@ -244,6 +244,8 @@ def init(
         domains["public"] = public
     if internal:
         domains["internal"] = internal
+    if existing is not None and keep_days is not None:
+        out.echo("The existing config is kept, so --keep-days is ignored; edit runs.keep_days in it instead.")
     days = None if existing is not None else (keep_days if keep_days is not None else _ask_keep_days(yes))
     if snippet is None:
         snippet = True if yes else typer.confirm("Install and enable Bastet's Obsidian stylesheet?", default=True)

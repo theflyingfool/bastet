@@ -62,7 +62,7 @@ class Recorder:
         self._started = time.monotonic()
         self._queue: queue.Queue = queue.Queue()
         self._lock = threading.Lock()
-        self._counts = {"hosts": 0, "changed": 0, "failed": 0, "skipped": 0}
+        self._host_counts: dict[str, dict[str, int]] = {}  # latest counts per host: a later scope replaces an earlier one
         self._reported: set[str] = set()
         self._thread = threading.Thread(target=self._consume, name="bastet-events", daemon=True)
         self._thread.start()
@@ -87,10 +87,15 @@ class Recorder:
             return
         if kind == "host_finished":
             with self._lock:
-                self._counts["hosts"] += 1
-                for key in ("changed", "failed", "skipped"):
-                    self._counts[key] += int(data.get(key) or 0)
+                mine = self._host_counts.setdefault(host or "", {"changed": 0, "failed": 0, "skipped": 0})
+                if any(key in data for key in mine):  # a scope that recorded nothing keeps the earlier counts
+                    mine.update({key: int(data.get(key) or 0) for key in mine})
         self._queue.put(event)
+
+    def _totals(self) -> dict[str, int]:
+        with self._lock:
+            rows = list(self._host_counts.values())
+        return {"hosts": len(rows), **{key: sum(r[key] for r in rows) for key in ("changed", "failed", "skipped")}}
 
     def _consume(self) -> None:
         while True:
@@ -100,23 +105,43 @@ class Recorder:
             if isinstance(item, _Flush):
                 item.done.set()
                 continue
+            try:
+                self._handle(item)
+            except Exception as exc:  # the consumer must never die: the rest of the run is still recorded
+                self._complain("consumer", f"events: an event was lost: {exc}")
+
+    def _handle(self, item: Event) -> None:
+        try:
             event = mask_event(item)
-            for sink in list(self.sinks):
-                try:
-                    sink.handle(event)
-                except Exception as exc:
+        except Exception as exc:
+            # Unmasked content is never written: a data-free note stands in for the event.
+            self._complain("masking", f"events: masking failed, an event was dropped: {exc}")
+            event = Event("note", item.run_id, item.t, item.elapsed, item.host,
+                          {"message": "(masking failed: an event was dropped)"})
+        for sink in list(self.sinks):
+            try:
+                sink.handle(event)
+            except Exception as exc:
+                if sink in self.sinks:
                     self.sinks.remove(sink)
-                    self._complain(f"sink:{sink.name}", f"{sink.name} output stopped: {exc}")
+                self._complain(f"sink:{sink.name}", f"{sink.name} output stopped: {exc}")
 
     def flush(self) -> None:
-        """Wait (briefly) until every event emitted so far has reached the sinks."""
+        """Wait (briefly) until every event emitted so far has reached the live view.
+
+        This puts a host's own live lines before its report. It does not order other hosts' lines
+        when hosts run in parallel: those keep printing while this host's report does.
+        Without a sink that shows events live there is nothing to wait for.
+        """
+        if not self._thread.is_alive() or not any(getattr(s, "live", False) for s in self.sinks):
+            return
         marker = _Flush()
         self._queue.put(marker)
         marker.done.wait(FLUSH_SECONDS)
 
     def close(self) -> None:
         self.emit("run_finished", None, status=self.status or "ok",
-                  duration=round(time.monotonic() - self._started, 3), **self._counts)
+                  duration=round(time.monotonic() - self._started, 3), **self._totals())
         self._queue.put(_STOP)
         self._thread.join(DRAIN_SECONDS)
         for sink in self.sinks:
@@ -169,8 +194,10 @@ def recording(command: str, sinks: list[Sink], *, run_id: str | None = None, **e
             recorder.status = "failed"
         raise
     finally:
-        recorder.close()
-        _active = None
+        try:
+            recorder.close()
+        finally:
+            _active = None
 
 
 @contextlib.contextmanager
@@ -192,7 +219,7 @@ class HostScope:
     def record(self, run) -> None:
         """Take the counts from a finished `HostRun` (anything with `count(status)` and `stopped`)."""
         self.counts = {"changed": run.count("changed"), "failed": run.count("failed"), "skipped": run.count("skipped"),
-                       "compliant": run.count("compliant")}
+                       "compliant": run.count("compliant"), "would_change": run.count("would-change")}
         self.failed = bool(self.counts["failed"] or run.stopped)
 
 
@@ -203,7 +230,10 @@ def host_scope(host: str, mode: str) -> Iterator[HostScope]:
     try:
         yield scope
     except BaseException as exc:
-        emit("host_finished", host, status="error", error=str(getattr(exc, "message", None) or exc), **scope.counts)
+        # Failures already recorded (a failed apply raises HostFailed) make the host failed; `error`
+        # is for exceptions before any run was recorded.
+        status = "failed" if scope.failed else "error"
+        emit("host_finished", host, status=status, error=str(getattr(exc, "message", None) or exc), **scope.counts)
         raise
     status = scope.status or ("failed" if scope.failed else "ok")
     emit("host_finished", host, status=status, **scope.counts)

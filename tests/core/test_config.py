@@ -174,3 +174,9 @@ def test_runs_config_keeps_everything_by_default_and_validates_limits(tmp_path):
     for bad in ({"keep_runs": 0}, {"keep_days": 0}):
         with pytest.raises(Exception):
             RunsConfig(**bad)
+
+
+def test_an_empty_runs_section_loads_as_the_defaults(tmp_path):
+    p = write(tmp_path, "inventory:\n  path: ~/Homelab\nruns:\n")
+    cfg = load_config(p)
+    assert cfg.runs.keep_runs is None and cfg.runs.keep_days is None

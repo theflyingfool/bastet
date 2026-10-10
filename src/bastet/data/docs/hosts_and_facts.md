@@ -2,7 +2,7 @@
 
 Your host note (`hosts/<name>.md`) holds what you decide: type, address, which roles apply, your
 own notes. `_bastet/facts/<name> facts.md` holds what Bastet last saw there, one note per host,
-rewritten on every `bastet run` (or `bastet run -g`).
+rewritten whenever Bastet gathers facts: `bastet run -g`.
 
 ## The split
 

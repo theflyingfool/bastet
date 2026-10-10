@@ -59,6 +59,8 @@ class Redactor:
     def mask(self, text: str) -> str:
         if not text or not self._values:
             return text
+        # Snapshots: another thread may register a value while this one is masking.
+        values, protected_strings = tuple(self._values), tuple(self._protected)
         # Find every occurrence of every registered value, and of every protected string, in the
         # ORIGINAL text as a (start, end, is_protected) interval. A value interval is dropped only
         # when it sits wholly inside a protected one -- e.g. a registered value that happens to equal
@@ -69,10 +71,10 @@ class Redactor:
         # non-overlapping ranges (so two overlapping value matches both get fully covered, not one
         # dropped and the other's tail left showing) and the text is rebuilt in one pass.
         protected_ranges = [
-            (m.start(), m.end()) for protected in self._protected for m in re.finditer(re.escape(protected), text)
+            (m.start(), m.end()) for protected in protected_strings for m in re.finditer(re.escape(protected), text)
         ]
         value_spans = sorted(
-            (m.start(), m.end()) for value in self._values for m in re.finditer(re.escape(value), text)
+            (m.start(), m.end()) for value in values for m in re.finditer(re.escape(value), text)
         )
         if not value_spans:
             return text

@@ -87,3 +87,33 @@ def test_active_is_cleared_between_tests_by_the_autouse_fixture():
 def test_active_was_actually_cleared_from_the_previous_test():
     # if the autouse fixture didn't run, ACTIVE would still contain SENTINEL-LEFTOVER here
     assert ACTIVE.mask("SENTINEL-LEFTOVER") == "SENTINEL-LEFTOVER"
+
+
+def test_masking_while_another_thread_registers_values_does_not_raise():
+    import threading
+
+    r = Redactor()
+    for i in range(200):
+        r.add(f"seed-value-{i}")
+    stop = threading.Event()
+    errors = []
+
+    def adder():
+        for n in range(300):  # bounded: every registered value is one more pattern to match
+            if stop.is_set():
+                break
+            r.add(f"added-value-{n}")
+
+    thread = threading.Thread(target=adder)
+    thread.start()
+    try:
+        for _ in range(30):
+            try:
+                assert "seed-value-5" not in r.mask("x seed-value-5 y")
+            except Exception as exc:  # pragma: no cover
+                errors.append(exc)
+                break
+    finally:
+        stop.set()
+        thread.join()
+    assert errors == []

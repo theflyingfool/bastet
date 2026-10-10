@@ -1,3 +1,6 @@
+import os
+import stat
+
 from bastet.cli.app import app
 from bastet.core.config import data_dir
 from bastet.events.jsonl import JsonlSink, runs_dir
@@ -41,6 +44,18 @@ def test_export_prints_the_file_or_writes_it(runner, inventory, tmp_path):
     dest = tmp_path / "out.jsonl"
     result = runner.invoke(app, ["log", "export", "20261010", "--out", str(dest)])
     assert result.exit_code == 0 and dest.read_text() == path.read_text()
+
+
+def test_export_to_a_file_is_private(runner, inventory, tmp_path):
+    record("20261010-120000-aaaa")
+    dest = tmp_path / "out.jsonl"
+    old_umask = os.umask(0o022)
+    try:
+        result = runner.invoke(app, ["log", "export", "latest", "--out", str(dest)])
+    finally:
+        os.umask(old_umask)
+    assert result.exit_code == 0
+    assert stat.S_IMODE(dest.stat().st_mode) == 0o600
 
 
 def test_export_errors_are_clean(runner, inventory):

@@ -1,4 +1,5 @@
 import json
+import stat
 
 import pytest
 
@@ -122,7 +123,7 @@ def test_an_unwritable_record_does_not_stop_the_run(runner, box, tmp_path, monke
 
 
 def test_a_skipped_host_is_recorded(runner, box, inventory):
-    (inventory / "hosts" / "tv.md").write_text("---\nbastet: host\ntype: other\nip: 10.10.0.3\n---\n# tv\n")
+    (inventory / "hosts" / "tv.md").write_text("---\nbastet: host\ntype: other\nip: 10.1.30.40\n---\n# tv\n")
     git(inventory, "add", ".")
     git(inventory, "commit", "-q", "-m", "tv")
     result = runner.invoke(app, ["run", "-c", "tv", "box"])
@@ -167,3 +168,67 @@ def test_ctrl_c_during_the_check_records_interrupted(runner, box, monkeypatch):
     [path] = records()
     events = events_of(path)
     assert events[-1]["kind"] == "run_finished" and events[-1]["data"]["status"] == "interrupted"
+
+
+def test_a_one_host_apply_counts_the_host_once(runner, box):
+    result = runner.invoke(app, ["run", "box", "-y"])
+    assert result.exit_code == 0, result.output
+    done = events_of(records()[0])[-1]["data"]
+    assert done["hosts"] == 1 and done["changed"] == 1
+    assert "1 host" in runner.invoke(app, ["log"]).output and "1 hosts" not in runner.invoke(app, ["log"]).output
+
+
+def test_a_failed_apply_records_the_host_failed_not_error(runner, box, monkeypatch):
+    monkeypatch.setattr("bastet.engine.run._exec", lambda *a, **k: (False, "exit 1: nope"))
+    result = runner.invoke(app, ["run", "box", "-y"])
+    assert result.exit_code != 0
+    recorded = events_of(records()[0])
+    apply_done = [e for e in recorded if e["kind"] == "host_finished"][-1]
+    assert apply_done["data"]["status"] == "failed" and apply_done["data"]["failed"] == 1
+    assert recorded[-1]["data"]["hosts"] == 1 and recorded[-1]["data"]["failed"] == 1
+
+
+def test_a_failed_secret_fix_does_not_put_its_error_in_the_record(runner, box, inventory, secret_keys, monkeypatch):
+    ACTIVE.add("hunter2-value")
+    sp = SecretPath.parse("box/files/motd")
+    note = SecretNote.new(sp, source="chosen", created="2026-10-03T00:00", applies_to="box")
+    note.body = crypto.seal(sp.text, "hunter2-value", [secret_keys["pub"]])
+    note.write(inventory)
+    (inventory / "_roles" / "hosts" / "box" / "files.md").write_text(
+        f'---\nbastet: role\nrole: files\napplies_to: "[[box]]"\nfiles:\n  {box}/motd:\n    content: "secret:motd"\n---\n')
+    git(inventory, "add", ".")
+    git(inventory, "commit", "-q", "-m", "secret")
+    monkeypatch.setattr("bastet.engine.run._exec", lambda *a, **k: (False, "unexpected token near 'hunter2'"))
+    result = runner.invoke(app, ["run", "-vv", "box", "-y"])
+    assert result.exit_code != 0
+    text = records()[0].read_text()
+    assert "unexpected token" not in text and "near 'hunter2'" not in text
+    failed = [e for e in events_of(records()[0]) if e["kind"] == "item_checked" and e["data"]["status"] == "failed"]
+    assert failed and all(e["data"]["error"] == "(hidden: secret resource)" for e in failed)
+
+
+def write_runs_config(keep_runs):
+    import os
+    from pathlib import Path
+
+    cfg = Path(os.environ["BASTET_CONFIG"])
+    cfg.write_text(cfg.read_text() + f"runs:\n  keep_runs: {keep_runs}\n")
+
+
+def test_keep_runs_leaves_exactly_that_many_files_including_the_new_one(runner, box):
+    write_runs_config(2)
+    for _ in range(4):
+        assert runner.invoke(app, ["run", "-c", "box"]).exit_code == 0
+    assert len(records()) == 2
+    assert events_of(records()[-1])[-1]["kind"] == "run_finished"
+
+
+def test_a_prune_failure_only_warns_and_the_run_is_still_recorded(runner, box, monkeypatch):
+    def broken(*args, **kwargs):
+        raise PermissionError("stat race")
+
+    monkeypatch.setattr("bastet.events.jsonl.prune", broken)
+    result = runner.invoke(app, ["run", "-c", "box"])
+    assert result.exit_code == 0, result.output
+    assert "could not remove old run records" in result.output and "not recording" not in result.output
+    assert len(records()) == 1 and events_of(records()[0])[-1]["kind"] == "run_finished"

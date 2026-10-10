@@ -432,7 +432,8 @@ def _gather(
         installed: dict[str, list[str]] = {}
 
         def collect_work(host: str, log: HostLog):
-            return _collect_one(prepared[host], host)
+            with events.host_scope(host, "gather"):
+                return _collect_one(prepared[host], host)
 
         def on_collect_done(outcome: Outcome) -> None:
             _echo_outcome(outcome, "collected")

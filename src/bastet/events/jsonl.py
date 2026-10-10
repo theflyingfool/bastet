@@ -80,11 +80,11 @@ def summarize(path: Path) -> dict:
     except OSError:
         return info
     started = _parse(first)
-    if started and started.get("kind") == "run_started":
+    if started and started.get("kind") == "run_started" and isinstance(started.get("data"), dict):
         info["command"] = started["data"].get("command", "")
         info["started"] = started.get("t", "")
     finished = _parse(tail[-1]) if tail else None
-    if finished and finished.get("kind") == "run_finished":
+    if finished and finished.get("kind") == "run_finished" and isinstance(finished.get("data"), dict):
         data = finished["data"]
         info.update(status=data.get("status", "unfinished"), hosts=data.get("hosts", 0),
                     changed=data.get("changed", 0), failed=data.get("failed", 0))

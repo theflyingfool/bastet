@@ -204,4 +204,9 @@ def test_init_with_an_existing_config_does_not_ask(runner, tmp_path, monkeypatch
     assert second.exit_code == 0, second.output
     assert "Keep run records" not in second.output and "run records  " not in second.output
     assert "or how long run records are kept" in second.output
+    assert "--keep-days is ignored" not in second.output
+    third = runner.invoke(app, _init_args(tmp_path, "--keep-days", "5", "-y"))
+    assert third.exit_code == 0, third.output
+    assert third.output.count("--keep-days is ignored; edit runs.keep_days") == 1
+    assert cfg.read_text() == before
     assert cfg.read_text() == before

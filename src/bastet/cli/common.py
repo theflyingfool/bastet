@@ -51,10 +51,14 @@ def recorded_run(command: str, verbose: int = 0):
     sinks: list = []
     try:
         directory = runs_dir(data_dir())
-        prune(directory, keep_runs=runs_cfg.keep_runs, keep_days=runs_cfg.keep_days)
         sinks.append(JsonlSink(directory, run_id))
     except OSError as exc:
         out.secho(f"warning: not recording this run: {exc}", fg="yellow", err=True)
+    else:
+        try:  # after the new file exists, so keep_runs: N leaves N files including this run's
+            prune(directory, keep_runs=runs_cfg.keep_runs, keep_days=runs_cfg.keep_days)
+        except OSError as exc:
+            out.secho(f"warning: could not remove old run records: {exc}", fg="yellow", err=True)
     if verbose >= 2:
         sinks.append(TerminalSink(min(verbose, 4)))
     with recording(command, sinks, run_id=run_id) as recorder:

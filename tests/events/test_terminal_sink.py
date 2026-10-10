@@ -72,3 +72,22 @@ def test_run_level_and_host_level_lines():
 def test_a_sink_never_raises_on_odd_data():
     odd = ev("item_checked", item="/x", status="mystery", phase="compare", changes=None, error=None)
     assert "/x" in render(2, odd)
+
+
+def test_a_check_host_line_says_how_many_will_change_and_an_apply_says_changed():
+    check = [ev("host_started", mode="check"),
+             ev("host_finished", status="ok", changed=0, failed=0, skipped=0, would_change=2)]
+    assert "pve1: ok: 2 to change · 0 failed · 0 skipped" in render(1, *check)
+    apply = [ev("host_started", mode="apply"),
+             ev("host_finished", status="ok", changed=2, failed=0, skipped=0, would_change=0)]
+    assert "pve1: ok: 2 changed · 0 failed" in render(1, *apply)
+    clean = [ev("host_started", mode="check"), ev("host_finished", status="ok", changed=0, failed=0, skipped=0, would_change=0)]
+    assert "0 changed" in render(1, *clean)
+
+
+def test_only_the_terminal_sink_is_live():
+    from bastet.events.jsonl import JsonlSink
+    from bastet.events.recorder import ListSink
+
+    assert TerminalSink.live is True
+    assert not hasattr(ListSink, "live") and not hasattr(JsonlSink, "live")
