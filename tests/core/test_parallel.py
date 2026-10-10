@@ -45,7 +45,7 @@ def test_at_most_jobs_run_concurrently():
         with lock:
             current += 1
             peak = max(peak, current)
-        time.sleep(0.05)
+        time.sleep(0.005)
         with lock:
             current -= 1
         return host

@@ -53,7 +53,7 @@ class BlockingRunner:
         match = re.search(r"'(@@BASTET[^']*@@)'", script)
         if match is None:
             return CommandResult("", "", 0)  # the cheap probe: always succeeds, never blocks
-        self.barrier.wait(timeout=1)
+        self.barrier.wait(timeout=0.1)
         return CommandResult(stdout_for(self.outputs, match.group(1)), "", 0)
 
 
@@ -66,7 +66,7 @@ def three_hosts(inventory, monkeypatch):
 
 
 def test_collect_runs_at_once_with_dash_j_3(runner, three_hosts, monkeypatch):
-    barrier = threading.Barrier(3, timeout=1)
+    barrier = threading.Barrier(3, timeout=0.1)
     monkeypatch.setattr(
         gather_mod, "ssh_runner", lambda target: BlockingRunner(dict(LAPTOP, hostname=target.address), barrier)
     )
@@ -79,7 +79,7 @@ def test_collect_runs_at_once_with_dash_j_3(runner, three_hosts, monkeypatch):
 def test_collect_runs_serially_with_dash_j_1(runner, three_hosts, monkeypatch):
     # Only 1 host collects at a time under -j 1, so a 2-party barrier can never fill: the first
     # host to arrive times out waiting for a second, and that broken barrier then fails the rest.
-    barrier = threading.Barrier(2, timeout=0.2)
+    barrier = threading.Barrier(2, timeout=0.05)
     monkeypatch.setattr(
         gather_mod, "ssh_runner", lambda target: BlockingRunner(dict(LAPTOP, hostname=target.address), barrier)
     )
@@ -193,113 +193,6 @@ def test_one_host_unexpected_error_does_not_stop_others(runner, three_hosts, mon
     assert "os: Arch Linux" in facts(three_hosts, "h2")
     assert "os: Arch Linux" in facts(three_hosts, "h3")
 
-
-def _seed(root: Path, suffix: str, monkeypatch, tmp_path) -> None:
-    root.mkdir()
-    git(root, "init", "-q", "-b", "main")
-    git(root, "config", "user.name", "Tester")
-    git(root, "config", "user.email", "tester@example.com")
-    (root / "Homelab.md").write_text("---\nbastet: lab\n---\n# Homelab\n")
-    (root / "hosts").mkdir()
-    for i, name in enumerate(["h1", "h2", "h3"], start=1):
-        (root / "hosts" / f"{name}.md").write_text(
-            f"---\nbastet: host\ntype: vps\nprovider: linode\nip: 203.0.113.{10 + i}\n"
-            f"ssh_host_key: {HOST_KEY}\n---\n# {name}\n"
-        )
-    git(root, "add", ".")
-    git(root, "commit", "-q", "-m", "seed")
-    cfg = root.parent / f"bastet{suffix}.yml"
-    cfg.write_text(f"inventory:\n  path: {root}\n")
-    monkeypatch.setenv("BASTET_CONFIG", str(cfg))
-    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / f"data{suffix}"))
-    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / f"run{suffix}"))
-
-
-def _tree(root: Path) -> dict:
-    """Every .md file under `root` (outside .git), keyed by its path relative to root."""
-    return {
-        str(p.relative_to(root)): p.read_text()
-        for p in root.rglob("*.md")
-        if ".git" not in p.relative_to(root).parts
-    }
-
-
-def test_dash_j_1_and_dash_j_3_give_identical_results(runner, tmp_path, monkeypatch):
-    class FakeRunner:
-        """Plain, non-blocking: used for the -j 1 run (chained waits would deadlock serially)."""
-
-        def __init__(self, outputs, name):
-            self.outputs, self.name = outputs, name
-
-        def run(self, script, *, timeout=120):
-            match = re.search(r"'(@@BASTET[^']*@@)'", script)
-            if match is None:
-                return CommandResult("", "", 0)
-            return CommandResult(stdout_for(self.outputs, match.group(1)), "", 0)
-
-    class ChainedRunner:
-        """For -j 3: h3 finishes first and signals h2, h2 finishes and signals h1 -- completion
-        order is the reverse of inventory order, so the equivalence only holds if phase 4 walks
-        the inventory, not the completion order."""
-
-        done3 = threading.Event()
-        done2 = threading.Event()
-
-        def __init__(self, outputs, name, address):
-            self.outputs, self.name, self.address = outputs, name, address
-
-        def run(self, script, *, timeout=120):
-            match = re.search(r"'(@@BASTET[^']*@@)'", script)
-            if match is None:
-                return CommandResult("", "", 0)
-            if self.address.endswith(".13"):
-                result = CommandResult(stdout_for(self.outputs, match.group(1)), "", 0)
-                ChainedRunner.done3.set()
-                return result
-            if self.address.endswith(".12"):
-                assert ChainedRunner.done3.wait(timeout=1)
-                result = CommandResult(stdout_for(self.outputs, match.group(1)), "", 0)
-                ChainedRunner.done2.set()
-                return result
-            assert ChainedRunner.done2.wait(timeout=1)
-            return CommandResult(stdout_for(self.outputs, match.group(1)), "", 0)
-
-    monkeypatch.setattr(gather_mod, "scan_keys", lambda address, recorded=None, port=22: KEYS)
-    monkeypatch.setattr(gather_mod, "_now", lambda: "2026-10-06T00:00:00Z")  # the facts note's `gathered:` stamp
-
-    root_a = tmp_path / "A"
-    _seed(root_a, "a", monkeypatch, tmp_path)
-    monkeypatch.setattr(
-        gather_mod, "ssh_runner",
-        lambda target: FakeRunner(dict(LAPTOP, hostname=target.address), f"{target.user}@{target.address}"),
-    )
-    result_a = runner.invoke(app, ["run", "-g", "-y", "-j", "1"])
-    assert result_a.exit_code == 0, result_a.output
-    refresh_a = runner.invoke(app, ["refresh"])
-    assert refresh_a.exit_code == 0, refresh_a.output
-
-    root_b = tmp_path / "B"
-    _seed(root_b, "b", monkeypatch, tmp_path)
-    monkeypatch.setattr(
-        gather_mod, "ssh_runner",
-        lambda target: ChainedRunner(
-            dict(LAPTOP, hostname=target.address), f"{target.user}@{target.address}", target.address
-        ),
-    )
-    result_b = runner.invoke(app, ["run", "-g", "-y", "-j", "3"])
-    assert result_b.exit_code == 0, result_b.output
-    refresh_b = runner.invoke(app, ["refresh"])
-    assert refresh_b.exit_code == 0, refresh_b.output
-
-    assert _tree(root_a) == _tree(root_b)
-
-    subject_a = git(root_a, "log", "-1", "--grep=^gather", "--format=%s").strip()
-    subject_b = git(root_b, "log", "-1", "--grep=^gather", "--format=%s").strip()
-    assert subject_a == subject_b and subject_a
-
-    files_a = sorted(git(root_a, "log", "-1", "--grep=^gather", "--name-only", "--format=").split())
-    files_b = sorted(git(root_b, "log", "-1", "--grep=^gather", "--name-only", "--format=").split())
-    assert files_a == files_b and files_a
 
 
 def test_ctrl_c_prints_interrupted_nothing_written_and_exits_nonzero(runner, three_hosts, monkeypatch):

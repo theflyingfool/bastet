@@ -12,13 +12,29 @@ import bastet.roles.builtin as builtin_mod
 from bastet.roles.contract import load_roles
 
 
+import shutil
+
+STATIC_PRIVATE_KEY = (
+    "-----BEGIN OPENSSH PRIVATE KEY-----\n"
+    "b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\n"
+    "QyNTUxOQAAACCKqyv0jC4Dn+kwnfrqCZ9IlnBD0nlTXCXJpsg8CQ9RpwAAAJCil4apopeG\n"
+    "qQAAAAtzc2gtZWQyNTUxOQAAACCKqyv0jC4Dn+kwnfrqCZ9IlnBD0nlTXCXJpsg8CQ9Rpw\n"
+    "AAAEB3It2+NbZd25BntLOJqaDZOD6HiuGzqAD8Q0g8U+W1M4qrK/SMLgOf6TCd+uoJn0iW\n"
+    "cEPSeVNcJcmmyDwJD1GnAAAAC2Jhc3RldC10ZXN0AQI=\n"
+    "-----END OPENSSH PRIVATE KEY-----\n"
+)
+STATIC_PUBLIC_KEY = (
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIqrK/SMLgOf6TCd+uoJn0iWcEPSeVNcJcmmyDwJD1Gn bastet-test"
+)
+
+
 def git(root: Path, *args: str) -> str:
     return subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True, text=True).stdout
 
 
-@pytest.fixture
-def inventory(tmp_path, monkeypatch) -> Path:
-    root = tmp_path / "Homelab"
+@pytest.fixture(scope="session")
+def _template_inventory(tmp_path_factory) -> Path:
+    root = tmp_path_factory.mktemp("template_inventory") / "Homelab"
     root.mkdir()
     git(root, "init", "-q", "-b", "main")
     git(root, "config", "user.name", "Tester")
@@ -30,6 +46,13 @@ def inventory(tmp_path, monkeypatch) -> Path:
     (root / "hosts" / "pve1.md").write_text("---\nbastet: host\ntype: proxmox\nip: 10.0.10.11\n---\n# pve1\n")
     git(root, "add", ".")
     git(root, "commit", "-q", "-m", "seed")
+    return root
+
+
+@pytest.fixture
+def inventory(tmp_path, monkeypatch, _template_inventory) -> Path:
+    root = tmp_path / "Homelab"
+    shutil.copytree(_template_inventory, root)
     cfg = tmp_path / "bastet.yml"
     cfg.write_text(f"inventory:\n  path: {root}\n")
     monkeypatch.setenv("BASTET_CONFIG", str(cfg))
@@ -49,8 +72,10 @@ def runner() -> CliRunner:
 def secret_keys(inventory: Path) -> dict:
     """Throwaway Bastet key, set as `ssh.key` and as a `secrets.recipients` line in Homelab.md."""
     key_path = inventory.parent / "bastet_key"
-    subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(key_path)], check=True)
-    pub = (inventory.parent / "bastet_key.pub").read_text().strip()
+    key_path.write_text(STATIC_PRIVATE_KEY)
+    key_path.chmod(0o600)
+    (inventory.parent / "bastet_key.pub").write_text(STATIC_PUBLIC_KEY + "\n")
+    pub = STATIC_PUBLIC_KEY
     cfg_path = Path(os.environ["BASTET_CONFIG"])
     cfg_path.write_text(cfg_path.read_text() + f"ssh:\n  key: {key_path}\n")
     homelab = inventory / "Homelab.md"

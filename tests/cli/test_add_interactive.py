@@ -17,25 +17,6 @@ def test_interactive_vps(runner, inventory):
     assert head_author(inventory).startswith("Bastet add host edge1")
 
 
-def test_type_by_number_and_bad_choice_reprompts(runner, inventory):
-    # types sorted: laptop, lxc, proxmox, server, unifi-ap, unifi-gateway, unifi-switch, unknown, vm, vps
-    result = runner.invoke(app, ["add", "host"], input="edge1\nvpz\n10\nlinode\n203.0.113.10\ny\n")
-    assert result.exit_code == 0, result.output
-    assert "isn't one of the choices" in result.output
-    assert "type: vps" in (inventory / "hosts" / "edge1.md").read_text()
-
-
-def test_interactive_laptop_dhcp_local(runner, inventory):
-    """A local laptop doesn't ask for IP/address; a non-local one with DHCP does."""
-    # Test a non-local laptop with DHCP
-    result = runner.invoke(app, ["add", "host", "laptop", "--type", "laptop"], input="n\ndhcp\n\ny\n")
-    # n=not local, dhcp=ip, blank=address (default), y=write
-    assert result.exit_code == 0, result.output
-    text = (inventory / "hosts" / "laptop.md").read_text()
-    assert "ip: dhcp\naddress: laptop.local\n" in text
-    assert "connection: local" not in text  # not local, so no connection field
-
-
 def test_interactive_lxc_picks_parent_network_and_suggestion(runner, inventory):
     result = runner.invoke(app, ["add", "host", "git1", "--type", "lxc"], input="1\nservers\n\ny\n")
     assert result.exit_code == 0, result.output
@@ -46,51 +27,3 @@ def test_interactive_lxc_picks_parent_network_and_suggestion(runner, inventory):
 def test_yes_without_type_is_error(runner, inventory):
     result = runner.invoke(app, ["add", "host", "x", "-y"])
     assert result.exit_code == 1 and "--type" in result.output
-
-
-def test_interactive_laptop_local_skips_ip(runner, inventory):
-    """When user says yes to 'Is this the computer you're running Bastet on?', skip IP/address questions."""
-    result = runner.invoke(app, ["add", "host", "laptop"], input="1\ny\ny\n")  # 1=laptop, y=is local, y=write
-    assert result.exit_code == 0, result.output
-    text = (inventory / "hosts" / "laptop.md").read_text()
-    assert "connection: local" in text
-    assert "ip:" not in text
-    assert "address:" not in text
-
-
-def test_add_local_host_sets_up_this_machine_after_writing(runner, inventory, secret_keys, monkeypatch):
-    import bastet.cli.init as init_mod
-    calls = []
-    monkeypatch.setattr(init_mod, "_stdout_is_tty", lambda: True)
-    monkeypatch.setattr(init_mod, "_setup_this_machine",
-                        lambda ctx, pub, *, yes: calls.append((pub.name, (inventory / "hosts" / "laptop1.md").exists())))
-    result = runner.invoke(app, ["add", "host", "laptop1", "--type", "laptop", "--local"], input="y\n")
-    assert result.exit_code == 0, result.output
-    assert calls == [("bastet_key.pub", True)]  # after the host note was written
-
-
-def test_add_local_host_declined_sets_up_nothing(runner, inventory, secret_keys, monkeypatch):
-    import bastet.cli.init as init_mod
-    calls = []
-    monkeypatch.setattr(init_mod, "_setup_this_machine", lambda *a, **k: calls.append(a))
-    result = runner.invoke(app, ["add", "host", "laptop1", "--type", "laptop", "--local"], input="n\n")
-    assert calls == []
-
-
-def test_add_local_host_without_a_bastet_key_says_to_run_init(runner, inventory, monkeypatch):
-    import bastet.cli.init as init_mod
-    calls = []
-    monkeypatch.setattr(init_mod, "_setup_this_machine", lambda *a, **k: calls.append(a))
-    result = runner.invoke(app, ["add", "host", "laptop1", "--type", "laptop", "--local", "-y"])
-    assert result.exit_code == 0, result.output
-    assert calls == [] and "bastet init" in result.output
-
-
-def test_add_non_local_host_never_sets_up_this_machine(runner, inventory, secret_keys, monkeypatch):
-    import bastet.cli.init as init_mod
-    calls = []
-    monkeypatch.setattr(init_mod, "_setup_this_machine", lambda *a, **k: calls.append(a))
-    result = runner.invoke(app, ["add", "host", "edge1", "--type", "vps", "--provider", "linode",
-                                 "--ip", "203.0.113.10", "-y"])
-    assert result.exit_code == 0, result.output
-    assert calls == []

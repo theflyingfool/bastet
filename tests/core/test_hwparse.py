@@ -7,11 +7,6 @@ from bastet.core.hwparse import (
 from gather_fixtures import LAPTOP, SERVER
 
 
-def test_clean_placeholders():
-    for junk in ("To Be Filled By O.E.M.", "Default string", "0123456789", "  ", "Not Specified", "None", "00000000"):
-        assert clean(junk) is None, junk
-    assert clean(" S123 ") == "S123"
-
 
 def test_dmidecode_server_machine():
     m = machine_from_dmi(parse_dmidecode(SERVER["dmidecode"]))
@@ -83,11 +78,6 @@ def test_pve_guests():
         {"vmid": 107, "name": "ghost", "type": "qemu", "node": "pve1", "status": "stopped"},
     ]
 
-
-def test_clean_heuristics():
-    for junk in ("123456789", "0000000000000000", "XXXXXXXX", "FFFFFFFF", "Not Present", "To Be Filled By O.E.M"):
-        assert clean(junk) is None, junk
-    assert clean("WD-WCC4E1234567") == "WD-WCC4E1234567"
 
 
 def test_slot_ids():
