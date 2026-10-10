@@ -1835,6 +1835,7 @@ git commit -m "init: ask how long to keep run records (Enter keeps every run)"
 - [ ] **Step 1: Docs**
   - `commands.md`: document `bastet run -v/-vv/-vvv/-vvvv`, `bastet log` and `bastet log export <run> [--out FILE]`.
   - `troubleshooting.md`: one paragraph: every run is recorded under `~/.local/share/bastet/runs/`, kept forever unless `runs.keep_runs` or `runs.keep_days` is set in `bastet.yml`; the record is masked but contains command output, so treat it like logs.
+  - `hosts_and_facts.md` (the host docs): a short paragraph on the `other` host type for things Bastet doesn't manage (TVs, game consoles, printers): `bastet add host ps5 --type other --ip 10.1.30.40`; fields `ip`, `mac`, `address`, `location`, `links`; shown on the network and cabling maps and the dashboard; never connected to (`run` skips it as "not managed"). Use the example data from `docs/ROADMAP.md` (a host name such as `tv1`, an address in `10.1.30.0/24`).
   - Plain user-facing text, no plan or spec references.
 - [ ] **Step 2: Spec.** Check the "Plan 2: events and JSONL" section of the spec against what was built, and record the decisions from this plan's "Decisions made while planning" that it doesn't already state.
 - [ ] **Step 3: Roadmap.** In "Run logs (milestone 3b)" mark plan 2 done (events, JSONL, `-vv` live view, `bastet log`), leave plan 3 (run notes, Runs Bases, `--log-level`) not started, and update "Now" to name plan 3 as next. Leave the "Turning git off" item alone.
