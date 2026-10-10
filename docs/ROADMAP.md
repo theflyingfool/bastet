@@ -65,11 +65,15 @@ Needed before the Proxmox and ZFS roles, to see what a run did, in the order it 
 
 **Plan 3, run notes: next** (`docs/plans/2026-10-10-bastet-console-3-run-notes.md`).
 - **A run gets a short note in the vault when its command makes a commit anyway** (`_bastet/runs/<date time> <mode> <id suffix>.md`). A check that writes nothing is not a real run for the vault: no note, no commit (it is still in `bastet log`). The note is part of the command's one commit.
-- **More detail on demand:** `bastet log note <run> [-v…]` makes or re-renders any run's note from its JSONL at the detail you ask for (the same `-v` scale as the terminal); `--remove` deletes it. There is no log-level setting.
-- **Obsidian views:** a Runs Base in the dashboard and a per-host one in each host's facts note (so none of your notes is edited), newest first, with Changes (the default), Checks, Failures and All runs views. Directly below each table, a board grouped by `status`.
+- **The note is level 1 by default** (changes and failures); `runs.note_detail` (1 to 3) raises it, and command output never goes into a note. Deeper detail is read from the record: `bastet log show <run> -vvv` replays it in the terminal; `bastet log note <run>` makes the note of any run. Nothing is deleted.
+- **Obsidian views:** a Runs Base in the dashboard and a per-host one in each host's facts note (so none of your notes is edited), newest first, with Changes (the default), Checks, Failures and All runs views. Directly below each table, a board by `status` (Obsidian's built-in Kanban view).
 - **Git:** the JSONL is never committed.
 
 **Left from the plan 2 review (small):** live `-vv` lines from other hosts can land inside a host's report when hosts run in parallel (needs a display queue); `bastet log` times are UTC with no marker; two runs in the same second can sort the wrong way for `latest` and pruning; the recorded command leaves out `-y`, `-j`, `--updates` and `--accept-new-hostkey`; command output in a record isn't size-capped; values that aren't text, lists or dicts aren't masked (nothing emits them yet).
+
+**Obsidian setup (flagged):** `bastet init` enables only the Templates core plugin and Bastet's stylesheet. The Bases core plugin, which the hardware, roles, secrets and runs views all need, is not enabled for you; `init` (and `doctor --fix` for an existing vault) should enable it, and any other setting the views rely on.
+
+**Later (detail board):** a board of runs by detail, dragged to change a note's detail, with the note holding all levels as folds. Decided against for now.
 
 **Later:** a SQLite index built from the JSONL files for cross-run queries and the ARA replacement (JSONL stays the record); every command, not only the run-type ones, emitting events; `refresh` and gather's individual commands emitting events; `hook_ran` and `reboot_step` events once roles subplan 3 adds hooks and the reboot plan.
 
