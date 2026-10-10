@@ -35,6 +35,15 @@ edited in Proxmox), Bastet reports it as **drift**: in `run`'s output, in a Drif
 host's page, and in the dashboard's "Needs attention". Bastet never changes your file to match;
 the drift stays listed until the file and reality agree again.
 
+## Runs
+
+A run that changes something leaves a short note under `_bastet/runs/` in the same commit. A check
+that finds nothing to write leaves none (it is still in `bastet log`). The dashboard and the
+bottom of each host's facts note have a Runs table, with views for changes, checks, failures and
+all runs, and a board by status below it. The board is read-only: moving a card changes nothing.
+They need Obsidian 1.14 or later with the Bases core plugin, which `bastet init` turns on. Bastet
+never deletes a run note.
+
 ## Reading the pages
 
 - ⚠ lines under a summary are warnings from the last run.
