@@ -21,7 +21,7 @@ work in `docs/plans/`. Update this file whenever a plan lands.
 **Run logs were pulled forward ahead of the roles redesign** (decided 2026-10-10): you need to see what a run did, in order, before more roles land, and the event tests give the roles work a regression net. The design is `docs/specs/2026-10-10-bastet-console-output-design.md`, built as three plans:
 1. **Console primitives:** done and merged (colour, width-fitting tables, coloured diffs, plain when piped).
 2. **Events and the JSONL record:** done (`docs/plans/2026-10-10-bastet-console-2-events.md`): events, the JSONL record, the `-vv` live view and `bastet log`.
-3. **Run notes** in the vault, `bastet log note` and the Runs Bases: **next**, not yet planned.
+3. **Run notes** in the vault, the Runs Bases and `bastet log note`: **next**, written (`docs/plans/2026-10-10-bastet-console-3-run-notes.md`).
 
 **Simplification and UX** (`docs/plans/2026-10-07-bastet-simplify-ux.md`) is merged: `bastet run`, selectors, `doctor`,
 the hardware split, one Bastet note per object, `_templates/`, user docs in `_bastet/docs/`, type groups and the
@@ -63,11 +63,11 @@ Needed before the Proxmox and ZFS roles, to see what a run did, in the order it 
 - **`-v` counts:** `-v` shows compliant items as before; `-vv` live events; `-vvv` commands with exit code and timing; `-vvvv` their output.
 - A read script's output is never recorded (it holds file contents), and a `secret` resource's command and output are hidden.
 
-**Plan 3, run notes: next, not planned yet.**
-- **Every run gets a short note** in the vault (`_bastet/runs/<date time> <command> <id suffix>.md`), so the Runs Base lists every run by name. Flat frontmatter (`run`, `command`, `mode`, `started`, `hosts`, `changed`, `failed`, `status`, `detail`).
-- **More detail on demand:** `bastet log note <run> [-v…]` re-renders a run's note from its JSONL at the detail you ask for (the same `-v` scale as the terminal); `--remove` deletes it. There is no log-level setting.
-- **Obsidian views:** a Runs Base on `Homelab.md` and a per-host one on each host page, newest first, each with several views: Changes (the default: apply and gather runs plus anything that failed), Checks, Failures and All runs. Directly below each table, a kanban board over the same runs grouped by `status` (ok, failed, interrupted).
-- **Git:** each run's note is committed in the command's one commit (apply, gather and check alike); the JSONL is never committed.
+**Plan 3, run notes: next** (`docs/plans/2026-10-10-bastet-console-3-run-notes.md`).
+- **A run gets a short note in the vault when its command makes a commit anyway** (`_bastet/runs/<date time> <mode> <id suffix>.md`). A check that writes nothing is not a real run for the vault: no note, no commit (it is still in `bastet log`). The note is part of the command's one commit.
+- **More detail on demand:** `bastet log note <run> [-v…]` makes or re-renders any run's note from its JSONL at the detail you ask for (the same `-v` scale as the terminal); `--remove` deletes it. There is no log-level setting.
+- **Obsidian views:** a Runs Base in the dashboard and a per-host one in each host's facts note (so none of your notes is edited), newest first, with Changes (the default), Checks, Failures and All runs views. Directly below each table, a board grouped by `status`.
+- **Git:** the JSONL is never committed.
 
 **Left from the plan 2 review (small):** live `-vv` lines from other hosts can land inside a host's report when hosts run in parallel (needs a display queue); `bastet log` times are UTC with no marker; two runs in the same second can sort the wrong way for `latest` and pruning; the recorded command leaves out `-y`, `-j`, `--updates` and `--accept-new-hostkey`; command output in a record isn't size-capped; values that aren't text, lists or dicts aren't masked (nothing emits them yet).
 

@@ -18,10 +18,10 @@ three plans, in order, so the colour and width handling don't wait for the run l
 | How runs produce output | An event stream; renderers consume it. Not post-hoc rendering from `HostRun` |
 | Which commands emit events | `run` (gather, check, apply) and `refresh`. Other commands use the console primitives only |
 | Record | JSONL per run, always at full detail, masked. SQLite is deferred and, when wanted, a derived index rebuilt from the JSONL |
-| Run notes | Every run gets a short note in the vault, so the Runs Base lists every run by name. `bastet log note <run> [-v…]` re-renders any run's note from the JSONL at more detail, and `--remove` deletes it. There is no log-level setting: the JSONL always has everything |
+| Run notes | A run gets a short note in the vault when its command makes a commit anyway; a run that writes nothing (a clean check) is not a real run for the vault and gets no note and no commit. `bastet log note <run> [-v…]` makes or re-renders the note of any run from the JSONL at more detail, and `--remove` deletes it. There is no log-level setting: the JSONL always has everything |
 | The command | `bastet log` lists past runs, `bastet log export <run>` prints one, `bastet log note <run>` makes its note (not `runs`, which is too close to `run`) |
 | Retention | The JSONL is kept forever by default. `runs.keep_runs` and `runs.keep_days` in `bastet.yml` limit it; `bastet init` asks and Enter keeps everything |
-| Git | Each run's note is committed in the command's own commit (apply, gather and check alike), so a check also makes a small commit. The JSONL is never committed |
+| Git | A run's note is part of the command's one commit, never a commit of its own, and only exists when that commit exists. A check that writes nothing makes no commit. The JSONL is never committed |
 
 ## Plan 1: console primitives (`bastet/ui/`)
 
@@ -86,26 +86,36 @@ One `Console` wrapper around `rich.console.Console`, created once per command, r
 
 ## Plan 3: run notes and Obsidian views
 
-- **Every run gets a run note:** `_bastet/runs/<date time> <command> <id suffix>.md`. Obsidian note names must be
-  unique, so the name ends with the run id's random part; that also lets a re-render find the same file. Flat
-  frontmatter (`run`, `command`, `mode` (`check`, `apply` or `gather`), `started`, `hosts`, `changed`, `failed`,
-  `status`, `detail`) so Bases can list and filter it. Body: a summary (command, who ran it, hosts, changed/failed/skipped/stopped counts, duration), then, at the
-  default detail, only the changes and failures with why.
-- **More detail on demand:** `bastet log note <run> [-v…]` renders the run's note from its JSONL at the detail
+- **A run gets a run note when its command makes a commit:** `_bastet/runs/<date time> <mode> <id suffix>.md`
+  (for example `2026-10-10 1218 apply 22d326.md`). The command text goes in the frontmatter, not the file name, so
+  no characters need escaping, and the id's random part keeps the name unique in the vault and lets a re-render
+  find the same file. Flat frontmatter (`bastet: run`, `run`, `command`, `mode` (`check`, `apply` or `gather`),
+  `started`, `hosts` (links), `changed`, `failed`, `status`, `detail`) so Bases can list and filter it. Body: a
+  summary (command, who ran it, hosts, changed/failed/skipped/stopped counts, duration), then, at the default
+  detail, only the changes and failures with why. A run that writes nothing (a clean check, a gather that found
+  nothing new) has no note and no commit; it is still in the JSONL and in `bastet log`, and `bastet log note`
+  can make its note.
+- **The note is built before the commit:** `finish()` renders it from the events recorded so far (level 1 events
+  are kept in memory for this) and adds it to the command's one commit. Its status and counts come from those
+  events; a run that is interrupted writes nothing, so it has no note. Re-rendering with `log note` uses the final
+  JSONL and replaces it.
+- **More detail on demand:** `bastet log note <run> [-v…]` makes or re-renders the run's note from its JSONL at the detail
   you ask for, using the same `-v` scale as the terminal: every item checked (`-v`, `-vv`), commands with exit
   code and timing (`-vvv`), output (`-vvvv`, truncated per step; the complete output stays in the JSONL). It
   replaces the existing note for that run. `bastet log note <run> --remove` deletes the note. Each is a normal
   command: one diff, one commit. A run whose JSONL has been pruned can't be re-rendered ("that run's record is
   gone"); notes already written are unaffected. The JSONL lives on the controller that made the run, so
   re-rendering works only there; notes travel through git as usual.
-- **Views:** a Runs Base on `Homelab.md`, newest first, each row linking to its note, and a per-host runs Base on
-  each host page. Each Base has several views over the same notes: **Changes** (the default: `apply` and `gather`
-  runs, plus any run that failed), **Checks** (`check` runs), **Failures**, and **All runs**. Directly below the
-  table each note shows a kanban board over the same runs grouped by `status` (ok, failed, interrupted), as a
-  further Base view embedded under the table. The views only decide what is shown; every run still has a note.
-- **Git:** each run's note is written and committed in the command's own single commit, whatever the command
-  (apply, gather or check). The JSONL is never committed. This replaces the earlier "rolling last-check note per
-  host" idea: one small note per run is what lets the Base list every run, and it keeps the history.
+- **Views:** one Runs Base (`_bastet/runs.base`) shown in a `## Runs` section of the dashboard note, and a per-host
+  one (`_bastet/runs-here.base`, filtered to the host) in a `## Runs` section of each host's facts note. Both pages
+  are Bastet's own and are embedded in your `Homelab.md` and host pages, so none of your notes is edited. Each
+  Base has several views over the same notes, newest first: **Changes** (the default: `apply` and `gather` runs,
+  plus any run that failed), **Checks** (`check` runs), **Failures**, and **All runs** (every run that has a
+  note; `bastet log` lists every run). Directly below the table a board (`_bastet/runs-board.base`) groups the
+  same runs by `status` (ok, failed). The board's view type is one constant: it starts as grouped cards, which
+  core Bases supports, and becomes a kanban view if a kanban plugin's view type is configured.
+- **Git:** a run's note is written into the command's one commit and never makes a commit of its own. The JSONL
+  is never committed. There is no rolling "last check" note: a check that writes nothing makes no commit and no note.
 
 ## Failure handling
 
