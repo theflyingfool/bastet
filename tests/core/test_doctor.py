@@ -1,3 +1,4 @@
+import json
 import subprocess
 from pathlib import Path
 
@@ -217,3 +218,52 @@ def test_merged_changes_one_change_per_path():
     p2 = Problem(where="hosts/pve1.md", message="b", severity="warning", fix=Change(path, "mid", "final"))
     [change] = merged_changes([p1, p2])
     assert change.before == "orig" and change.after == "final"
+
+
+# --- Obsidian's Bases core plugin ---
+
+BASES_MESSAGE = "Obsidian's Bases core plugin isn't enabled; Bastet's tables and boards need it"
+
+
+def bases_problems(root):
+    return [p for p in diagnose(make_ctx(root)) if "Bases core plugin" in p.message]
+
+
+def test_bases_not_enabled_is_a_problem_with_a_fix_that_keeps_other_keys(root):
+    path = put(root, ".obsidian/core-plugins.json", '{"graph": true, "canvas": false}')
+    commit_all(root)
+    [p] = bases_problems(root)
+    assert p.message == BASES_MESSAGE
+    assert p.fix is not None and p.fix.path == path
+    assert json.loads(p.fix.after) == {"graph": True, "canvas": False, "bases": True}
+
+
+def test_bases_fix_keeps_list_form(root):
+    put(root, ".obsidian/core-plugins.json", '["graph", "templates"]')
+    commit_all(root)
+    [p] = bases_problems(root)
+    assert json.loads(p.fix.after) == ["graph", "templates", "bases"]
+
+
+def test_bases_disabled_in_a_map_is_enabled_by_the_fix(root):
+    put(root, ".obsidian/core-plugins.json", '{"bases": false, "graph": true}')
+    commit_all(root)
+    [p] = bases_problems(root)
+    assert json.loads(p.fix.after) == {"bases": True, "graph": True}
+
+
+def test_bases_enabled_is_no_problem(root):
+    put(root, ".obsidian/core-plugins.json", '{"bases": true}')
+    commit_all(root)
+    assert bases_problems(root) == []
+
+
+def test_bases_in_list_form_is_no_problem(root):
+    put(root, ".obsidian/core-plugins.json", '["bases"]')
+    commit_all(root)
+    assert bases_problems(root) == []
+
+
+def test_no_obsidian_folder_is_no_bases_problem(root):
+    commit_all(root)
+    assert bases_problems(root) == []

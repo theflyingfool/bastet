@@ -106,6 +106,26 @@ def _key(options: InitOptions, keys_dir: Path, actions: list[str]) -> Path:
     return key
 
 
+def enable_core_plugin(data: dict | list, plugin: str) -> bool:
+    """Enable an Obsidian core plugin in the parsed `core-plugins.json` (a map of id to bool, or
+    the older list of enabled ids), keeping every other entry. True when it changed anything."""
+    if isinstance(data, dict):
+        if data.get(plugin) is True:
+            return False
+        data[plugin] = True
+        return True
+    if plugin in data:
+        return False
+    data.append(plugin)
+    return True
+
+
+def core_plugin_enabled(data: object, plugin: str) -> bool:
+    if isinstance(data, dict):
+        return data.get(plugin) is True
+    return isinstance(data, list) and plugin in data
+
+
 def initialize(config_file: Path, options: InitOptions, *, keys_dir: Path) -> InitResult:
     actions: list[str] = []
     key = _key(options, keys_dir, actions)
@@ -228,22 +248,17 @@ def initialize(config_file: Path, options: InitOptions, *, keys_dir: Path) -> In
             raise BastetError(f"invalid JSON: {exc.msg}", file=core_plugins_json, line=exc.lineno) from None
 
         # Handle both dict format (modern) and list format (legacy)
-        if isinstance(core_plugins_data, dict):
-            if core_plugins_data.get("templates") is True:
-                actions.append("kept Obsidian templates core plugin enabled")
-            else:
-                core_plugins_data["templates"] = True
+        if isinstance(core_plugins_data, (dict, list)):
+            changed = False
+            for plugin, label in (("templates", "templates"), ("bases", "Bases")):
+                if enable_core_plugin(core_plugins_data, plugin):
+                    changed = True
+                    actions.append(f"enabled Obsidian {label} core plugin")
+                else:
+                    actions.append(f"kept Obsidian {label} core plugin enabled")
+            if changed:
                 core_plugins_json.write_text(json.dumps(core_plugins_data, indent=2) + "\n", encoding="utf-8")
                 written.append(core_plugins_json)
-                actions.append("enabled Obsidian templates core plugin")
-        elif isinstance(core_plugins_data, list):
-            if "templates" in core_plugins_data:
-                actions.append("kept Obsidian templates core plugin enabled")
-            else:
-                core_plugins_data.append("templates")
-                core_plugins_json.write_text(json.dumps(core_plugins_data, indent=2) + "\n", encoding="utf-8")
-                written.append(core_plugins_json)
-                actions.append("enabled Obsidian templates core plugin")
 
     committed = repo.commit(written, "bastet init") if written else False
     if options.remote and committed and not repo.push():

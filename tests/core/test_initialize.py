@@ -431,3 +431,41 @@ def test_init_leaves_an_existing_config_alone(tmp_path):
     before = cfg.read_text()
     initialize(cfg, opts(tmp_path, keep_days=7), keys_dir=tmp_path / "cfg" / "ssh")
     assert cfg.read_text() == before
+
+
+# --- Obsidian's Bases core plugin ---
+
+
+def _init_with_core_plugins(tmp_path, existing):
+    inv = tmp_path / "Homelab"
+    (inv / ".obsidian").mkdir(parents=True)
+    path = inv / ".obsidian" / "core-plugins.json"
+    if existing is not None:
+        path.write_text(json.dumps(existing))
+    r = initialize(tmp_path / "cfg" / "bastet.yml", opts(tmp_path), keys_dir=tmp_path / "cfg" / "ssh")
+    return r, json.loads(path.read_text())
+
+
+def test_init_enables_bases_in_a_new_core_plugins_file(tmp_path):
+    r, data = _init_with_core_plugins(tmp_path, None)
+    assert data["bases"] is True and data["templates"] is True
+    assert "enabled Obsidian Bases core plugin" in r.actions
+
+
+def test_init_adds_bases_to_an_existing_map_and_keeps_the_rest(tmp_path):
+    r, data = _init_with_core_plugins(tmp_path, {"graph": True, "canvas": False, "templates": True})
+    assert data == {"graph": True, "canvas": False, "templates": True, "bases": True}
+    assert "enabled Obsidian Bases core plugin" in r.actions
+
+
+def test_init_adds_bases_to_a_list_form_file(tmp_path):
+    r, data = _init_with_core_plugins(tmp_path, ["graph", "templates"])
+    assert data == ["graph", "templates", "bases"]
+    assert "enabled Obsidian Bases core plugin" in r.actions
+
+
+def test_init_leaves_an_enabled_bases_alone(tmp_path):
+    r, data = _init_with_core_plugins(tmp_path, {"bases": True, "templates": True})
+    assert data == {"bases": True, "templates": True}
+    assert "kept Obsidian Bases core plugin enabled" in r.actions
+    assert not any(a == "enabled Obsidian Bases core plugin" for a in r.actions)

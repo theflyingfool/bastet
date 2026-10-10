@@ -4,6 +4,7 @@
 `bastet.core.secrets.health.findings` -- core never imports typer, so it never imports `cli.common`.
 """
 
+import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,6 +12,7 @@ from pathlib import Path
 from bastet.core.changes import Change
 from bastet.core.factsnote import hardware_facts_path
 from bastet.core.frontmatter import Document, remove_keys
+from bastet.core.initialize import core_plugin_enabled, enable_core_plugin
 from bastet.core.inventory import Inventory, stale_fact_removal, stale_hardware_removal
 from bastet.core.refreshstate import last_reason as last_refresh_skip_reason
 from bastet.core.views import ensure_page_embed, facts_embed
@@ -179,6 +181,28 @@ def _lab_docs_link_problem(inv: Inventory) -> Problem | None:
     )
 
 
+def _bases_plugin_problem(inv: Inventory) -> Problem | None:
+    """A vault with a `.obsidian` folder whose `core-plugins.json` doesn't enable Bases: the
+    tables and boards Bastet writes are Bases, so they'd show as plain text."""
+    path = inv.root / ".obsidian" / "core-plugins.json"
+    if not path.is_file():
+        return None
+    current = path.read_text(encoding="utf-8")
+    try:
+        data = json.loads(current)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(data, (dict, list)) or core_plugin_enabled(data, "bases"):
+        return None
+    enable_core_plugin(data, "bases")
+    rel = _rel(inv.root, path)
+    return Problem(
+        where=rel, message="Obsidian's Bases core plugin isn't enabled; Bastet's tables and boards need it",
+        severity="warning", fix=Change(path, current, json.dumps(data, indent=2) + "\n"),
+        fix_note=f"{rel}: enabled the Bases core plugin",
+    )
+
+
 def diagnose(ctx) -> list[Problem]:
     """Every problem `bastet doctor` lists: today's inventory problems, stale gathered keys on
     host and hardware notes, pages still embedding a retired note, the lab file missing its docs
@@ -188,6 +212,9 @@ def diagnose(ctx) -> list[Problem]:
     lab_docs = _lab_docs_link_problem(inv)
     if lab_docs is not None:
         problems.append(lab_docs)
+    bases = _bases_plugin_problem(inv)
+    if bases is not None:
+        problems.append(bases)
 
     hosts = inv.of_kind("host")
     hardware = inv.of_kind("hardware")
