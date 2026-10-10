@@ -101,6 +101,9 @@ A role that `needs` something another host provides, such as an app that needs a
 - **Inventory format** is a fourth axis, and stays unversioned until 1.0 ("Bastet isn't stable", no migrations).
 
 ## 7. Reserved and deferred
+
+**Reserved keys are provisional.** `uses`, `needs`, `provides`, `contributes` and `collects` are accepted in a role's contract but have **no effect** until they are implemented, and their names and shape may still change. They are not enforced or validated beyond being readable, so a role that sets one behaves as if it had not. (The one exception in the first slice: `wants`, and the same-host `provides` tag it reads, such as pacman's `provides: package-manager`, are built and active. Cross-host `provides` and `needs` are not.) No code should rely on a reserved key until its feature lands.
+
 Role calls role (`uses:`), hard `needs`, cross-host `needs`/`provides`, `contributes`/`collects`, ordering inside a phase, backups of replaced files, removal, the `role.py` trust prompt, proxy and DNS roles.
 
 ## 8. Open questions, to settle during the first slice
