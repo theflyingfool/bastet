@@ -320,7 +320,7 @@ def _parts(host: str, link: str, dmi: list[dict], machine: dict, results: dict[s
         if d.get("serial") in shared:
             d = {k: v for k, v in d.items() if k != "serial"}
         data = _part("memory", link, {"make": d.get("make"), "model": d.get("part"), "serial": d.get("serial"),
-                                      "size": d.get("size"), "type": d.get("type"), "speed": d.get("speed"),
+                                      "size": d.get("size"), "memory_type": d.get("type"), "speed": d.get("speed"),
                                       "slot": d.get("slot")})
         slot = str(d.get("slot") or "0")
         fallback = f"dimm:{h}:{slot.lower()}"

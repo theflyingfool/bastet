@@ -239,7 +239,7 @@ def hardware_summary(inv: Inventory, doc: Document) -> str:
         if d.get("socket"):
             cards.append(_card("Socket", d["socket"], f"serial {d['serial']}" if d.get("serial") else None))
     elif category == "memory":
-        cards.append(_card("Memory", d.get("size") or "—", " · ".join(str(x) for x in (d.get("type"), d.get("speed")) if x)))
+        cards.append(_card("Memory", d.get("size") or "—", " · ".join(str(x) for x in (d.get("memory_type"), d.get("speed")) if x)))
         cards.append(_card("Slot", d.get("slot") or "—", " ".join(str(x) for x in (d.get("make"), d.get("model")) if x)))
     elif category == "psu":
         cards.append(_card("PSU", d.get("model") or doc.name, d.get("make")))
@@ -666,6 +666,11 @@ def generated_changes(
     templates = templates_for_inventory(types)
     for name, content in templates.items():
         want(root / "_templates" / name, content)
+    templates_dir = root / "_templates"
+    if templates_dir.is_dir():  # a renamed or removed type/category leaves its generated template behind
+        for path in sorted(templates_dir.glob("*.md")):
+            if path.name.startswith(("Host - ", "Hardware - ")) and path.name not in templates:
+                changes.append(Change(path, path.read_text(encoding="utf-8"), None))
 
     snippet = root / ".obsidian" / "snippets" / "bastet.css"
     if snippet.exists():  # only keep it current where the user installed it

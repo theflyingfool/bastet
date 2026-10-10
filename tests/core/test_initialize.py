@@ -399,3 +399,12 @@ def test_sshd_inactive_unit_falls_back_to_ssh_when_sshd_is_unknown():
 
 def test_sshd_inactive_unit_none_when_neither_name_is_recognised():
     assert sshd_inactive_unit(FakeSystemd(sshd=None, ssh=None)) is None
+
+
+def test_init_keeps_a_custom_obsidian_templates_folder(tmp_path):
+    inv = tmp_path / "Homelab"
+    (inv / ".obsidian").mkdir(parents=True)
+    (inv / ".obsidian" / "templates.json").write_text(json.dumps({"folder": "MyTemplates", "dateFormat": "YYYY"}))
+    r = initialize(tmp_path / "cfg" / "bastet.yml", opts(tmp_path), keys_dir=tmp_path / "cfg" / "ssh")
+    assert json.loads((inv / ".obsidian" / "templates.json").read_text()) == {"folder": "MyTemplates", "dateFormat": "YYYY"}
+    assert any("MyTemplates" in a for a in r.actions)

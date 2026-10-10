@@ -114,3 +114,12 @@ def test_gather_then_apply_in_one_run_is_one_commit(runner, laptop):
     assert after - before == 1
     subject = git(laptop, "log", "-1", "--format=%s").strip()
     assert subject.startswith("gather: hp-13") and "apply: hp-13" in subject
+
+
+def test_naming_an_other_host_still_skips_its_gather(runner, inventory):
+    """`other` hosts never gather (nothing to connect to), even when named explicitly."""
+    from bastet.cli.app import app
+
+    runner.invoke(app, ["add", "host", "printer", "--type", "other", "--ip", "10.0.20.50", "-y"])
+    result = runner.invoke(app, ["run", "-g", "printer"])
+    assert "printer: skipped (gather: false)" in result.output

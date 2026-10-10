@@ -177,6 +177,7 @@ def test_server_cpu_dimm_psu_files():
         by_cat.setdefault(o.data["category"], []).append(o)
     assert [o.name for o in by_cat["memory"]] == ["M391A4G43MB1-CTD 40A1B2C3", "M391A4G43MB1-CTD 40A1B2C4"]
     assert by_cat["memory"][0].key == "serial:40a1b2c3" and by_cat["memory"][0].data["slot"] == "DIMMA1"
+    assert by_cat["memory"][0].data["memory_type"] == "DDR4" and "type" not in by_cat["memory"][0].data
     [psu] = by_cat["psu"]
     assert psu.name == "PWS-504P-1R P504PCH12AB3456" and psu.key == "serial:p504pch12ab3456"
     assert psu.data["max_power"] == "500 W" and psu.data["make"] == "SUPERMICRO"

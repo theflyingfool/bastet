@@ -206,6 +206,9 @@ def initialize(config_file: Path, options: InitOptions, *, keys_dir: Path) -> In
             raise BastetError("expected a JSON object", file=templates_json)
         if templates_data.get("folder") == "_templates":
             actions.append("kept Obsidian templates plugin setting")
+        elif templates_data.get("folder"):
+            actions.append(f"kept your Obsidian templates folder ({templates_data['folder']}); "
+                           "Bastet's templates are in _templates, so point the plugin there to use them")
         else:
             templates_data["folder"] = "_templates"
             templates_json.write_text(json.dumps(templates_data, indent=2) + "\n", encoding="utf-8")

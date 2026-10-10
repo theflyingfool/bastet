@@ -34,3 +34,17 @@ def test_add_host_suggests_address(runner, inventory):
 def test_add_host_error_is_clean(runner, inventory):
     result = runner.invoke(app, ["add", "host", "pve1", "--type", "server", "--ip", "10.0.10.99", "-y"])
     assert result.exit_code == 1 and "already exists" in result.output and "Traceback" not in result.output
+
+
+def test_add_hardware_command_is_gone(runner, inventory):
+    result = runner.invoke(app, ["add", "hardware"])
+    assert result.exit_code != 0 and "No such command" in result.output
+
+
+def test_add_local_host_asks_no_address_questions(runner, inventory, monkeypatch):
+    import bastet.cli.add as add_mod
+    monkeypatch.setattr(add_mod, "_set_up_this_machine", lambda **k: None)
+    result = runner.invoke(app, ["add", "host", "laptop1", "--type", "laptop", "--local"], input="\ny\n")
+    assert result.exit_code == 0, result.output
+    assert "IP" not in result.output.split("laptop1")[0] and "Name to reach it by" not in result.output
+    assert "connection: local" in (inventory / "hosts" / "laptop1.md").read_text()

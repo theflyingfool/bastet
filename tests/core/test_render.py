@@ -293,7 +293,7 @@ def test_new_category_summaries_and_cards(repo):
     (repo.root / "hardware" / "psu.md").write_text('---\nbastet: hardware\ncategory: psu\nstatus: in-service\n---\n')
     write_hw_facts(repo.root, "psu", {"model": "PWS-504P-1R", "max_power": "500 W", "installed_in": "pve1"})
     (repo.root / "hardware" / "dimm.md").write_text('---\nbastet: hardware\ncategory: memory\nstatus: in-service\n---\n')
-    write_hw_facts(repo.root, "dimm", {"model": "M391A4G43MB1-CTD", "size": "32 GB", "type": "DDR4", "slot": "DIMMA1", "installed_in": "pve1"})
+    write_hw_facts(repo.root, "dimm", {"model": "M391A4G43MB1-CTD", "size": "32 GB", "memory_type": "DDR4", "slot": "DIMMA1", "installed_in": "pve1"})
     (repo.root / "hardware" / "stick.md").write_text('---\nbastet: hardware\ncategory: usb\nstatus: in-service\n---\n')
     write_hw_facts(repo.root, "stick", {"model": "ConBee II", "usb_id": "1cf1:0030", "installed_in": "pve1"})
     add_facts(repo.root, "pve1", {"bridges": [{"name": "vmbr0", "ports": ["eno1"]}]})
@@ -523,3 +523,38 @@ def test_old_summary_and_reports_notes_deleted_only_when_generated(repo):
     doc = parse_document(pve1_facts, facts_path(repo.root, "pve1"))
     assert doc.data["warnings"] == ["old warning"]
     assert "old report" in pve1_facts
+
+
+def test_refresh_removes_stale_generated_templates_but_not_your_own(repo):
+    write_changes(generated_changes(inv(repo), TYPES, repo))
+    templates = repo.root / "_templates"
+    stale = [templates / "Host - retired-type.md", templates / "Hardware - retired-category.md"]
+    mine = templates / "My checklist.md"
+    for p in (*stale, mine):
+        p.write_text("x\n")
+    changes = {c.path: c for c in generated_changes(inv(repo), TYPES, repo)}
+    assert all(p in changes and changes[p].after is None for p in stale)
+    assert mine not in changes and (templates / "Host - proxmox.md") not in changes
+
+
+def test_refresh_rewrites_a_changed_template(repo):
+    write_changes(generated_changes(inv(repo), TYPES, repo))
+    path = repo.root / "_templates" / "Group.md"
+    path.write_text("edited\n")
+    changes = {c.path: c for c in generated_changes(inv(repo), TYPES, repo)}
+    assert path in changes and changes[path].after != "edited\n"
+
+
+def test_type_groups_are_generated_and_a_matching_os_only_gets_the_type_group(repo):
+    changes = {c.path.name: c for c in generated_changes(inv(repo), TYPES, repo)}
+    assert "proxmox.md" in changes and "match:\n  type: proxmox" in changes["proxmox.md"].after
+    # pve1's OS is Debian, vps1/git1 aren't: a group exists for Debian, and none for a type nobody uses
+    assert "debian.md" in changes and "lxc.md" in changes and "unifi-ap.md" not in changes
+
+
+def test_a_user_group_named_like_a_type_is_an_error_but_the_generated_one_is_not(repo):
+    write_changes(generated_changes(inv(repo), TYPES, repo))
+    assert not [p for p in inv(repo).problems if "is a host type" in str(p.error)]
+    (repo.root / "groups").mkdir()
+    (repo.root / "groups" / "proxmox.md").write_text("---\nbastet: group\n---\n# proxmox\n")
+    assert [p for p in inv(repo).problems if "is a host type" in str(p.error)]
