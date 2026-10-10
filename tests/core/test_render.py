@@ -489,10 +489,11 @@ def test_retired_paths_confined_to_the_migration_helpers():
 
     pattern = re.compile(r'_bastet/summary|_bastet/reports|"summary"|"reports"')
     src = Path(__file__).resolve().parents[2] / "src"
+    slot_names = re.compile(r"^\s*(slot\b|SLOTS\s*=)")  # the engine's "reports" block name is not the retired path
     hits: dict[Path, list[int]] = {}
     for path in src.rglob("*.py"):
         for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
-            if pattern.search(line):
+            if pattern.search(line) and not slot_names.match(line):
                 hits.setdefault(path, []).append(n)
     render_py = Path(__file__).resolve().parents[1].parent / "src" / "bastet" / "core" / "render.py"
     assert set(hits) <= {render_py}, hits
