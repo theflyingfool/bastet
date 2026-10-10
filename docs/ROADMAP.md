@@ -18,12 +18,12 @@ work in `docs/plans/`. Update this file whenever a plan lands.
 
 ## Now
 
-**Simplification and UX** (`docs/plans/2026-10-07-bastet-simplify-ux.md`): one `run` verb replaces
-`gather`/`check`/`apply`, selectors pick hosts for `run`/`show`, `doctor` replaces `secret audit` and adds
-stale-key and drift-note cleanup, `_templates/` gives Obsidian starting notes, and the user docs move into
-the vault itself (`_bastet/docs/`, shipped from `src/bastet/data/docs/`). In progress on `simplify-ux`.
+**Simplification and UX** (`docs/plans/2026-10-07-bastet-simplify-ux.md`) is merged: `bastet run`, selectors, `doctor`,
+the hardware split, one Bastet note per object, `_templates/`, user docs in `_bastet/docs/`, type groups and the
+`other` type. Left from it: rename the memory facts key `type` → `memory_type` (clashes with host `type`); the
+planned review of Tasks 7–11 was skipped at merge.
 
-**The roles redesign, subplan 2: role format and library** (not written yet; written against the code as it stands).
+**Next: the roles redesign, subplan 2: role format and library** (`docs/plans/2026-10-07-bastet-roles-2-format-library.md`, written; uses `bastet doctor <dir>` for role linting).
 Subplan 1, the host-note split, is merged: gathered facts live in `_bastet/facts/<host> facts.md`, and automatic
 commands never write host notes.
 Its six subplans are tracked in `docs/plans/2026-10-06-bastet-roles-roadmap.md`. After the redesign, roles are
