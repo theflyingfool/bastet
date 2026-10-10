@@ -78,8 +78,8 @@ One `Console` wrapper around `rich.console.Console`, created once per command, r
 
 - **Every run gets a run note:** `_bastet/runs/<date time> <command> <id suffix>.md`. Obsidian note names must be
   unique, so the name ends with the run id's random part; that also lets a re-render find the same file. Flat
-  frontmatter (`run`, `command`, `started`, `hosts`, `changed`, `failed`, `status`, `detail`) so Bases can list
-  it. Body: a summary (command, who ran it, hosts, changed/failed/skipped/stopped counts, duration), then, at the
+  frontmatter (`run`, `command`, `mode` (`check`, `apply` or `gather`), `started`, `hosts`, `changed`, `failed`,
+  `status`, `detail`) so Bases can list and filter it. Body: a summary (command, who ran it, hosts, changed/failed/skipped/stopped counts, duration), then, at the
   default detail, only the changes and failures with why.
 - **More detail on demand:** `bastet log note <run> [-v…]` renders the run's note from its JSONL at the detail
   you ask for, using the same `-v` scale as the terminal: every item checked (`-v`, `-vv`), commands with exit
@@ -88,9 +88,11 @@ One `Console` wrapper around `rich.console.Console`, created once per command, r
   command: one diff, one commit. A run whose JSONL has been pruned can't be re-rendered ("that run's record is
   gone"); notes already written are unaffected. The JSONL lives on the controller that made the run, so
   re-rendering works only there; notes travel through git as usual.
-- **Views:** a Runs Base on `Homelab.md`, newest first, listing every run by name, each row linking to its note; a
-  per-host runs Base on each host page. Each of those notes shows, directly below the table, a kanban board over
-  the same runs grouped by `status` (ok, failed, interrupted), as a second Base view embedded under the table.
+- **Views:** a Runs Base on `Homelab.md`, newest first, each row linking to its note, and a per-host runs Base on
+  each host page. Each Base has several views over the same notes: **Changes** (the default: `apply` and `gather`
+  runs, plus any run that failed), **Checks** (`check` runs), **Failures**, and **All runs**. Directly below the
+  table each note shows a kanban board over the same runs grouped by `status` (ok, failed, interrupted), as a
+  further Base view embedded under the table. The views only decide what is shown; every run still has a note.
 - **Git:** each run's note is written and committed in the command's own single commit, whatever the command
   (apply, gather or check). The JSONL is never committed. This replaces the earlier "rolling last-check note per
   host" idea: one small note per run is what lets the Base list every run, and it keeps the history.

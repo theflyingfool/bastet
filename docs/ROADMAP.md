@@ -64,9 +64,9 @@ Needed before the Proxmox and ZFS roles, to see what a run did, in the order it 
 - A read script's output is never recorded (it holds file contents), and a `secret` resource's command and output are hidden.
 
 **Plan 3, run notes: not planned yet.**
-- **Every run gets a short note** in the vault (`_bastet/runs/<date time> <command> <id suffix>.md`), so the Runs Base lists every run by name. Flat frontmatter (`run`, `command`, `started`, `hosts`, `changed`, `failed`, `status`, `detail`).
+- **Every run gets a short note** in the vault (`_bastet/runs/<date time> <command> <id suffix>.md`), so the Runs Base lists every run by name. Flat frontmatter (`run`, `command`, `mode`, `started`, `hosts`, `changed`, `failed`, `status`, `detail`).
 - **More detail on demand:** `bastet log note <run> [-v…]` re-renders a run's note from its JSONL at the detail you ask for (the same `-v` scale as the terminal); `--remove` deletes it. There is no log-level setting.
-- **Obsidian views:** a Runs Base on `Homelab.md` and a per-host one on each host page, newest first. Directly below each table, a kanban board over the same runs grouped by `status` (ok, failed, interrupted).
+- **Obsidian views:** a Runs Base on `Homelab.md` and a per-host one on each host page, newest first, each with several views: Changes (the default: apply and gather runs plus anything that failed), Checks, Failures and All runs. Directly below each table, a kanban board over the same runs grouped by `status` (ok, failed, interrupted).
 - **Git:** each run's note is committed in the command's one commit (apply, gather and check alike); the JSONL is never committed.
 
 **Later:** a SQLite index built from the JSONL files for cross-run queries and the ARA replacement (JSONL stays the record); every command, not only the run-type ones, emitting events; `refresh` and gather's individual commands emitting events; `hook_ran` and `reboot_step` events once roles subplan 3 adds hooks and the reboot plan.
