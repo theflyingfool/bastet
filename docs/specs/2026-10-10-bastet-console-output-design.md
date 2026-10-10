@@ -28,6 +28,10 @@ One `Console` wrapper around `rich.console.Console`, created once per command, r
 
 - **Colour and width:** from Rich's detection. Piped output, `NO_COLOR` or a dumb terminal gives plain text, no colour
   and no boxes, at width 80 when the width can't be detected. Tests use a fixed width, with a forced-colour variant.
+- **Plain mode is byte-compatible with today's output** so the existing tests keep passing through the migration:
+  no ANSI escapes, no boxes, and no re-wrapping (`soft_wrap`, so long lines are never broken); tables degrade to
+  the current aligned-column text. `CliRunner` has no TTY, so tests get this mode by default. Only the
+  forced-colour and width-snapshot tests opt into Rich's wrapping and boxes.
 - **Streams:** errors and warnings to stderr, results to stdout, as today.
 - **Secret masking** is applied inside the console, so no command has to remember it.
 - **Primitives:**
