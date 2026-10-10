@@ -44,6 +44,19 @@ eval "$(SANDBOX=$S .claude/skills/run-bastet/smoke.sh shell)"
 cd $S/lab && uv run --quiet --project ~/Repos/bastet bastet show
 ```
 
+## Driving `run` on this machine (no ssh)
+
+`drive-local.py` runs the real CLI with host connections replaced by local command execution (as if root, so role
+files can target temp paths). Make a host with `connection: local`, give it a role file, then:
+
+```bash
+uv run --quiet --project ~/Repos/bastet python ~/Repos/bastet/.claude/skills/run-bastet/drive-local.py run -c box -vv
+```
+
+Use it for `run -c` (check) and the `-v` views. Be careful with apply: roles can install packages or ask for a reboot
+for real, and `connection: local` otherwise still wants an ssh host key, so plain `bastet run` can't be used here.
+For colour or pager behaviour wrap it in a pty: `script -qec "<command>" /dev/null`.
+
 ## Direct invocation (most code changes need only this)
 
 Import the core and call it against an inventory folder; no CLI and no git writes:

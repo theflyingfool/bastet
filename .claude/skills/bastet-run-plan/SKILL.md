@@ -39,7 +39,7 @@ Rules:
 - Tests never touch the real inventory, ~/.config/bastet, ~/.local/share/bastet, ~/.ssh, real ~/.cache or
   $XDG_RUNTIME_DIR; no network; tmp_path only; placeholder data only (see "Example data" in docs/ROADMAP.md: 10.1.x.x addresses,
   host names like pve1/media01, user admin).
-- Full suite `uv run pytest -q` (never BASTET_CONTRACT unless told) green (baseline <N>).
+- Run ONLY the test files named in the brief (never the full suite, never BASTET_CONTRACT unless told); the controller or the user runs the wide suites at the checkpoints.
 - Match surrounding style; no "spec §"/"Task N" references in src/; bastet.core never imports typer.
 - Commit with `git add <files by name>` (never `git commit -a`; never stage AUDIT.md, refs/, .superpowers/,
   .privacy-patterns). Messages end with:
@@ -50,6 +50,29 @@ Rules:
 Write your full report to <workspace>/task-<N>-report.md.
 Return only: status, commit hash(es), one-line test summary, concerns.
 ```
+
+## Routine agreed with the user (2026-10-10)
+
+- **One sonnet implementer per task, run one at a time**, never in parallel. No per-task reviewer subagent.
+- Each agent commits when it thinks it is done, with `(Task N, not reviewed yet)` on the first line of the message.
+  A fix after a failed test run goes in a follow-up commit, never an amend.
+- **After each task:** the controller reads the `src/` diff, checks `git status` and `ps`, writes the ledger line,
+  **pushes the branch**, reports in plain words (what was built, what the agent changed from the brief and why, what
+  to run), then waits for the user's go unless they said to keep going. Give the user the exact test command for the
+  plan's checkpoints; **run it yourself** when they ask or are away from the computer.
+- **Tell the agent to see its tests fail first** (one agent skipped the red step), and to keep test file basenames
+  unique across `tests/` (there are no `__init__.py` files; two `test_run_events.py` broke collection).
+- Agents' briefs sometimes contain bugs in tests or code; they fix them minimally and say so. Review those changes.
+- Agents leave polling loops running after they finish (`until grep …; do sleep 3; done`); look for them with `ps`
+  and kill only those.
+- **When the user is on a phone,** ask with pick-able questions (`AskUserQuestion`); put the substance in the option
+  descriptions, because the text before the tool call may not be shown.
+- Final review (opus), then **one fix wave** (a sonnet agent, Critical and Important plus the cheap Minors), then you
+  run the full suite, log the deferred items in `docs/ROADMAP.md`, and **ask** before merging, pushing and deleting
+  the branch. When told: `git switch main && git merge --ff-only <branch> && git push origin main`, then delete the
+  branch locally and on the remote.
+- Edit scripts that change several files: chain the following `git add`/`commit` with `&&` (not `;`) and look at
+  `git status` first, so a failed edit cannot be committed under a message that describes it.
 
 ## Per-task review (the controller does this itself, not a subagent)
 
