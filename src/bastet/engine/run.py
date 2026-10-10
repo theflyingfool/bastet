@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field, fields, replace
 
+from bastet import events
 from bastet.core.errors import BastetError
 from bastet.engine.model import FieldChange, ReadError, Resource, Trigger, Unsupported, show_value
 from bastet.engine.script import NOT_REPORTED, exec_script, new_mark, read_script, split_results
@@ -139,10 +141,39 @@ def _assess(item: Item, results: dict) -> None:
         item.diff = item.resource.diff_text(item.current)
 
 
-def _read(runner, items: list[Item]) -> list[dict]:
+def _item_event(host: str, item: Item, phase: str) -> None:
+    from bastet.engine.report import change_text  # lazy: report imports this module
+
+    events.emit(
+        "item_checked", host, item=item.resource.label, family=item.resource.family, status=item.status, phase=phase,
+        changes=[change_text(c, secret=item.resource.secret) for c in item.changes],
+        error=item.error, diff=item.diff, origins=list(item.origins),
+    )
+
+
+def _command_event(host: str, phase: str, command: str, exit_code: int | None, started: float, *,
+                   stdout: str = "", stderr: str = "", error: str | None = None, hidden: bool = False) -> None:
+    events.emit("command_run", host, phase=phase, command=command, exit=exit_code,
+                duration=round(time.monotonic() - started, 3), stdout=stdout, stderr=stderr, error=error, hidden=hidden)
+
+
+def _read_label(items: list[Item]) -> str:
+    labels = [i.resource.label for i in items]
+    extra = f" … (+{len(labels) - 5} more)" if len(labels) > 5 else ""
+    return "read " + ", ".join(labels[:5]) + extra
+
+
+def _read(runner, items: list[Item], *, host: str, phase: str) -> list[dict]:
     groups = [i.resource.reads() for i in items]
     mark = new_mark()
-    result = runner.run(read_script(groups, mark))
+    started = time.monotonic()
+    try:
+        result = runner.run(read_script(groups, mark))
+    except BaseException as exc:
+        _command_event(host, phase, _read_label(items), None, started, error=str(getattr(exc, "message", None) or exc))
+        raise
+    # A read's output is file contents and may hold secrets the masker doesn't know: never recorded.
+    _command_event(host, phase, _read_label(items), result.returncode, started)
     return split_results(result.stdout, groups, mark)
 
 
@@ -155,12 +186,18 @@ def _still(c: FieldChange, secret: bool) -> str:
 FIX_TIMEOUT = 1800
 
 
-def _exec(runner, commands: list[str], root: bool, timeout: int) -> tuple[bool, str | None]:
+def _exec(runner, commands: list[str], root: bool, timeout: int, *, host: str, phase: str,
+          hidden: bool = False) -> tuple[bool, str | None]:
     """Run a fix or trigger; a timeout or lost connection is a failure of this step, not of the whole run."""
+    shown = "(hidden: secret resource)" if hidden else "; ".join(commands)
+    started = time.monotonic()
     try:
         res = runner.run(exec_script(commands, root=root, mark=new_mark()), timeout=timeout)
     except BastetError as e:
+        _command_event(host, phase, shown, None, started, error=str(e), hidden=hidden)
         return False, str(e)
+    _command_event(host, phase, shown, res.returncode, started, hidden=hidden,
+                   stdout="" if hidden else res.stdout, stderr="" if hidden else res.stderr)
     return (True, None) if res.returncode == 0 else (False, _tail(res.stderr, res.returncode))
 
 
@@ -173,89 +210,109 @@ def run_host(
     fix_timeout: int = FIX_TIMEOUT,
     should_stop: Callable[[], bool] | None = None,
 ) -> HostRun:
-    planned = collect_items(batches)
+    with events.phase(host, "collect"):
+        planned = collect_items(batches)
     items = [i for _, mine in planned for i in mine]
     run = HostRun(host, apply, items)
     if not items:
         return run
-    for item, results in zip(items, _read(runner, items)):  # phases 2 and 3
-        _assess(item, results)
+    with events.phase(host, "read"):
+        read_results = _read(runner, items, host=host, phase="read")
+    with events.phase(host, "compare"):
+        for item, results in zip(items, read_results):  # phases 2 and 3
+            _assess(item, results)
+            _item_event(host, item, "compare")
     if not apply:
         return run
 
     changed: list[Item] = []
     touched: set[str] = set()
     host_broken: str | None = None  # a failure in an earlier batch stops every later batch too
-    for batch, mine in planned:  # phase 4
-        pending: list[Trigger] = []
-        broken: str | None = None
-        i = 0
-        while i < len(mine):
-            item = mine[i]
-            i += 1
-            if item.status == "failed" and not item.resource.report_only() and broken is None and host_broken is None:
-                broken = item.resource.label
-            if item.status != "would-change":
-                continue
-            if run.stopped or (should_stop is not None and should_stop()):
-                run.stopped = True
-                item.status, item.error = "skipped", "stopped (Ctrl-C)"
-                continue
-            if host_broken is not None:
-                item.status, item.error = "skipped", f"earlier failure on this host: {host_broken}"
-                continue
-            if broken is not None:
-                item.status, item.error = "skipped", f"earlier failure: {broken}"
-                continue
-            path = item.resource.touches()
-            if path is not None and path in touched:
-                _assess(item, _read(runner, [item])[0])
-                if item.status == "failed":
+    with events.phase(host, "apply"):
+        for batch, mine in planned:  # phase 4
+            pending: list[Trigger] = []
+            broken: str | None = None
+            i = 0
+            while i < len(mine):
+                item = mine[i]
+                i += 1
+                if item.status == "failed" and not item.resource.report_only() and broken is None and host_broken is None:
                     broken = item.resource.label
                 if item.status != "would-change":
                     continue
-            group = [item]
-            key = item.resource.group_key()
-            if key is not None:
-                while (i < len(mine) and mine[i].status == "would-change"
-                       and mine[i].resource.group_key() == key):
-                    group.append(mine[i])
-                    i += 1
-                commands = type(item.resource).fix_group([(g.resource, g.changes, g.current) for g in group])
-            else:
-                commands = item.resource.fix(item.changes, item.current)
-            ok, error = _exec(runner, commands, any(g.resource.root for g in group), fix_timeout)
-            if not ok:
+                if run.stopped or (should_stop is not None and should_stop()):
+                    run.stopped = True
+                    item.status, item.error = "skipped", "stopped (Ctrl-C)"
+                    _item_event(host, item, "apply")
+                    continue
+                if host_broken is not None:
+                    item.status, item.error = "skipped", f"earlier failure on this host: {host_broken}"
+                    _item_event(host, item, "apply")
+                    continue
+                if broken is not None:
+                    item.status, item.error = "skipped", f"earlier failure: {broken}"
+                    _item_event(host, item, "apply")
+                    continue
+                path = item.resource.touches()
+                if path is not None and path in touched:
+                    _assess(item, _read(runner, [item], host=host, phase="apply")[0])
+                    if item.status == "failed":
+                        broken = item.resource.label
+                    if item.status != "would-change":
+                        _item_event(host, item, "apply")
+                        continue
+                group = [item]
+                key = item.resource.group_key()
+                if key is not None:
+                    while (i < len(mine) and mine[i].status == "would-change"
+                           and mine[i].resource.group_key() == key):
+                        group.append(mine[i])
+                        i += 1
+                    commands = type(item.resource).fix_group([(g.resource, g.changes, g.current) for g in group])
+                else:
+                    commands = item.resource.fix(item.changes, item.current)
+                ok, error = _exec(runner, commands, any(g.resource.root for g in group), fix_timeout,
+                                  host=host, phase="apply", hidden=any(g.resource.secret for g in group))
+                if not ok:
+                    for g in group:
+                        g.status, g.error = "failed", error
+                        _item_event(host, g, "apply")
+                    broken = item.resource.label
+                    continue
                 for g in group:
-                    g.status, g.error = "failed", error
-                broken = item.resource.label
-                continue
-            for g in group:
-                g.status = "changed"
-                changed.append(g)
-                if g.resource.touches() is not None:
-                    touched.add(g.resource.touches())
-                for t in g.triggers:
-                    if t not in pending:
-                        pending.append(t)
-        if host_broken is None and broken is not None:
-            host_broken = broken
-        for t in sorted(pending, key=lambda t: t.order):  # phase 5
-            ok, error = _exec(runner, [t.command], t.root, fix_timeout)
-            run.triggers.append(TriggerRun(t, ok, error))
-            if not ok and host_broken is None:
-                host_broken = t.label
+                    g.status = "changed"
+                    _item_event(host, g, "apply")
+                    changed.append(g)
+                    if g.resource.touches() is not None:
+                        touched.add(g.resource.touches())
+                    for t in g.triggers:
+                        if t not in pending:
+                            pending.append(t)
+            if host_broken is None and broken is not None:
+                host_broken = broken
+            for t in sorted(pending, key=lambda t: t.order):  # phase 5
+                ok, error = _exec(runner, [t.command], t.root, fix_timeout, host=host, phase="on_change")
+                run.triggers.append(TriggerRun(t, ok, error))
+                events.emit("trigger_fired", host, trigger=t.label, ok=ok, error=error)
+                if not ok and host_broken is None:
+                    host_broken = t.label
 
     if changed:  # phase 6
-        for item, results in zip(changed, _read(runner, changed)):
-            if any(r is NOT_REPORTED for r in results.values()):
-                item.status, item.error = "failed", "couldn't verify: no output for this read"
-                continue
-            try:
-                remaining = item.resource.compare(item.resource.current(results))
-            except (ReadError, Unsupported) as e:
-                item.status, item.error = "failed", f"couldn't verify: {e}"
-                continue
-            if remaining:
-                item.status, item.error = "failed", _still(remaining[0], item.resource.secret)
+        with events.phase(host, "verify"):
+            for item, results in zip(changed, _read(runner, changed, host=host, phase="verify")):
+                _verify(item, results)
+                _item_event(host, item, "verify")
     return run
+
+
+def _verify(item: Item, results: dict) -> None:
+    if any(r is NOT_REPORTED for r in results.values()):
+        item.status, item.error = "failed", "couldn't verify: no output for this read"
+        return
+    try:
+        remaining = item.resource.compare(item.resource.current(results))
+    except (ReadError, Unsupported) as e:
+        item.status, item.error = "failed", f"couldn't verify: {e}"
+        return
+    if remaining:
+        item.status, item.error = "failed", _still(remaining[0], item.resource.secret)
