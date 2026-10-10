@@ -126,6 +126,7 @@ in roles-redesign subplan 6.
 ## Deferred
 
 - **Removal:** `state: absent`, `purge`, the "no longer managed" record.
+- **Turning git off:** a setting for an inventory that isn't a git repository. Needs a design first: no commits, no upstream-secrets alert or confirmed-commit baseline, no history behind run notes, and a loud warning that secrets safety is weaker.
 - **The trust prompt** for third-party `role.py`.
 - **Proxy and DNS roles** that run last.
 - **Drift resolution:** accept reality or restore it (main spec §7b).

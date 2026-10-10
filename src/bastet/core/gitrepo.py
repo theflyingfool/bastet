@@ -298,10 +298,22 @@ class GitRepo:
         hook_path.write_text(PRE_COMMIT_HOOK, encoding="utf-8")
         hook_path.chmod(0o755)
 
+    def _require_identity(self) -> None:
+        """A commit made as you needs git to know who you are; say how to fix it instead of passing git's error on."""
+        if self._git("var", "GIT_COMMITTER_IDENT", check=False).returncode != 0:
+            raise BastetError(
+                "git doesn't know who you are, so your own edits can't be committed. Run:\n"
+                '  git config --global user.name "Your Name"\n'
+                '  git config --global user.email "you@example.com"',
+                file=self.root,
+            )
+
     def commit(self, paths: Iterable[Path], message: str, *, as_bastet: bool = True) -> bool:
         rel = [str(Path(p).resolve().relative_to(self.root.resolve())) for p in paths]
         if not rel:
             return False
+        if not as_bastet:
+            self._require_identity()
         self._git("add", "--", *rel)
         if self._git("diff", "--cached", "--quiet", "--", *rel, check=False).returncode == 0:
             return False

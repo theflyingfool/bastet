@@ -275,3 +275,19 @@ def test_squash_since_refuses_when_some_commits_are_already_pushed(tmp_path, rep
     repo.commit([c], "add c")
     assert repo.squash_since(base, "squashed") is False
     assert git(repo.root, "log", "--format=%s").strip().splitlines() == ["add c", "add b", "seed"]
+
+
+def test_committing_as_you_without_a_git_identity_says_how_to_fix_it(tmp_path, monkeypatch):
+    for var in ("GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "EMAIL"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", "/dev/null")
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    r = GitRepo(tmp_path / "inv")
+    r.root.mkdir()
+    r.init()
+    note = r.root / "a.md"
+    note.write_text("x\n")
+    with pytest.raises(BastetError, match="git doesn't know who you are") as exc:
+        r.commit([note], "mine", as_bastet=False)
+    assert "git config --global user.name" in str(exc.value) and "Author identity unknown" not in str(exc.value)
+    assert r.commit([note], "Bastet's own") is True  # Bastet's identity never needs yours
