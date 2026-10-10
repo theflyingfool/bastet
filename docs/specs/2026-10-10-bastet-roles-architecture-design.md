@@ -57,27 +57,26 @@ One plan per host: every role's entries join one desired state, each entry belon
 **Phases, in order**
 1. **Plan:** resolve values, validate, merge, find conflicts.
 2. **Check:** read everything, show the plan, confirm.
-3. **Early:** entries marked `phase: early`.
-4. **Repositories and keys**, then **packages** (installs, holds, updates).
-5. **Users:** groups, users, keys, sudoers.
-6. **Files:** files, directories, links, settings edits, templates.
-7. **Systemd:** `daemon-reload` once if unit files changed, then drop-ins, units, timers, sysctl, modules, tmpfiles, enable and start.
-8. **Commands and API calls**, which need services up.
-9. **Late:** entries marked `phase: late`.
-10. **Triggers:** each restart or reload once, then a **health check** that a restarted unit is running.
-11. **Verify:** read again and compare.
-12. **Reboot** per policy, with before and after hooks (the reboot plan and power control stay with the infrastructure roles).
+3. **Repositories and keys**, then **packages** (installs, holds, updates).
+4. **Users:** groups, users, keys, sudoers.
+5. **Files:** files, directories, links, settings edits, templates.
+6. **Systemd:** `daemon-reload` once if unit files changed, then drop-ins, units, timers, sysctl, modules, tmpfiles, enable and start.
+7. **Commands and API calls**, which need services up.
+8. **Triggers:** each restart or reload once, then a **health check** that a restarted unit is running.
+9. **Verify:** read again and compare.
+10. **Reboot** per policy, with before and after hooks (the reboot plan and power control stay with the infrastructure roles).
 
-The first failed step stops that host; other hosts continue.
+An entry can move itself with `before:` or `after:` (below). The first failed step stops that host; other hosts continue.
 
 **Ordering knobs**
 - **`wants` (block side).** A block lists capabilities it wants done first. The packages block declares `wants: package-manager`; roles that configure a package manager tag themselves `provides: package-manager`. Their entries run just before the block's own entries. If nothing provides it, nothing happens, which fits settings that are mostly optional. The knowledge "package manager config comes before installs" lives once, in the block.
-- **`phase: early|late` (entry side)** for manual cases, such as creating a user by hand before packages that would create it. It works on an entry of any block.
+- **`before:` / `after:` (entry side)** names a block: the entry runs in the slot just before or after that block's normal slot. It works on an entry of any block, and it says why in words you already use. Example: a user created by hand before packages that would create it is `users: [{name: svc, before: packages}]`. The slots are totally ordered, so it can never create a cycle.
+- **Long-term goal: infer the order from references.** Bastet should work out most orderings from what entries mention (a file owned by `svc` implies the user first; a service `Requires=` another). `before:`/`after:` then remain as the explicit override. Not built in the first slice.
 - **No ordering inside a phase.** Starting an app unit pulls in the units it `Requires=`, so systemd already orders services. Revisit only if restart order turns out to matter.
 
 ## 5. Roadmap
 
-1. **First slice:** the draft contract, the generic builder, `files` settings (`edit: ini`), `phase`, `wants`/`provides`, the phase engine with `daemon-reload` and the health check, and pacman as Markdown-only. Done when pacman has no Python, every existing pacman test passes unchanged, and `check` output on an Arch host is identical. Replaces subplan 3, parts of 2 and 4, and the pacman part of 6.
+1. **First slice:** the draft contract, the generic builder, `files` settings (`edit: ini`), `before:`/`after:`, `wants`/`provides`, the phase engine with `daemon-reload` and the health check, and pacman as Markdown-only. Done when pacman has no Python, every existing pacman test passes unchanged, and `check` output on an Arch host is identical. Replaces subplan 3, parts of 2 and 4, and the pacman part of 6.
 2. **Evaluate**, then convert **one role at a time**, every one as straight Markdown. Suggested order: ssh (many options; `edit: sshd` with its `sshd -t` check, and a few `warn` rules for obvious ways to lose access, such as turning off key logins), base (`when:` for microcode), harden, systemd (time, hostname, locale), the thin `users` and `files` roles, `packages` (the heavy one: AUR, updates and reboot policy become block features), proxmox (repositories, tools and the file patch through the blocks). Each conversion adds only the block or contract features it needs (`when:`, `validate:`, templates, timers, `edit: kv`/`sshd`, and so on).
 3. **Capabilities and contributions** beyond `wants`, when a real role needs them: the firewall (same-host contributions), then the Git forge (cross-host: database, runner, proxy). The reserved keys `uses`, `needs`, `provides`, `contributes` are parsed and ignored until then.
 4. **Stabilize last:** the library, `role update`, `doctor <dir>` and role pages (the audited subplan 2 tasks 2 to 6), then presets, boards and the guided `add role` (subplan 5).
