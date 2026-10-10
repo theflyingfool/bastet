@@ -415,9 +415,7 @@ def secret_show(
     menu = "1) display  2) clipboard  q) cancel" if tool else "1) display  q) cancel"
     choice = typer.prompt(menu, default="q", show_default=False).strip().lower()
     if choice == "1":
-        # The one place a value is meant to be seen: out.echo would mask it.
-        sys.stdout.write(value + "\n")
-        sys.stdout.flush()
+        out.reveal(value)  # the one place a value is meant to be seen: out.echo would mask it
     elif choice == "2" and tool:
         _copy_to_clipboard(tool, value)
         out.echo("Copied to the clipboard; it clears in 45s.")

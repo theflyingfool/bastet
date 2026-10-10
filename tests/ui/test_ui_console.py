@@ -174,3 +174,11 @@ def test_empty_block_and_masked_block():
     c, o, _ = make(color=True)
     c.block(Block().add("pw hunter2-value", "red"))
     assert "hunter2-value" not in o.getvalue()
+
+
+def test_reveal_prints_a_secret_unmasked_while_echo_masks_it():
+    ACTIVE.add("hunter2-value")
+    c, o, _ = make(color=False)
+    c.echo("hunter2-value")
+    c.reveal("hunter2-value")
+    assert o.getvalue() == "\n".join([ACTIVE.mask("hunter2-value"), "hunter2-value", ""])

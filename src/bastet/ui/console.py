@@ -63,6 +63,12 @@ class Console:
     def echo(self, text: object = "", *, nl: bool = True, err: bool = False) -> None:
         self._emit(None, self._text(text), nl=nl, err=err)
 
+    def reveal(self, text: object) -> None:
+        """Print a value unmasked. For the one place a secret is meant to be seen (`secret show`)."""
+        stream = self._stream(False)
+        stream.write(("" if text is None else str(text)) + "\n")
+        stream.flush()
+
     def secho(self, text: object = "", fg: str | None = None, *, err: bool = False, nl: bool = True,
               bold: bool = False) -> None:
         plain = self._text(text)
