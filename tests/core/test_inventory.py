@@ -1,3 +1,4 @@
+import pytest
 from pathlib import Path
 
 from bastet.core.hosttypes import load_host_types
@@ -298,3 +299,11 @@ def test_role_file_bad_value_is_an_inventory_error_with_file_and_key(tmp_path):
     assert error.line == 5  # the `client_alive_interval: maybe` line in the role file above
     assert "expected a whole number" in error.message
     assert pve1.exists()
+
+
+@pytest.mark.parametrize("value", ['""', "", "[]", '[""]'])
+def test_an_empty_link_field_is_unset_not_an_error(tmp_path, value):
+    """A hardware note's location starts empty; that's "not filled in yet", not a broken link."""
+    put(tmp_path, "hardware/disk1.md", f"---\nbastet: hardware\ncategory: drive\nlocation: {value}\n---\n# disk1\n")
+    inv = load_inventory(tmp_path, load_host_types())
+    assert not [p for p in inv.problems if "expected a link" in p.error.message]

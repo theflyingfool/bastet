@@ -297,6 +297,8 @@ def load_inventory(root: Path, types: dict[str, HostType]) -> Inventory:
             if value is None:
                 continue
             for item in value if isinstance(value, list) else [value]:
+                if item is None or (isinstance(item, str) and not item.strip()):
+                    continue  # a field you haven't filled in yet (e.g. a hardware note's empty location)
                 target = link_target(item)
                 if target is None:
                     _add(inv, "error", f'expected a link like "[[name]]", got {item!r}', doc, key)
