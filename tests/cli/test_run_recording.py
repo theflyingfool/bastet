@@ -156,3 +156,14 @@ def test_secrets_never_reach_the_record(runner, box, inventory, secret_keys):
     exported = runner.invoke(app, ["log", "export", "latest"])
     for text in (checked.output, applied.output, exported.output, *(p.read_text() for p in records())):
         assert value not in text
+
+
+def test_ctrl_c_during_the_check_records_interrupted(runner, box, monkeypatch):
+    def interrupt(*args, **kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(run_mod, "run_parallel", interrupt)
+    runner.invoke(app, ["run", "-c", "box"])
+    [path] = records()
+    events = events_of(path)
+    assert events[-1]["kind"] == "run_finished" and events[-1]["data"]["status"] == "interrupted"

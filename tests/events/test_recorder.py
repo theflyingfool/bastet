@@ -167,3 +167,12 @@ def test_a_failed_run_makes_the_host_failed():
 def test_run_ids_sort_by_time_and_are_unique():
     ids = [new_run_id() for _ in range(50)]
     assert len(set(ids)) == 50 and all(len(i) == len("20261010-120000-ab12cd") for i in ids)
+
+
+def test_set_status_gives_the_run_its_status_and_the_first_reason_wins():
+    sink = ListSink()
+    with recording("run", [sink]):
+        events.set_status("interrupted")
+        events.set_status("failed")
+    assert sink.events[-1].data["status"] == "interrupted"
+    events.set_status("failed")  # outside a recording: nothing happens

@@ -112,6 +112,13 @@ class Recorder:
 _active: Recorder | None = None
 
 
+def set_status(status: str) -> None:
+    """Give the active run its final status, unless one is already set (the first reason wins)."""
+    recorder = _active
+    if recorder is not None and recorder.status is None:
+        recorder.status = status
+
+
 def emit(kind: str, host: str | None = None, **data) -> None:
     recorder = _active
     if recorder is not None:

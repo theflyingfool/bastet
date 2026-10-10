@@ -408,6 +408,7 @@ def _run(selectors: list[str] | None, exclude: list[str] | None, *, apply_change
                     run_parallel([r.doc.name for r in ready], check_work, jobs=run_jobs, on_done=on_check_done)
                 except KeyboardInterrupt:
                     interrupted = True
+                    events.set_status("interrupted")
 
             errored_hosts: set[str] = set(failed_hosts)  # hosts that never produced a check at all
             chosen: list[str] = []
@@ -489,6 +490,7 @@ def _run(selectors: list[str] | None, exclude: list[str] | None, *, apply_change
                         run_parallel(run_set_ordered, apply_work, jobs=run_jobs, on_done=on_apply_done, after=node_of)
                     except KeyboardInterrupt:
                         interrupted = True
+                        events.set_status("interrupted")
                     errored_hosts |= apply_errored
 
                 # Phase 6: reboots. The decision (and its one question) is serial, in inventory order;
@@ -545,6 +547,7 @@ def _run(selectors: list[str] | None, exclude: list[str] | None, *, apply_change
                                 run_parallel(wave2, reboot_work, jobs=run_jobs, on_done=on_reboot_done)
                         except KeyboardInterrupt:
                             interrupted = True
+                            events.set_status("interrupted")
         finally:
             for target in targets.values():
                 if target is not None:

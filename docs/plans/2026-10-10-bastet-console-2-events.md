@@ -1615,7 +1615,7 @@ git commit -m "events: the live terminal view for -vv and above"
 
 **Files:**
 - Modify: `src/bastet/cli/common.py` (`recorded_run`), `src/bastet/cli/run.py`, `src/bastet/cli/gather.py`
-- Test: `tests/cli/test_run_events.py`
+- Test: `tests/cli/test_run_recording.py`
 
 **Interfaces (consumes):** Tasks 2, 3 and 5. **Produces:** `recorded_run(command: str, verbose: int = 0)` in `cli/common.py`, a context manager yielding the `Recorder`.
 
@@ -1628,7 +1628,7 @@ git commit -m "events: the live terminal view for -vv and above"
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `tests/cli/test_run_events.py`. Base the end-to-end setup on the closest existing test in `tests/cli/test_check_apply.py` (read how it points a host at a local runner and a role file, and reuse that fixture or helper; do not invent a new way to fake the connection). Tests:
+Create `tests/cli/test_run_recording.py`. Base the end-to-end setup on the closest existing test in `tests/cli/test_check_apply.py` (read how it points a host at a local runner and a role file, and reuse that fixture or helper; do not invent a new way to fake the connection). Tests:
 
 ```python
 import json
@@ -1658,7 +1658,7 @@ def events_of(path):
 
 - [ ] **Step 2: Run to verify they fail**
 
-Run: `uv run pytest tests/cli/test_run_events.py -q`
+Run: `uv run pytest tests/cli/test_run_recording.py -q`
 Expected: failures: no records are written.
 
 - [ ] **Step 3: Implement**
@@ -1716,13 +1716,13 @@ Imports: `contextlib`, `data_dir`, `config_path`, `load_config` are already impo
 
 - [ ] **Step 4: Run to verify they pass**
 
-Run: `uv run pytest tests/cli/test_run_events.py tests/cli/test_run_cli.py tests/cli/test_check_apply.py tests/cli/test_apply_parallel.py tests/cli/test_gather.py tests/cli/test_gather_parallel.py -q`
+Run: `uv run pytest tests/cli/test_run_recording.py tests/cli/test_run_cli.py tests/cli/test_check_apply.py tests/cli/test_apply_parallel.py tests/cli/test_gather.py tests/cli/test_gather_parallel.py -q`
 Expected: the new tests pass and every existing test passes unmodified.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/bastet/cli/common.py src/bastet/cli/run.py src/bastet/cli/gather.py tests/cli/test_run_events.py
+git add src/bastet/cli/common.py src/bastet/cli/run.py src/bastet/cli/gather.py tests/cli/test_run_recording.py
 git commit -m "run: record every run as events (JSONL), live view from -vv, host scopes and skips"
 ```
 
