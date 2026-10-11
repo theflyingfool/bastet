@@ -51,6 +51,7 @@
 | `src/bastet/cli/run.py` | `_node_of_map` stops shadowing `out` |
 | `src/bastet/engine/packages.py` | dpkg options quoted as one argument (two places) |
 | `src/bastet/cli/doctor.py` | `_check_role_dir` accepts a Markdown role folder |
+| `src/bastet/roles/contract.py`, `declarative.py`, `apt role.md` | `commands:` entries in role files (with `when`), and the apt `modernize_sources` knob |
 | `src/bastet/roles/contract.py`, `declarative.py`, `engine/packages.py`, `builtin.py`, the `apt` and `pacman` role files | `as: entries` with generic `deb822` and `ini_section` formats; the manager roles declare repositories as data and the files action (`File`, `Block`) writes them; `packages` refuses repositories on apt and pacman hosts |
 
 ---
@@ -515,7 +516,67 @@ def test_entries_option_contract(tmp_path, option, message):
 
 ---
 
-### Task 5: Docs and the checkpoint
+### Task 5: `commands:` entries in role files, and the apt `modernize_sources` knob
+
+**Principle (owner):** roles are data; the `commands` block does the running. A role file may list commands for the block to run, optionally switched by one of the role's own options. The apt role uses it for a true/false `modernize_sources` knob (default false) that runs `apt modernize-sources`, which rewrites any leftover legacy `.list` file as a `.sources` file and does nothing when there is nothing to rewrite.
+
+**Files:**
+- Modify: `src/bastet/roles/contract.py` (`ROLE_NOTE_KEYS`, a `commands` parser, `RoleDef.commands`), `src/bastet/roles/declarative.py` (`build`), `src/bastet/data/roles/apt/apt role.md`, `docs/roles.md` (regenerate)
+- Test: `tests/roles/test_role_commands.py` (new), one case in `tests/roles/test_apt_role.py`
+
+**Behaviour:**
+- A role note may have a top-level `commands` list. Each entry is a map with `name` (text, required), `run` (text, required), `unless` (text, required: the command is skipped when it succeeds, as for the `Command` resource), and optional `when` (the name of one of the role's options; the entry applies only when that option's value is true), `before` and `after` (block names, not both). Any other key is an error naming it; a `when` that names no option is an error (`commands entry: when names no option: <x>`). Add `commands` to `ROLE_NOTE_KEYS` and store the parsed list on `RoleDef` (field `commands`, default empty).
+- `build` appends, after the file entries and the option entries, one `Command(name=..., run=..., unless=..., run_before=..., run_after=...)` for each command whose `when` is absent or whose option is true in `values`. The builder contains no apt names.
+- `apt role.md` gets an option `modernize_sources` (`type: bool`, `default: false`, description: "Run `apt modernize-sources` to convert leftover legacy .list files to .sources; does nothing when there is nothing to convert") and this command: name `modernize apt sources`; run `apt modernize-sources -y`; unless `! apt --help 2>/dev/null | grep -q modernize-sources || ! grep -qsE '^[[:space:]]*(deb|deb-src)[[:space:]]' /etc/apt/sources.list /etc/apt/sources.list.d/*.list` (skips on apt versions that lack the subcommand, and when no active legacy line is left, which also makes `check` quiet once it has run); `when: modernize_sources`; `before: packages`. Verified in a Debian 13 container: with a legacy `.list` file the command rewrites it and leaves `<file>.list.bak`, and a second run prints "All sources are modern." and exits 0. Add the caveat to the option description: where apt cannot work out `Signed-By` it prints a warning and the new file has none.
+
+- [ ] **Step 1: Write the failing tests.** Create `tests/roles/test_role_commands.py` (use the temporary-role helpers from `tests/roles/test_ini_settings.py`):
+
+```python
+import pytest
+
+from bastet.core.errors import BastetError
+from bastet.engine.command import Command
+
+# helpers: cmd_role(tmp_path, commands, options=None) -> RoleDef with a bool option "on" and the given commands list;
+# built(role, values) -> the resources of the single batch from declarative.build(role, values, host)
+
+ENTRY = {"name": "say hi", "run": "echo hi", "unless": "test -e /tmp/x"}
+
+
+def test_a_command_entry_becomes_a_command_resource(tmp_path):
+    [command] = built(cmd_role(tmp_path, [{**ENTRY, "before": "packages"}]), {})
+    assert isinstance(command, Command)
+    assert (command.name, command.run, command.unless, command.run_before) == ("say hi", "echo hi", "test -e /tmp/x", "packages")
+
+
+def test_when_switches_the_command_on_the_option(tmp_path):
+    role = cmd_role(tmp_path, [{**ENTRY, "when": "on"}])
+    assert built(role, {"on": True}) and not built(role, {"on": False}) and not built(role, {})
+
+
+@pytest.mark.parametrize("entry, message", [
+    ({"run": "x", "unless": "y"}, "name"),
+    ({"name": "n", "unless": "y"}, "run"),
+    ({"name": "n", "run": "x"}, "unless"),
+    ({**ENTRY, "when": "nope"}, "when names no option: nope"),
+    ({**ENTRY, "before": "packages", "after": "files"}, "before or after, not both"),
+    ({**ENTRY, "zzz": 1}, "zzz"),
+])
+def test_command_entry_errors(tmp_path, entry, message):
+    with pytest.raises(BastetError, match=message):
+        cmd_role(tmp_path, [entry])
+```
+
+Add to `tests/roles/test_apt_role.py`: with `modernize_sources` false or unset the apt role builds no `Command`; with `{"modernize_sources": True}` it builds one `Command` named `modernize apt sources` whose `run` is `apt modernize-sources -y`, whose `run_before` is `packages`, and whose `unless` contains `modernize-sources` and `deb-src`.
+
+- [ ] **Step 2: Run to see them fail.** `uv run pytest tests/roles/test_role_commands.py tests/roles/test_apt_role.py -q`.
+- [ ] **Step 3: Implement** as described under Behaviour. Regenerate `docs/roles.md` with `scripts/gen_roles_doc.py`.
+- [ ] **Step 4: Contract test (written, not run).** Add `test_debian_apt_modernize_sources_contract` to `tests/contract/test_contract.py`, modelled on `test_debian_apt_role_contract`: write a legacy `/etc/apt/sources.list.d/legacy.list` in the container, converge `{"modernize_sources": True}`, assert `legacy.sources` exists and `legacy.list.bak` exists, then that a second converge changes nothing.
+- [ ] **Step 5: Run** `uv run pytest tests/roles tests/core tests/engine -q` and `scripts/privacy-check`. **Step 6: Commit** (`roles: commands entries in role files; apt modernize_sources knob`).
+
+---
+
+### Task 6: Docs and the checkpoint
 
 **Files:** `docs/specs/2026-10-10-bastet-roles-architecture-design.md`, `docs/ROADMAP.md`, `docs/plans/2026-10-10-bastet-audit-correction-plan.md`, `src/bastet/data/docs/writing_roles.md`.
 
