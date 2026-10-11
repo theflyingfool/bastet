@@ -174,6 +174,30 @@ Rows marked ⏸ (the Proxmox and ZFS infrastructure roles) are set aside until a
 | ☐ | — | Old docker_* roles, undecided | arr, frigate, homepage, mealie, nextcloud, paperless, uptime, … | See `refs/old-homelab-ansible-roles/` |
 | ? | — | Goals unclear | dev_env, pacman_api | Don't port blind |
 
+## Planned additions
+
+One row per building block or role: what we know it still needs. Nothing here is built until a role needs it; when one is built, delete its row (or the part of it) and tick the block or role above.
+
+| Block or role | Planned | Needed by |
+|---|---|---|
+| packages (block) | `hold` (pinning distro packages); install method (`native`/`container`); AUR bootstrap and update/reboot policy as block options (today in the role); `wants: package-manager` | harden, app roles |
+| users (block) | An explicit way to clear a password; the `bastet` account refusal also checking names that come from options; a decision on how to treat system accounts in the unaccounted-users report (after the first real run) | users role, hardening |
+| files (block) | `edit: env` (`KEY=value`, systemd quoting rule); `edit: sshd` (with `sshd -t`); `sysctl`-style `key = value` edits; format checking (YAML, JSON, TOML, INI parsed on the controller; `visudo -cf`, `systemd-analyze verify` on the host); replace-with-check; a secret embedded in a larger string | vaultwarden, ssh, harden |
+| templates (files) | `toyaml`/`tojson`/`quote` filters; cross-host variables in the template context; a place to keep templates next to a role (also for roles under `_roles/`) | the first role that uses a template |
+| systemd (block) | Timers (cron-style schedules); `.mount` units; `sysctl.d`, `modules-load.d`, `tmpfiles.d`; hardening drop-ins from `access` | harden, mounts |
+| commands (block) | Phase hooks (`changed` / `always` / `check:`) | roles that need an action after a change |
+| reports (block) | Report options any role can offer; the per-host reports note | harden |
+| secrets | Secrets inside a larger string and visible to templates; rotation and rekey (milestone 5) | forgejo (maybe), later roles |
+| api, fetch, power control, git, wait/probe, storage | Everything (see the block table above) | later milestones |
+| pacman, apt (roles) | More options (low priority); apt's full option list generated rather than curated | after the VPS apps |
+| time (role) | New: time zone and time sync over the `systemd` block (moves out of the `systemd` role) | VPS apps, step 2 |
+| base (role) | Markdown rewrite with `when:` for microcode | VPS apps, step 3 |
+| harden (role) | Split into small roles (fail2ban, sysctl, sudo, reports) plus a thin meta role | VPS apps, step 7 |
+| ssh (role) | Markdown rewrite with `edit: sshd`, `warn` rules, no lockout guard | VPS apps, step 8 |
+| caddy, forgejo, vaultwarden (roles) | New roles over the blocks | VPS apps, steps 4 to 6 |
+| Proxmox node setup, zfs, Proxmox guests, qemu_guest_agent (roles) | See the roles table (set aside until a Proxmox system is up) | milestone 4 |
+| Docs and tooling | A `ruff` config (about 330 findings with the defaults); the options table's Default column showing the config file's own default; a check on a real LXC host that `time` entries behave in a container | after the contract plan |
+
 ## Deferred
 
 - **Removal:** `state: absent`, `purge`, the "no longer managed" record.
