@@ -1,7 +1,7 @@
 # Audit correction plan
 
 Two outside audits of the code, reconciled by root cause. This is a plan of small repair increments, not a design: each
-increment gets its own spec or plan before code changes. Nothing here is implemented yet.
+increment gets its own spec or plan before code changes. Increment 1 is built (on branch `audit-inc-1`, reviews pending); the rest is not implemented yet.
 
 - **Audit 1** (`audit_bundle_1`): pinned to an old commit (`1b96abf`), before the host-note split follow-ups, the roles
   slice and the new run order. Several findings were already gone by the time it was read.
@@ -20,7 +20,7 @@ increment gets its own spec or plan before code changes. Nothing here is impleme
 - The roles hard-testing checklist (real `bastet run -c` against the Arch inventory, legacy roles in the new order,
   failure cases, Ctrl-C and `-vv`) is **not done**; it is the owner's, on real hosts. The final whole-branch review of the
   slice was skipped on request. Increment 8 re-runs the checklist after increments 1 to 3.
-- Until increment 1 lands, do not run `bastet run` in apply mode against a real `pacman.conf` (check mode is fine).
+- Until the owner has read the increment 1 `run -c` diff, do not run `bastet run` in apply mode against a real `pacman.conf` (check mode is fine).
 - Both `audit_bundle_*` directories are untracked and will be deleted by the owner; this plan is committed only after the
   owner has read it.
 - Rulings already taken during the slice: the pacman role keeps `provides: [package-manager]` (otherwise its edits run
@@ -81,7 +81,7 @@ A1 dead git methods. Not re-checked: F02, F04, F05, F06, F09, F16, UX-01 to UX-1
 Each increment ends green on the unit suite and on the contract tests where it touches hosts. Do not convert more roles
 until increments 1 to 3 are done.
 
-1. **Make the shipped roles safe (C1, C13, C14, C19).** Detailed plan:
+1. **Make the shipped roles safe (C1, C13, C14, C19). Done (2026-10-10; owner check on a real host still open).** Detailed plan:
    `docs/plans/2026-10-10-audit-inc-1-shared-roles-safe.md`. `edit: ini` becomes one section-scoped `Settings` resource
    per section: a Bastet-managed block right after the section header, with the originals of every managed key commented
    out (`#bastet: `) so off and empty values work and no repository section is ever touched (F03). The pacman role uses
@@ -90,12 +90,20 @@ until increments 1 to 3 are done.
    cycle-warning crash and package-option quoting fixed, `doctor` lints Markdown roles. *Proof:* unit tests for the
    resource, an Arch contract test, and the owner's `run -c` diff on a real host. **Until the owner has read that diff,
    do not run `bastet run` in apply mode against a real `pacman.conf`.**
+   *Done:* the `Settings` resource, `edit: ini` and the `backup: true` key, the contract checks, line-break refusal and the
+   three quick fixes. Also done in the same increment, because the audit showed the need: `as: entries` (generic `deb822`
+   and `ini_section` formats) and `commands:` entries in role files, so the apt and pacman roles declare their own
+   repositories as data and write them before packages (this took over the work of 2a); the apt `modernize_sources`
+   option; the proxmox role, the `Repository` resource, `StraySources` and the packages `repositories` option are removed.
+   *Latent:* `edit: ini` has no role user left except pacman's. Removal stays deferred (an option later left unset does
+   not restore the commented original). The container contract run and the owner's `run -c` diff on a real Arch host
+   are still to do.
 2. **Safe mutation (C2, C3, C6, C10 file modes).** One safe remote-write primitive (unpredictable, exclusive, private
    temp file in the target directory; validate before replace; shared with authorized keys). Detect overlapping
    whole-file and edit intents at plan time and re-verify affected resources after any mutation. Compare the note
    bytes to the change's "before" immediately before writing. Unlock writes private files. *Proof:* planted-symlink,
    transient-mode, stale-write and "apply then check is clean" regressions.
-2a. **Manager roles own their repositories (owner decision).** A repository is that package manager's setting, so
+2a. **Manager roles own their repositories (owner decision). Done in increment 1 for apt and pacman.** A repository is that package manager's setting, so
    repositories belong to the manager's own role (`pacman`, `apt`, and the others as their roles appear), not to a
    cross-distro `packages` option. That gives `pacman.conf` a single owning role and removes the second writer to it.
    Needs its own short design first: the option shape per manager, third-party key handling, what happens to the

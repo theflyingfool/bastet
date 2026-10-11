@@ -31,6 +31,8 @@ follow-ups fixed.
 
 **Next: the roles architecture, first slice** (`docs/specs/2026-10-10-bastet-roles-architecture-design.md`, approved 2026-10-10; the first-slice plan is `docs/plans/2026-10-10-bastet-roles-arch-1-slice.md`: the phase engine, the Markdown loader and generic builder, then pacman and a new apt role, followed by a stop for hard testing). Building blocks stay Python; roles become straight Markdown (about 99%); a host runs by phase across all roles; roles are converted one at a time, starting with pacman. The first slice is the draft contract, the generic builder, `files` settings (`edit: ini`), `before:`/`after:`, `wants`/`provides`, the phase engine (with daemon-reload and a health check), and pacman as Markdown-only. The six old subplans are replaced: subplan 1 (the host-note split) is merged, and the audited library, update, lint and pages work (old subplan 2, `docs/plans/2026-10-07-bastet-roles-2-format-library.md`) is on hold until the end.
 
+**Audit increment 1 (make the shipped roles safe) is built** on branch `audit-inc-1` (`docs/plans/2026-10-10-audit-inc-1-shared-roles-safe.md`; reviews pending). `edit: ini` writes a section-scoped managed block, so pacman can no longer touch a repository's settings; `as: entries` and `commands:` entries let the apt and pacman roles own their repositories as data; the proxmox role, the Repository resource and the packages `repositories` option are removed. The next step is the owner's `run -c` diff on a real Arch host, then the next increments of `docs/plans/2026-10-10-bastet-audit-correction-plan.md`; role conversion resumes after increments 1 to 3.
+
 ## Milestones
 
 | | Milestone | Status |
@@ -94,13 +96,13 @@ Generic mechanisms every role is assembled from (roles spec §8). Roles never im
 
 | | Block | What it does | Missing |
 |---|---|---|---|
-| ◐ | packages | Installs, updates, reboot-needed marking (each package manager's role owns its repositories) | `hold` (pinning distro packages), install-method support (`native`/`container`), AUR bootstrap and update/reboot policy as block options (today in the role), `wants: package-manager` |
+| ◐ | packages | Installs, updates, reboot-needed marking (each package manager's role owns its repositories; `packages` has no `repositories` option) | `hold` (pinning distro packages), install-method support (`native`/`container`), AUR bootstrap and update/reboot policy as block options (today in the role), `wants: package-manager` |
 | ☑ | users | Users, groups, authorized keys, sudoers drop-ins | |
-| ◐ | files | Whole files, directories, symlinks, lines, blocks; owner/mode; validate before swap; Jinja2 templates (below) | Settings edits from options (`edit: ini` and apt's `render: apt` are built; `kv`, `sshd` next); format checking (YAML, JSON, TOML, INI parsed on the controller; `visudo -cf`, `sshd -t`, `systemd-analyze verify` on the host; a role's own `validate:`); replace-with-check; `before:`/`after:` is built (`run_before`/`run_after`) |
+| ◐ | files | Whole files, directories, symlinks, lines, blocks; owner/mode; validate before swap; Jinja2 templates (below). Section settings: `edit: ini` writes a managed block per section, originals commented `#bastet: `, off and empty supported, removal deferred; `backup: true` keeps the original once as `<path>.bastet-orig`. Also apt's `render: apt` and `as: entries` (`deb822`, `ini_section`), `before:`/`after:` (`run_before`/`run_after`) | More settings edits (`kv`, `sshd` next); format checking (YAML, JSON, TOML, INI parsed on the controller; `visudo -cf`, `sshd -t`, `systemd-analyze verify` on the host; a role's own `validate:`); replace-with-check |
 | ◐ | templates (part of files) | Files rendered with Jinja2 (`StrictUndefined`) | The full language; role-folder includes only, plain-data context, `toyaml`/`tojson`/`quote` |
 | ◐ | systemd | Units, drop-ins, hostname, locale, time | Timers, `.mount` units, sysctl.d, modules-load.d, tmpfiles.d, hardening drop-ins from `access` |
 | ☐ | JSON state | APIs and JSON-speaking CLIs: read, find, compare a subset, create/update/delete; on the host or the controller | Everything |
-| ◐ | commands | A command with a check | `before:`/`after:`; phase hooks (`changed` / `always` / `check:`) later |
+| ◐ | commands | A command with a check; role files can declare `commands:` entries (`name`, `run`, `unless`, optional `when`, `before`/`after`) | Phase hooks (`changed` / `always` / `check:`) later |
 | ◐ | reports | Read-only information: lynis, listening ports, service exposure, vulnerable and unaccounted packages | Report options any role can offer, the per-host reports note |
 | ☐ | power control | On, off and status through IPMI, Redfish or Wake-on-LAN | Everything |
 
@@ -112,18 +114,19 @@ Generic mechanisms every role is assembled from (roles spec §8). Roles never im
 ## Roles
 
 In the order we currently expect to build them. The finished ones use the old `role.yml` format and Python builders;
-they are converted one at a time to straight Markdown (roles architecture spec §5), pacman first.
+the ones that can be are converted one at a time to straight Markdown (roles architecture spec §5): ssh, base, harden and a new proxmox role. `users`, `files`, `packages` and `systemd` are the building blocks' own roles and stay Python. pacman and apt are done.
 
 | | # | Role | What it does | Notes |
 |---|---|---|---|---|
-| ☑ | — | systemd | Time, NTP, hostname, locale | Friendly menu over the systemd block |
-| ☑ | — | packages | Installs, updates and reboot policy per host | |
+| ☑ | — | systemd | Time, NTP, hostname, locale | Python: the systemd block's own role. Time moves to the `time` role later |
+| ☑ | — | packages | Installs, updates and reboot policy per host | Python: the packages block's own role. No `repositories` option; each manager's role owns them |
 | ☑ | — | base | Admin tools everywhere; CPU microcode on physical hosts | |
-| ☑ | — | pacman | Every `pacman.conf` option | Arch. Markdown-only, no Python (the proof) |
-| ☑ | — | apt | Curated apt options, written to `/etc/apt/apt.conf.d/90-bastet` | Debian. New, Markdown-only; the option list is curated and incomplete (full list generated later) |
-| ✗ | — | proxmox | Deleted. The apt role owns repositories now; the subscription-notice patch and the tools it installed are gone | A new Proxmox role is to be designed (see Proxmox node setup, 1) |
-| ☑ | — | users | Users, groups, keys, sudoers | |
-| ☑ | — | files | Files you want on a host | |
+| ☑ | — | pacman | Every `[options]` setting as a managed block in `pacman.conf` (originals commented `#bastet: `, one-time backup); repositories as `bastet repo <name>` blocks | Arch. Markdown-only, no Python (the proof) |
+| ☑ | — | apt | Curated apt options, written to `/etc/apt/apt.conf.d/90-bastet`; repositories as `.sources` files; `modernize_sources` | Debian. New, Markdown-only; the option list is curated and incomplete (full list generated later) |
+| ✗ | — | proxmox | The role was removed (audit increment 1). The apt role owns repositories now; the subscription-notice patch and the tools it installed are gone. The `proxmox` host type stays and applies no baseline roles | A new Proxmox role is to be designed (see Proxmox node setup, 1) |
+| ☐ | — | time | Time zone, time sync, NTP | Planned: data that calls the `systemd` block (needs role-file entries that call the blocks first); not a type baseline |
+| ☑ | — | users | Users, groups, keys, sudoers | Python: the users block's own role |
+| ☑ | — | files | Files you want on a host | Python: the files block's own role |
 | ☑ | — | ssh | Every sshd option, with the lockout guard | |
 | ☑ | — | harden | fail2ban, arch-audit / debsecan, lynis | |
 | ☐ | 1 | Proxmox node setup | Bridges (VLAN-aware, applied with a rollback timer), storage, API user and token; shuts guests down cleanly before a reboot and starts them again after (reboot hooks) | Later: IOMMU, clustering, maybe backups |
