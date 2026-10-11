@@ -51,3 +51,8 @@ def test_when_switches_the_command_on_the_option(tmp_path):
 def test_command_entry_errors(tmp_path, entry, message):
     with pytest.raises(BastetError, match=message):
         cmd_role(tmp_path, [entry])
+
+
+def test_when_is_an_expression_over_options_and_host_facts(tmp_path):
+    role = cmd_role(tmp_path, [{**ENTRY, "when": "on and not host.container"}])
+    assert built(role, {"on": True}) and not built(role, {"on": False})

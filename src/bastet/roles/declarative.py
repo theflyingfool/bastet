@@ -11,6 +11,7 @@ from bastet.engine.command import Command
 from bastet.engine.files import Block, File, Settings
 from bastet.engine.model import Resource
 from bastet.engine.run import Batch
+from bastet.roles import entries, expr
 from bastet.roles.contract import Option, RoleDef
 
 
@@ -155,7 +156,7 @@ def _ini_section(option: Option, name: str, values: dict) -> list[Resource]:
 ENTRY_FORMATS = {"deb822": _deb822, "ini_section": _ini_section}
 
 
-def _entries(role: RoleDef, values: dict) -> list[Resource]:
+def _entries(role: RoleDef, values: dict, secret: bool = False) -> list[Resource]:
     """The files for every option declared `as: entries`: one resource per list item."""
     out: list[Resource] = []
     for option_name, option in role.options.items():
@@ -164,7 +165,7 @@ def _entries(role: RoleDef, values: dict) -> list[Resource]:
         for item in values.get(option_name) or []:
             fields = _entry_values(role, option_name, option, item)
             made = ENTRY_FORMATS[option.format](option, fields["name"], fields)
-            out += [_placed(r, role, {"before": option.before, "after": option.after}) for r in made]
+            out += [_placed(r, role, {"before": option.before, "after": option.after}, secret) for r in made]
     return out
 
 
@@ -172,7 +173,9 @@ RENDERERS = {"apt": _apt}
 EDITORS = {"ini": _ini}
 
 
-def build(role: RoleDef, values: dict, host) -> list[Batch]:
+def build(role: RoleDef, values: dict, host, secret_options: frozenset = frozenset()) -> list[Batch]:
+    # Any secret option may have reached a file this role edits, renders or writes as entries, so those are marked.
+    secret = bool(secret_options)
     _check_os(role, host)
     resources: list[Resource] = []
     for entry in role.entries:
@@ -185,17 +188,20 @@ def build(role: RoleDef, values: dict, host) -> list[Batch]:
             made = EDITORS[entry["edit"]](role, values, entry)
         else:
             made = RENDERERS[entry["render"]](role, values, entry)
-        resources += [_placed(r, role, entry) for r in made]
-    resources += _entries(role, values)
-    resources += _commands(role, values)
+        resources += [_placed(r, role, entry, secret) for r in made]
+    resources += _entries(role, values, secret)
+    resources += entries.build_entries(role, values, host, secret_options)
+    resources += _commands(role, values, host)
     return [Batch(role.name, resources)]
 
 
-def _commands(role: RoleDef, values: dict) -> list[Resource]:
-    """The role's commands whose `when` option (if any) is on."""
+def _commands(role: RoleDef, values: dict, host) -> list[Resource]:
+    """The role's commands whose `when` condition (if any) holds."""
+    ctx = expr.context(role.options, values, host)
     return [Command(name=c["name"], run=c["run"], unless=c["unless"], run_before=c.get("before"), run_after=c.get("after"))
-            for c in role.commands if "when" not in c or values.get(c["when"]) is True]
+            for c in role.commands if expr.truthy(c.get("when"), ctx)]
 
 
-def _placed(resource: Resource, role: RoleDef, entry: dict) -> Resource:
-    return replace(resource, run_before=entry.get("before"), run_after=entry.get("after"), provides=tuple(role.provides))
+def _placed(resource: Resource, role: RoleDef, entry: dict, secret: bool = False) -> Resource:
+    placed = entries.placed(resource, role, entry)
+    return replace(placed, secret=True) if secret else placed

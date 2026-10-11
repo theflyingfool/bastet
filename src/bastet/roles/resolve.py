@@ -31,6 +31,7 @@ class Applied:
     sources: list[Source] = field(default_factory=list)
     origins: dict[str, str] = field(default_factory=dict)
     secret: bool = False  # at least one option resolve_refs() replaced with a decrypted secret value
+    secret_options: frozenset[str] = frozenset()  # their names, so a Markdown role marks only what uses them
 
 
 def _links(value) -> list[str]:

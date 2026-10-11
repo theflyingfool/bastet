@@ -11,6 +11,8 @@ import yaml
 
 from bastet.core.errors import BastetError, did_you_mean
 from bastet.core.frontmatter import parse_document
+from bastet.roles import entries as role_entries
+from bastet.roles import expr
 
 TYPES = ("string", "int", "number", "bool", "list", "map", "object", "any")  # any: checked by the role's builder
 SECRET_PREFIX = "secret:"  # a reference, resolved and re-checked against the option's type later
@@ -23,9 +25,9 @@ OPTION_AS = ("flag", "value", "list", "lines", "text", "entries")
 ENTRY_FORMATS = ("deb822", "ini_section")
 VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 ROLE_NOTE_RESERVED = {"uses", "needs", "contributes", "collects", "requires", "tags", "cssclasses", "types",
-                      "not_types", "os_min", "data", "vars", "presets", "packages", "templates", "units", "hooks",
+                      "not_types", "os_min", "data", "vars", "presets", "templates", "units", "hooks",
                       "source", "source_hash"}
-ROLE_NOTE_KEYS = {"bastet", "name", "version", "api", "description", "os", "provides", "options", "examples", "files", "commands"}
+ROLE_NOTE_KEYS = {"bastet", "name", "version", "api", "description", "os", "provides", "options", "examples", "files", "commands", "packages"}
 FILE_EDITS = ("ini",)
 FILE_RENDERS = ("apt",)
 FILE_KEYS = {"path", "edit", "render", "mode", "owner", "group", "validate", "before", "after", "backup"}
@@ -74,6 +76,7 @@ class RoleDef:
     provides: tuple[str, ...] = ()
     entries: list[dict] = field(default_factory=list)
     commands: list[dict] = field(default_factory=list)
+    packages: list[dict] = field(default_factory=list)
     markdown: bool = False
     raw: dict = field(default_factory=dict)
 
@@ -198,8 +201,11 @@ def _command_entry(path: Path, entry: object, options: dict[str, Option]) -> dic
             raise BastetError(f"commands entry: {key} must be text", file=path, key="commands")
     if "before" in entry and "after" in entry:
         raise BastetError("commands entry: use before or after, not both", file=path, key="commands")
-    if "when" in entry and entry["when"] not in options:
-        raise BastetError(f"commands entry: when names no option: {entry['when']}", file=path, key="commands")
+    if "when" in entry:
+        try:
+            expr.check_when(entry["when"], set(options), "commands entry")
+        except BastetError as exc:
+            raise BastetError(exc.message, file=path, key="commands") from None
     return entry
 
 
@@ -241,12 +247,13 @@ def parse_role(path: Path) -> RoleDef:
         if not isinstance(commands, list):
             raise BastetError("commands must be a list", file=path, key="commands")
         commands = [_command_entry(path, e, options) for e in commands]
+        packages = role_entries.parse_packages(path, data.get("packages") or [], options)
     except BastetError as exc:
         if exc.line is None and exc.key in doc.key_lines:
             raise BastetError(exc.message, file=path, line=doc.key_lines[exc.key], key=exc.key) from None
         raise
     return RoleDef(name, description, options, path, examples, api=data["api"], version=version, os=os_,
-                   provides=provides, entries=entries, commands=commands, markdown=True,
+                   provides=provides, entries=entries, commands=commands, packages=packages, markdown=True,
                    raw={k: data[k] for k in ROLE_NOTE_RESERVED if k in data})
 
 

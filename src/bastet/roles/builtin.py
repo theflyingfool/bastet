@@ -248,10 +248,7 @@ def batches_for(applied: list[Applied], host: HostInfo) -> list[Batch]:
     batches: list[Batch] = []
     for a in sorted(applied, key=lambda a: ORDER.index(a.role.name) if a.role.name in ORDER else len(ORDER)):
         if a.role.markdown:
-            built = declarative.build(a.role, a.values, host)
-            if a.secret:
-                built = [replace(b, resources=[replace(r, secret=True) for r in b.resources]) for b in built]
-            batches += built
+            batches += declarative.build(a.role, a.values, host, a.secret_options)
             continue
         builder = BUILDERS.get(a.role.name)
         if builder is None:

@@ -70,6 +70,7 @@ def plan_for(ctx: Context, doc: Document, roles: dict[str, RoleDef], updates: bo
     for a in applied:
         a.values, became_secret = resolve_refs(a.values, host=doc.name, role=a.role.name, options=a.role.options, sctx=ctx.secrets)
         a.secret = bool(became_secret)
+        a.secret_options = frozenset(became_secret)
     return applied, batches_for(applied, host_info(ctx, doc, updates=updates))
 
 
