@@ -95,6 +95,12 @@ until increments 1 to 3 are done.
    whole-file and edit intents at plan time and re-verify affected resources after any mutation. Compare the note
    bytes to the change's "before" immediately before writing. Unlock writes private files. *Proof:* planted-symlink,
    transient-mode, stale-write and "apply then check is clean" regressions.
+2a. **Manager roles own their repositories (owner decision).** A repository is that package manager's setting, so
+   repositories belong to the manager's own role (`pacman`, `apt`, and the others as their roles appear), not to a
+   cross-distro `packages` option. That gives `pacman.conf` a single owning role and removes the second writer to it.
+   Needs its own short design first: the option shape per manager, third-party key handling, what happens to the
+   existing `packages` `repositories` option and to existing host notes, and what runs the code that writes each
+   manager's files. Not part of increment 1; do it after increment 2, whose overlap detection is the safety net.
 3. **Gate execution on a trustworthy plan (C4, C5, C15 core, C23).** Selected hosts with fatal inventory errors never
    connect; selected failed nodes block their guests with a named reason; one outcome model feeds exit code, terminal,
    JSON, run note and replay. Add a host-note property equivalent to `--exclude` (name and an optional reason or date to be settled in a short
@@ -155,9 +161,3 @@ All six are answered.
 - Two building blocks that are ideas only, not started: power control (design still open) and a possible `fetch` block
   (curl/wget/git/send from the command host; audit 2 suggests pinned identities and checksums, and safe extraction, when
   a concrete role first needs it). Neither is in the roadmap's blocks table beyond power control.
-- Open design question (owner's view, not decided): repositories may belong to the package manager's own role rather than
-  the cross-distro `packages` block, since a repository is manager-specific data and the manager roles are already aimed
-  per distro. That would give `pacman.conf` a single owning role and move the `repositories` option from the `packages`
-  role to the manager roles. Needs its own design: option shape, key handling
-  for third-party repositories, migration of existing host notes. Decide with the `packages` role conversion or after
-  increment 2 (overlap detection).
