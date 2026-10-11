@@ -55,3 +55,10 @@ def test_add_host_menu_lists_the_types_in_their_order(runner, inventory):
     names = [line.split()[1] for line in result.output.splitlines() if line.startswith("  ") and line[2:3].isdigit()][:9]
     assert names == ["computer", "server", "proxmox", "unifi", "vm", "lxc", "vps", "undefined", "other"]
     assert "  1. computer  - A user's workstation" in result.output
+
+
+def test_add_undefined_host_asks_for_address(runner, inventory):
+    result = runner.invoke(app, ["add", "host", "media01", "--type", "undefined"], input="10.1.2.30\ny\n")
+    assert result.exit_code == 0, result.output
+    assert "IP (fixed address, 'dhcp', or blank)" in result.output
+    assert "ip: 10.1.2.30" in (inventory / "hosts" / "media01.md").read_text()

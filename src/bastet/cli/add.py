@@ -90,7 +90,7 @@ def add_host(
             networks = (inv.lab.data.get("networks") or {}) if inv.lab else {}
             if type_ in ("lxc", "vm") and network is None and ip is None and networks:
                 network = _choose("Network", [(n, str((v or {}).get("cidr", ""))) for n, v in networks.items()], allow_blank=True)
-            if ip is None and type_ != "undefined":
+            if ip is None:
                 default = suggested_ip(inv, network) if network else None
                 if "ip" in minimal:
                     ip = typer.prompt("IP address", default=default, show_default=bool(default)).strip()
