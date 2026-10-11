@@ -161,3 +161,6 @@ All six are answered.
 - Two building blocks that are ideas only, not started: power control (design still open) and a possible `fetch` block
   (curl/wget/git/send from the command host; audit 2 suggests pinned identities and checksums, and safe extraction, when
   a concrete role first needs it). Neither is in the roadmap's blocks table beyond power control.
+- The proxmox role is deleted (owner decision): the apt and pacman roles own their repositories, and every future package
+  manager will own its own. A new Proxmox role will be designed later (subscription-notice patch, tools, repositories as
+  apt role entries). The host type `proxmox` stays.
