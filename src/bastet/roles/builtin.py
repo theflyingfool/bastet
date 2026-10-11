@@ -134,7 +134,8 @@ def _packages(v: dict, host: HostInfo) -> list[Batch]:
     else:
         extras = [Updates(policy=policy, apply_updates=host.apply_updates, **common)]
     needs_contrib = (policy in ("auto", "security") and host.os_id in ARCH_LIKE
-                     and "pacman-contrib" not in names)  # the pending-update check needs checkupdates
+                     and "pacman-contrib" not in names  # the pending-update check needs checkupdates
+                     and not any(r.name == "pacman-contrib" for r in removes))  # unless the role removes it itself
     if not host.container:
         extras.append(Reboot(policy=v.get("reboot") or "ask", timeout=v.get("reboot_timeout") or 600))
     if v.get("report_unaccounted", True):
@@ -256,7 +257,10 @@ def batches_for(applied: list[Applied], host: HostInfo) -> list[Batch]:
     batches: list[Batch] = []
     for a in sorted(applied, key=lambda a: ORDER.index(a.role.name) if a.role.name in ORDER else len(ORDER)):
         if a.role.markdown:
-            batches += declarative.build(a.role, a.values, host, a.secret_options)
+            try:
+                batches += declarative.build(a.role, a.values, host, a.secret_options)
+            except (TypeError, ValueError, KeyError) as exc:
+                raise BastetError(f"{a.role.name}: {exc}") from None
             continue
         builder = BUILDERS.get(a.role.name)
         if builder is None:
@@ -271,7 +275,9 @@ def batches_for(applied: list[Applied], host: HostInfo) -> list[Batch]:
             # a file's content, a line in a config), so every resource from this role's batches is
             # marked secret -- not just resources with a dedicated `secret` option -- so check/apply
             # never shows its current-vs-wanted content or a diff for it.
-            built = [replace(b, resources=[replace(r, secret=True) for r in b.resources]) for b in built]
+            # The unaccounted lists only name accounts and packages; they hold no value of the role's, so they stay readable.
+            built = [replace(b, resources=[r if isinstance(r, (Unaccounted, UnaccountedUsers)) else replace(r, secret=True)
+                                           for r in b.resources]) for b in built]
         batches += built
     # Everything Bastet installs is accounted for, whichever role installs it.
     present = sorted({r.name for b in batches for r in b.resources if isinstance(r, Package) and r.state == "present"})

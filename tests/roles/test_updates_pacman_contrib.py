@@ -45,6 +45,13 @@ def test_a_name_already_in_install_is_not_duplicated():
     assert len(contrib({"updates": "auto", "install": [{"name": "pacman-contrib"}]})) == 1
 
 
+def test_a_role_that_removes_it_is_not_given_a_second_opposite_package():
+    [p] = contrib({"updates": "auto", "remove": [{"name": "pacman-contrib"}]})
+    assert p.state == "absent"
+    [report] = [r for r in resources({"updates": "auto", "remove": [{"name": "pacman-contrib"}]}) if isinstance(r, Unaccounted)]
+    assert "pacman-contrib" not in report.tracked
+
+
 def test_it_is_tracked_as_bastet_managed():
     [report] = [r for r in resources({"updates": "auto"}) if isinstance(r, Unaccounted)]
     assert "pacman-contrib" in report.tracked
