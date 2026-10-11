@@ -576,7 +576,27 @@ Add to `tests/roles/test_apt_role.py`: with `modernize_sources` false or unset t
 
 ---
 
-### Task 6: Docs and the checkpoint
+### Task 6: Strip the repository support nobody uses
+
+**Decision (owner):** after repositories moved into the `apt` and `pacman` roles, the `packages` role's `repositories` option and the dnf, zypper and apk parts of `Repository` have no user. Remove them. The proxmox role's apt repositories (which use `Repository`) stay.
+
+**Files:**
+- Modify: `src/bastet/data/roles/packages/role.yml` (remove the `repositories` option, its example, and the repository mention in the description), `src/bastet/roles/builtin.py` (`_packages`: remove the repository handling and the refusal added in Task 4; remove imports that become unused), `src/bastet/engine/packages.py` (`Repository`: remove the rpm (dnf, zypper) and apk branches and what only they use: `_ini`, `_rpm_key_path`, `_apk_key_path`, the key-file handling for those managers, the `trusted`/`options` checks that only applied to them, and `KEY_NAME`/`key_name` if nothing else uses them; keep the apt branch, the pacman `Unsupported` guard from Task 4 can also go because pacman and the others now fall under "not supported"), `docs/roles.md` (regenerate), user docs that mention `packages` repositories (`grep -rn "repositories" src/bastet/data/docs docs/*.md`)
+- Tests: `tests/engine/test_repositories.py` (remove the rpm, zypper and apk cases and any test that only exercises removed fields; keep every apt and proxmox test), `tests/roles/test_repository_entries.py` (remove the two tests about the `packages` role refusing or accepting repositories), and any test that passes `repositories` to the `packages` role
+
+**Behaviour:**
+- A host note that still gives `repositories:` to the `packages` role now gets the normal unknown-option error from the contract (with its "did you mean" hint); add one test for that in `tests/roles/test_repository_entries.py`.
+- `Repository.current` on a manager other than apt raises `Unsupported(f"repositories are only written for apt here; this host uses {manager}")`.
+- Nothing about `Package`, `Updates` or the other managers' package installs changes.
+
+- [ ] **Step 1: Write the failing tests** (the unknown-option test; a `Repository` on a pacman, dnf and apk manager raises the `Unsupported` message above; `rg "dnf|zypper|apk" src/bastet/engine/packages.py` shows no repository code left in `Repository`, but package-install code for those managers remains).
+- [ ] **Step 2: Run to see them fail.** `uv run pytest tests/roles/test_repository_entries.py tests/engine/test_repositories.py -q`.
+- [ ] **Step 3: Implement** the removals. Do not touch the proxmox role, `Package` or `Updates`.
+- [ ] **Step 4: Run** `uv run pytest tests/roles tests/engine tests/core tests/cli/test_add_role.py tests/test_cli.py -q`, regenerate `docs/roles.md` with `scripts/gen_roles_doc.py`, run `scripts/privacy-check`. **Step 5: Commit** (`packages: remove repository support for managers without a role`).
+
+---
+
+### Task 7: Docs and the checkpoint
 
 **Files:** `docs/specs/2026-10-10-bastet-roles-architecture-design.md`, `docs/ROADMAP.md`, `docs/plans/2026-10-10-bastet-audit-correction-plan.md`, `src/bastet/data/docs/writing_roles.md`.
 
