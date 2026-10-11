@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax. In this repo, the `bastet-run-plan` skill supplies the Bastet-specific parts.
 
-**Goal:** a Markdown role can call the `packages`, `systemd`, `users` and `files` building blocks directly from its frontmatter, with `{{ }}` values and a `when:` condition on every entry, so roles like `time`, `base` and `caddy` need no Python.
+**Goal:** a Markdown role can call the `packages`, `systemd`, `users` and `files` building blocks directly from its frontmatter, with `{{ }}` values and a `when:` condition on every entry, so roles like `time`, `base` and `caddy` need no Python. The `users` block also gets a read-only report of accounts no role manages, like the packages block's unaccounted report, to detect drift.
 
 **Architecture:** today a Markdown role file carries only `files:` (`edit: ini` / `render: apt`) and `commands:` entries (`src/bastet/roles/declarative.py`). Each new entry kind is a thin, validated mapping from frontmatter fields to an existing engine resource (`Package`, `Unit`, `User`, `File`, …). Values may be literal or `{{ }}` expressions over the role's options and a few host facts; `when:` is one expression on any entry. Blocks never call each other: a role that needs two lists entries for both.
 
@@ -18,7 +18,7 @@
 - The version is written only in `pyproject.toml`; do not bump it.
 - Nothing deletes notes or records. Blocks do not call each other; only roles call blocks.
 - Existing tests keep passing unchanged, except where a task names a test it edits.
-- Block entry types are added only when a role needs them; this plan adds only the entry kinds listed here. Planned-but-unbuilt kinds are recorded in docs (Task 6), not built.
+- Block entry types are added only when a role needs them; this plan adds only the entry kinds listed here. Planned-but-unbuilt kinds are recorded in docs (Task 7), not built.
 - `api: 0` stays a draft; new frontmatter keys need no version bump.
 - Commit messages end with `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>`.
 
@@ -78,7 +78,8 @@ commands:                          # existing
 | Modify `src/bastet/roles/contract.py` | New frontmatter keys; `RoleDef` fields; `when:` through `expr`; `files` entry kinds in `_file_entry` |
 | Modify `src/bastet/roles/declarative.py` | `build()` calls `entries.build_entries` and filters every entry through `when:` |
 | Tests (all new): `tests/roles/test_role_expressions.py`, `test_role_package_entries.py`, `test_role_systemd_entries.py`, `test_role_users_entries.py`, `test_role_files_entries.py`, `test_role_contract_end_to_end.py` | One file per task |
-| Modify `src/bastet/data/roles/files/role.yml`, `docs/specs/2026-10-10-bastet-roles-architecture-design.md`, `docs/ROADMAP.md` | Docs (Task 6) |
+| Create `tests/roles/test_unaccounted_users.py`; modify `src/bastet/engine/users.py`, `src/bastet/roles/builtin.py`, `src/bastet/data/roles/users/role.yml` | Task 6: the unaccounted-users report |
+| Modify `src/bastet/data/roles/files/role.yml`, `docs/specs/2026-10-10-bastet-roles-architecture-design.md`, `docs/ROADMAP.md` | Docs (Task 7) |
 
 ---
 
@@ -1104,7 +1105,185 @@ git commit -m "roles: files: entries for whole files, templates, directories, li
 
 ---
 
-### Task 6: Whole-contract check, docs and roadmap
+### Task 6: Report accounts no role manages (users drift report)
+
+**Files:**
+- Modify: `src/bastet/engine/users.py` (new `UnaccountedUsers` resource), `src/bastet/roles/builtin.py` (`_users` adds it; `batches_for` fills `tracked`), `src/bastet/data/roles/users/role.yml` (three options)
+- Test: `tests/roles/test_unaccounted_users.py`
+
+**Interfaces:**
+- Produces: `UnaccountedUsers(Resource)` in `engine/users.py`: `family = "Users"`, `slot = "reports"`, `root = False`, fields `tracked: tuple[str, ...] = ()`, `allowed: tuple[str, ...] = ()`, `system_accounts: bool = True`. Report-only like `Unaccounted` in `engine/packages.py` (`report_only()` true, `fix()` returns `[]`, never changes a host).
+  - `reads()`: `Read("passwd", "getent passwd")` and `Read("defs", "grep -E '^(UID_MIN|UID_MAX)[[:space:]]' /etc/login.defs || true")`.
+  - `current(results)` returns `{"unaccounted": (...)}`: every `getent passwd` account whose name is not in `tracked`, `allowed` or the built-in allowance `("root", "bastet")`; with `system_accounts=False` only accounts with `UID_MIN <= uid <= UID_MAX` (1000 and 60000 when `login.defs` lacks them). Each entry is the text `name (uid 33, /usr/bin/nologin)`, sorted by uid.
+  - `compare()` gives one `FieldChange("unaccounted", f"{n} accounts", "none")` when any are left; `diff_text()` lists up to 60 then `… N more`.
+- Consumes: every `User` resource in every batch (any role, old format or Markdown) is tracked; `batches_for` fills `tracked` the way it already fills `Unaccounted.tracked`.
+- Options on the `users` role (`role.yml`): `allowed` (list of account names fine without a role), `report_unaccounted` (bool, default true), `report_system_accounts` (bool, default true: system accounts such as `nobody` and `systemd-*` are included on purpose; the first real run shows how noisy that is and decides whether the default changes).
+
+- [ ] **Step 1: Write the failing tests** in `tests/roles/test_unaccounted_users.py`
+
+```python
+from pathlib import Path
+
+from bastet.core.shell import ProbeResult
+from bastet.engine.users import UnaccountedUsers, User
+from bastet.roles.builtin import HostInfo, batches_for
+from bastet.roles.contract import check_values, load_roles, with_defaults
+from bastet.roles.resolve import Applied
+
+PASSWD = ("root:x:0:0:root:/root:/bin/bash\n"
+          "bastet:x:1000:1000::/home/bastet:/bin/bash\n"
+          "nobody:x:65534:65534:Kernel Overflow User:/:/usr/bin/nologin\n"
+          "daemon:x:1:1::/:/usr/bin/nologin\n"
+          "alice:x:1001:1001::/home/alice:/bin/bash\n"
+          "bob:x:1002:1002::/home/bob:/bin/zsh\n"
+          "broken-line\n")
+
+
+def ok(text):
+    return ProbeResult(0, text)
+
+
+def current(resource, defs=""):
+    return resource.current({"passwd": ok(PASSWD), "defs": ok(defs)})["unaccounted"]
+
+
+def host():
+    return HostInfo(name="vps1", type="vps", data={"os": "Arch Linux"}, root=Path("/x"), lab={})
+
+
+def test_everything_not_tracked_or_allowed_is_reported_with_uid_and_shell():
+    r = UnaccountedUsers(tracked=("alice",), allowed=("daemon",))
+    assert current(r) == ("bob (uid 1002, /bin/zsh)", "nobody (uid 65534, /usr/bin/nologin)")
+
+
+def test_root_and_bastet_are_always_allowed_and_a_broken_line_is_skipped():
+    names = " ".join(current(UnaccountedUsers()))
+    assert "root" not in names and "bastet" not in names and "broken" not in names
+
+
+def test_system_accounts_can_be_left_out_using_login_defs_or_the_defaults():
+    r = UnaccountedUsers(system_accounts=False)
+    both = ("alice (uid 1001, /bin/bash)", "bob (uid 1002, /bin/zsh)")
+    assert current(r, "UID_MIN 1000\nUID_MAX 60000\n") == both
+    assert current(r) == both
+
+
+def test_it_is_a_report_and_never_a_fix():
+    r = UnaccountedUsers()
+    assert r.report_only() is True and r.compare({"unaccounted": ()}) == []
+    [change] = r.compare({"unaccounted": ("bob (uid 1002, /bin/zsh)",)})
+    assert (change.field, change.before, change.after) == ("unaccounted", "1 accounts", "none")
+    assert r.fix([change], {"unaccounted": ("x",)}) == []
+
+
+def test_users_from_every_role_are_tracked_and_the_options_apply():
+    role = load_roles()["users"]
+    values = with_defaults(role, check_values(role, {"users": {"alice": {}}, "allowed": ["daemon"], "report_system_accounts": False}, "users"))
+    batches = batches_for([Applied(role, values)], host())
+    [report] = [r for b in batches for r in b.resources if isinstance(r, UnaccountedUsers)]
+    assert "alice" in report.tracked and report.allowed == ("daemon",) and report.system_accounts is False
+    assert any(isinstance(r, User) and r.name == "alice" for b in batches for r in b.resources)
+
+
+def test_report_unaccounted_false_adds_no_report():
+    role = load_roles()["users"]
+    values = with_defaults(role, check_values(role, {"report_unaccounted": False}, "users"))
+    assert not [r for b in batches_for([Applied(role, values)], host()) for r in b.resources if isinstance(r, UnaccountedUsers)]
+```
+
+(If `Applied(role, values)`, `check_values` or `with_defaults` differ from this, copy the pattern in `tests/roles/test_package_baselines.py`; the assertions are the point.)
+
+- [ ] **Step 2: Run to verify failure**
+
+Run: `uv run pytest tests/roles/test_unaccounted_users.py -q`
+Expected: FAIL (`UnaccountedUsers` not defined).
+
+- [ ] **Step 3: Implement**
+
+`engine/users.py` (import `Read` and `FieldChange` from `engine.model` as the file's other resources do):
+
+```python
+_ALWAYS_ALLOWED = ("root", "bastet")
+
+
+@dataclass(frozen=True, kw_only=True)
+class UnaccountedUsers(Resource):
+    """Accounts on the host that no role manages or allows. Reported, never changed."""
+
+    family: ClassVar[str] = "Users"
+    slot: ClassVar[str] = "reports"
+    tracked: tuple[str, ...] = ()
+    allowed: tuple[str, ...] = ()
+    system_accounts: bool = True
+    root: bool = False
+
+    @property
+    def identity(self) -> str:
+        return "unaccounted users"
+
+    @property
+    def label(self) -> str:
+        return "unaccounted users"
+
+    def report_only(self) -> bool:
+        return True
+
+    def desired(self):
+        return {"tracked": self.tracked, "allowed": self.allowed, "system_accounts": self.system_accounts}
+
+    def reads(self):
+        return (Read("passwd", "getent passwd"),
+                Read("defs", "grep -E '^(UID_MIN|UID_MAX)[[:space:]]' /etc/login.defs || true"))
+
+    def current(self, results):
+        limits = {"UID_MIN": 1000, "UID_MAX": 60000}
+        for line in results["defs"].output.splitlines():
+            parts = line.split()
+            if len(parts) == 2 and parts[0] in limits and parts[1].isdigit():
+                limits[parts[0]] = int(parts[1])
+        skip = set(self.tracked) | set(self.allowed) | set(_ALWAYS_ALLOWED)
+        found = []
+        for line in results["passwd"].output.splitlines():
+            f = line.split(":")
+            if len(f) < 7 or not f[2].isdigit() or f[0] in skip:
+                continue
+            uid = int(f[2])
+            if not self.system_accounts and not limits["UID_MIN"] <= uid <= limits["UID_MAX"]:
+                continue
+            found.append((uid, f[0], f"{f[0]} (uid {uid}, {f[6]})"))
+        return {"unaccounted": tuple(text for _, _, text in sorted(found))}
+
+    def compare(self, current):
+        n = len(current["unaccounted"])
+        return [FieldChange("unaccounted", f"{n} accounts", "none")] if n else []
+
+    def diff_text(self, current):
+        names = list(current["unaccounted"])
+        return "\n".join(names[:60] + ([f"… {len(names) - 60} more"] if len(names) > 60 else [])) or None
+
+    def fix(self, changes, current):
+        return []
+```
+
+`builtin._users`: when `v.get("report_unaccounted", True)`, append `UnaccountedUsers(allowed=tuple(v.get("allowed") or ()), system_accounts=v.get("report_system_accounts", True))` to the returned batch's resources. `batches_for`: compute `user_names = sorted({r.name for b in batches for r in b.resources if isinstance(r, User)})` next to `present`, and in the final loop add `replace(r, tracked=tuple(dict.fromkeys((*r.tracked, *user_names)))) if isinstance(r, UnaccountedUsers)`. `users/role.yml`: add the three options with the descriptions above and one example.
+
+- [ ] **Step 4: Run to verify pass**
+
+Run: `uv run pytest tests/roles tests/engine -q`
+Expected: all pass.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/bastet tests/roles/test_unaccounted_users.py
+git commit -m "users: report accounts no role manages (unaccounted users), tracked across all roles"
+```
+
+**Review Focus for this task:** a passwd line with fewer than 7 fields or a non-numeric uid is skipped, not a crash; a host without `login.defs` falls back to 1000 and 60000; the report never writes anything.
+
+---
+
+### Task 7: Whole-contract check, docs and roadmap
 
 **Files:**
 - Create: `tests/roles/test_role_contract_end_to_end.py`
@@ -1162,7 +1341,7 @@ Expected: pass. If `Applied` takes other arguments, adapt the test, not the code
 - [ ] **Step 3: Docs**
   - `src/bastet/data/roles/files/role.yml` description: append "Planned settings edits, added when a role needs them: `env` (KEY=value files), `sshd`, `sysctl` (key = value)." (A one-line addition so the generated page lists them.)
   - Architecture spec, "As built" list: add an entry "**Block entries** (`packages:`, `systemd:`, `users:`, and `files:` forms `content`, `template`, `directory`, `link`, `line`, `block`), `when:` on every entry, and `{{ }}` values over options and host facts (`host`, `lab`). Blocks never call each other. Cross-host variables in the context are deferred."; close the §8 open question about the `when:` language ("a small Jinja subset over option values and facts" is what was built: sandboxed Jinja2 expressions).
-  - `docs/ROADMAP.md`: tick VPS apps step 1 (☑), update the Building blocks table rows `packages`, `systemd`, `users`, `files` with "Callable from a Markdown role"; change the "Next: the contract and the blocks" paragraph to say it is built and name the next step (`time` role).
+  - `docs/ROADMAP.md`: tick VPS apps step 1 (☑), update the Building blocks table rows `packages`, `systemd`, `users`, `files` with "Callable from a Markdown role", the `users` row with "reports unaccounted accounts (the first run decides how to treat system accounts)", and the `reports` row with "unaccounted users"; change the "Next: the contract and the blocks" paragraph to say it is built and name the next step (`time` role).
   - `README`-level or `docs/` role-authoring docs: if a role-authoring document exists under `src/bastet/data/docs/`, add a short "Calling the building blocks" section with the example from "The contract this plan builds"; otherwise skip (do not create a new doc).
 
 - [ ] **Step 4: Full checks**
@@ -1181,7 +1360,7 @@ git commit -m "roles: end-to-end contract test; docs and roadmap for block entri
 
 ## Self-review
 
-- **Spec coverage:** every roadmap item for this step is covered: `packages`/`systemd`/`users` entries (Tasks 2–4), `when:` on every entry (Tasks 2, 5), `files` forms caddy needs (Task 5: content, directory, `reload`), the `{{ }}`/`when` language (Task 1), docs of planned `edit:` types (Task 6). Not built on purpose: new `edit:` types (`env`, `sshd`), `systemd` timers/sysctl.d/…, `packages` `hold`/AUR policy, template cross-host variables, per-OS value maps (Jinja conditionals cover them).
-- **Placeholders:** none; Task 5's `FORM_KEYS` table is spelled out in the interface table, and the one place that depends on real code (`Applied`'s constructor in Task 6) says how to adapt.
+- **Spec coverage:** every roadmap item for this step is covered: `packages`/`systemd`/`users` entries (Tasks 2–4), `when:` on every entry (Tasks 2, 5), `files` forms caddy needs (Task 5: content, directory, `reload`), the `{{ }}`/`when` language (Task 1), docs of planned `edit:` types (Task 7), the users drift report (Task 6). Not built on purpose: new `edit:` types (`env`, `sshd`), `systemd` timers/sysctl.d/…, `packages` `hold`/AUR policy, template cross-host variables, per-OS value maps (Jinja conditionals cover them).
+- **Placeholders:** none; Task 5's `FORM_KEYS` table is spelled out in the interface table, and the one place that depends on real code (`Applied`'s constructor in Task 7) says how to adapt.
 - **Type consistency:** `expr` functions (`check_text`, `check_when`, `resolve`, `truthy`, `context`) and `entries` helpers (`check_common`, `placed`, `build_entries`, `build_files`, `parse_packages|systemd|users`) keep one signature across tasks. `RoleDef` gains `packages`, `systemd`, `users`; `entries` is `build_files`'s input.
 - **Review Focus mapping:** unknown names at parse time (Tasks 1–5 error tables); unset option drops the field (Task 2 `resolves to nothing`, Task 3 `time`); `when` skips the backup (Task 5); `bastet` account refused (Task 4); template escape (Task 5); sandbox (Task 1).
