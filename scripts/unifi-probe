@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+# Read-only probe of one UniFi device over SSH, using Bastet's own SSH key.
+#
+#   scripts/unifi-probe HOST [--user NAME]... [--key PATH] [--port N]
+#
+# What it does: tries to log in with key-only login (no password prompt, no agent, only the one key), as each
+# --user in turn (default: root, then bastet, then your own user name), and on the first login that works runs a
+# fixed list of read-only commands and prints what they say. Nothing is written on the device, nothing is
+# installed, and `mca-dump` is not run (its output holds secrets). Paste the output back to decide what Bastet
+# may do on UniFi devices.
+#
+# The key: --key, else $BASTET_SSH_KEY, else `ssh.key` from ~/.config/bastet/bastet.yml.
+# The host key is pinned into a throwaway known_hosts file for this run and its fingerprint is printed, so
+# compare it with what the UniFi controller shows for the device before you trust the output.
+set -euo pipefail
+
+usage() { sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-1}"; }
+
+host="" key="${BASTET_SSH_KEY:-}" port=22
+users=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --user) users+=("${2:?--user needs a name}"); shift 2 ;;
+        --key) key="${2:?--key needs a path}"; shift 2 ;;
+        --port) port="${2:?--port needs a number}"; shift 2 ;;
+        -h|--help) usage 0 ;;
+        -*) echo "unknown option: $1" >&2; usage ;;
+        *) [[ -z "$host" ]] || { echo "one host at a time" >&2; usage; }; host="$1"; shift ;;
+    esac
+done
+[[ -n "$host" ]] || usage
+[[ ${#users[@]} -gt 0 ]] || users=(root bastet "$(id -un)")
+
+if [[ -z "$key" ]]; then
+    conf="${XDG_CONFIG_HOME:-$HOME/.config}/bastet/bastet.yml"
+    if [[ -r "$conf" ]]; then
+        key=$(awk '/^ssh:/ {in_ssh=1; next} /^[^ #]/ {in_ssh=0} in_ssh && $1 == "key:" {print $2; exit}' "$conf")
+        key="${key/#\~/$HOME}"
+    fi
+fi
+[[ -n "$key" && -r "$key" ]] || { echo "no readable Bastet ssh key (give --key PATH or set ssh.key in bastet.yml)" >&2; exit 2; }
+
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+known="$tmp/known_hosts"
+: > "$known"
+
+ssh_opts=(-F /dev/null -i "$key" -p "$port" -o BatchMode=yes -o IdentitiesOnly=yes -o IdentityAgent=none
+          -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o ConnectTimeout=8
+          -o UserKnownHostsFile="$known" -o StrictHostKeyChecking=accept-new -o LogLevel=ERROR)
+
+# Everything below runs on the device, in a plain POSIX shell. Read-only commands only.
+remote=$(cat <<'EOS'
+section() { printf '\n== %s ==\n' "$1"; }
+section "who and what"
+id
+uname -a
+section "os"
+cat /etc/os-release 2>/dev/null | head -12
+cat /etc/version 2>/dev/null
+section "tools (command -v)"
+for t in sudo doas mca-dump info ubnt-systool ubnt-device-info systemctl apt apt-get dpkg opkg apk pacman \
+         nft iptables ip curl wget python3 perl bash sh busybox; do
+    p=$(command -v "$t" 2>/dev/null) && printf '%-16s %s\n' "$t" "$p" || printf '%-16s (missing)\n' "$t"
+done
+section "sudo without a password?"
+if command -v sudo >/dev/null 2>&1; then sudo -n true 2>&1 && echo "sudo -n: works" || echo "sudo -n: no"; else echo "no sudo"; fi
+section "disk and mounts"
+df -h 2>/dev/null | head -20
+mount 2>/dev/null | head -30
+section "writable? (test only, nothing is written)"
+for d in / /etc /root /tmp /var /var/lib /persistent /data /mnt /home; do
+    [ -d "$d" ] && printf '%-12s %s\n' "$d" "$([ -w "$d" ] && echo writable || echo read-only)"
+done
+section "login shell and ssh server"
+getent passwd "$(id -un)" 2>/dev/null || grep "^$(id -un):" /etc/passwd 2>/dev/null
+ls -ld /etc/ssh /root/.ssh "$HOME/.ssh" 2>&1 | head -5
+section "services"
+ls /etc/init.d 2>/dev/null | head -40
+(command -v systemctl >/dev/null 2>&1 && systemctl list-units --type=service --no-pager --no-legend 2>/dev/null | awk '{print $1, $3, $4}' | head -40) || true
+section "memory and uptime"
+head -3 /proc/meminfo
+uptime
+EOS
+)
+
+for user in "${users[@]}"; do
+    echo "--- trying $user@$host (key $key) ---" >&2
+    rc=0
+    out=$(ssh "${ssh_opts[@]}" "$user@$host" 'sh -s' <<<"$remote" 2>"$tmp/err") || rc=$?
+    # ssh itself exits 255 when it could not connect or log in; any other status is the last remote command's
+    if [[ $rc -ne 255 ]]; then
+        echo "=== login as $user@$host worked ==="
+        echo "host key fingerprint (compare with the UniFi controller):"
+        ssh-keygen -lf "$known" 2>/dev/null || echo "(could not read the pinned host key)"
+        printf '%s\n' "$out"
+        exit 0
+    fi
+    sed 's/^/    /' "$tmp/err" >&2
+done
+echo "no login worked as: ${users[*]} (key-only; the key must be installed on the device)" >&2
+exit 1

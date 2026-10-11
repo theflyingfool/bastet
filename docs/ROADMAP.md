@@ -196,6 +196,8 @@ One row per building block or role: what we know it still needs. Nothing here is
 | ssh (role) | Markdown rewrite with `edit: sshd`, `warn` rules, no lockout guard | VPS apps, step 8 |
 | caddy, forgejo, vaultwarden (roles) | New roles over the blocks | VPS apps, steps 4 to 6 |
 | Proxmox node setup, zfs, Proxmox guests, qemu_guest_agent (roles) | See the roles table (set aside until a Proxmox system is up) | milestone 4 |
+| UniFi devices (gather, roles) | Circle back to gather: the Debian gateway (UXG Fiber, `bastet` login works, root-equivalent) can probably use the normal collection; switches and APs run OpenWrt with BusyBox (no sudo, systemd, python or package manager) and stay on `mca-dump`. Gather's UniFi path should use the Bastet key and a configurable username; an `os` fact for UniFi devices; revisit `managed` per device kind; a role-compatibility marker so roles opt in for UniFi. Probe: `scripts/unifi-probe HOST` (read-only) | gather, later UniFi roles |
+| Contract plan leftovers | Scanning included/imported templates for secret options; replacing the private jinja call in `expr._expression`; `commands:` entries are not marked secret (they are literal text today); the extra `login_defs` read per user; `example.net` in older apt and repository tests (the example data says `example.com`) | when touched |
 | Docs and tooling | A `ruff` config (about 330 findings with the defaults); the options table's Default column showing the config file's own default; a check on a real LXC host that `time` entries behave in a container | after the contract plan |
 
 ## Deferred
