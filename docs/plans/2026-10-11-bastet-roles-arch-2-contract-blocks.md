@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax. In this repo, the `bastet-run-plan` skill supplies the Bastet-specific parts.
 
-**Goal:** a Markdown role can call the `packages`, `systemd`, `users` and `files` building blocks directly from its frontmatter, with `{{ }}` values and a `when:` condition on every entry, so roles like `time`, `base` and `caddy` need no Python. The `users` block also gets a read-only report of accounts no role manages, like the packages block's unaccounted report, to detect drift.
+**Goal:** a Markdown role can call the `packages`, `systemd`, `users` and `files` building blocks directly from its frontmatter, with `{{ }}` values and a `when:` condition on every entry, so roles like `time`, `base` and `example-app` need no Python. The `users` block also gets a read-only report of accounts no role manages, like the packages block's unaccounted report, to detect drift.
 
 **Architecture:** today a Markdown role file carries only `files:` (`edit: ini` / `render: apt`) and `commands:` entries (`src/bastet/roles/declarative.py`). Each new entry kind is a thin, validated mapping from frontmatter fields to an existing engine resource (`Package`, `Unit`, `User`, `File`, …). Values may be literal or `{{ }}` expressions over the role's options and a few host facts; `when:` is one expression on any entry. Blocks never call each other: a role that needs two lists entries for both.
 
@@ -28,24 +28,24 @@ Frontmatter keys, all optional lists (`ROLE_NOTE_KEYS`; `packages` leaves `ROLE_
 
 ```yaml
 packages:                          # -> Package resources
-  - caddy                          # a bare name
+  - example-app                          # a bare name
   - {name: "{{ tools }}"}          # a name that resolves to a list expands to one Package each
   - {name: amd-ucode, when: "host.physical"}
 systemd:                           # -> Unit / TimeSettings / Hostname / Locale / drop_in
-  - {kind: unit, name: caddy.service, enabled: true, state: up}
+  - {kind: unit, name: example-app.service, enabled: true, state: up}
   - {kind: time, timezone: "{{ timezone }}", ntp: "{{ ntp }}"}
   - {kind: hostname}               # the host's own name
   - {kind: locale, lang: "{{ locale }}"}
-  - {kind: dropin, unit: caddy.service, name: bastet, content: "...", restart: true}
+  - {kind: dropin, unit: example-app.service, name: bastet, content: "...", restart: true}
 users:                             # -> User / Group / AuthorizedKey / sudoer
   - {kind: user, name: git, system: true, shell: /bin/bash}
   - {kind: group, name: git}
   - {kind: key, user: git, key: "ssh-ed25519 AAAA…"}
   - {kind: sudoer, name: git, user: git, commands: [/usr/bin/systemctl]}
 files:                             # existing edit/render, plus whole-file kinds
-  - {path: /etc/caddy/Caddyfile, content: "import conf.d/*\n", mode: "0644", reload: [caddy.service]}
-  - {path: /etc/caddy/Caddyfile, template: Caddyfile.j2}      # Jinja2 file in the role's own folder
-  - {path: /etc/caddy/conf.d, directory: true, mode: "0755"}
+  - {path: /etc/example-app/app.conf, content: "import conf.d/*\n", mode: "0644", reload: [example-app.service]}
+  - {path: /etc/example-app/app.conf, template: app.conf.j2}      # Jinja2 file in the role's own folder
+  - {path: /etc/example-app/conf.d, directory: true, mode: "0755"}
   - {path: /srv/current, link: /srv/app}
   - {path: /etc/default/x, line: "A=1", match: "^A=", unique: true}
   - {path: /etc/x.conf, block: "...", marker: "bastet x", comment: "#"}
@@ -78,6 +78,7 @@ commands:                          # existing
 | Modify `src/bastet/roles/contract.py` | New frontmatter keys; `RoleDef` fields; `when:` through `expr`; `files` entry kinds in `_file_entry` |
 | Modify `src/bastet/roles/declarative.py` | `build()` calls `entries.build_entries` and filters every entry through `when:` |
 | Tests (all new): `tests/roles/test_role_expressions.py`, `test_role_package_entries.py`, `test_role_systemd_entries.py`, `test_role_users_entries.py`, `test_role_files_entries.py`, `test_role_contract_end_to_end.py` | One file per task |
+| Create `src/bastet/engine/sha512crypt.py`; tests `tests/engine/test_sha512crypt.py`, `tests/engine/test_user_password.py`; modify `src/bastet/engine/users.py` | Task 3b: plain-text passwords |
 | Create `tests/roles/test_unaccounted_users.py`; modify `src/bastet/engine/users.py`, `src/bastet/roles/builtin.py`, `src/bastet/data/roles/users/role.yml` | Task 6: the unaccounted-users report |
 | Modify `src/bastet/data/roles/files/role.yml`, `docs/specs/2026-10-10-bastet-roles-architecture-design.md`, `docs/ROADMAP.md` | Docs (Task 7) |
 
@@ -360,8 +361,8 @@ def built(r, values, **host_kw):
 
 
 def test_bare_names_and_maps_become_packages(tmp_path):
-    r = role(tmp_path, ["caddy", {"name": "git", "state": "absent"}, {"name": "yay-bin", "aur": True}])
-    assert [(p.name, p.state, p.aur) for p in built(r, {})] == [("caddy", "present", False), ("git", "absent", False), ("yay-bin", "present", True)]
+    r = role(tmp_path, ["example-app", {"name": "git", "state": "absent"}, {"name": "yay-bin", "aur": True}])
+    assert [(p.name, p.state, p.aur) for p in built(r, {})] == [("example-app", "present", False), ("git", "absent", False), ("yay-bin", "present", True)]
     assert all(isinstance(p, Package) for p in built(r, {}))
 
 
@@ -597,8 +598,8 @@ def built(r, values=None, type="vps", data=None):
 
 
 def test_unit(tmp_path):
-    [u] = built(role(tmp_path, [{"kind": "unit", "name": "caddy.service", "enabled": True, "state": "up"}]))
-    assert isinstance(u, Unit) and (u.name, u.enabled, u.state) == ("caddy.service", True, "up")
+    [u] = built(role(tmp_path, [{"kind": "unit", "name": "example-app.service", "enabled": True, "state": "up"}]))
+    assert isinstance(u, Unit) and (u.name, u.enabled, u.state) == ("example-app.service", True, "up")
 
 
 def test_time_takes_option_values_and_drops_unset_ones(tmp_path):
@@ -623,9 +624,9 @@ def test_locale(tmp_path):
 
 
 def test_dropin(tmp_path):
-    [f] = built(role(tmp_path, [{"kind": "dropin", "unit": "caddy.service", "name": "bastet", "content": "[Service]\nX=1\n"}]))
-    assert isinstance(f, File) and f.path == "/etc/systemd/system/caddy.service.d/bastet.conf"
-    assert [t.label for t in f.on_change] == ["daemon-reload", "restart caddy.service"]
+    [f] = built(role(tmp_path, [{"kind": "dropin", "unit": "example-app.service", "name": "bastet", "content": "[Service]\nX=1\n"}]))
+    assert isinstance(f, File) and f.path == "/etc/systemd/system/example-app.service.d/bastet.conf"
+    assert [t.label for t in f.on_change] == ["daemon-reload", "restart example-app.service"]
     [f] = built(role(tmp_path, [{"kind": "dropin", "unit": "u.service", "name": "n", "content": "x", "restart": False}]))
     assert [t.label for t in f.on_change] == ["daemon-reload"]
 
@@ -734,6 +735,166 @@ git commit -m "roles: systemd: entries (unit, time, hostname, locale, dropin)"
 
 ---
 
+### Task 3b: Plain-text passwords in the users block
+
+**Files:**
+- Create: `src/bastet/engine/sha512crypt.py`
+- Modify: `src/bastet/engine/users.py` (`User`), `src/bastet/data/roles/users/role.yml` (`users.<name>.password`); `src/bastet/roles/builtin.py` needs nothing if `_kw` already passes fields through (confirm)
+- Test: `tests/engine/test_sha512crypt.py`, `tests/engine/test_user_password.py` (look at the existing `tests/engine` files for the pattern; basenames must stay unique across `tests/`)
+
+**Why:** a secret note holds the password in plain text when unlocked; Bastet makes the hash. Python 3.13+ has no `crypt` module and the project has no hashing dependency, so SHA-512 crypt is implemented here (about 50 lines of `hashlib`).
+
+**Interfaces:**
+- Produces:
+  - `sha512crypt.hash(password: str, salt: str, rounds: int = 5000) -> str` — returns `$6$<salt>$<86 chars>` (`$6$rounds=N$<salt>$…` only when `rounds != 5000`); the salt is cut to 16 characters.
+  - `sha512crypt.new_salt() -> str` — 16 random characters from `./0-9A-Za-z` (`secrets.choice`).
+  - `sha512crypt.matches(password: str, stored: str) -> bool` — re-hashes `password` with `stored`'s own salt and rounds; false for anything that is not a `$6$` hash (empty, `!`, `*`, other schemes).
+  - `User.password: str | None = None` (plain text, new field). `password` together with `password_hash` raises `ValueError("give password or password_hash, not both")` in `__post_init__`.
+- Behaviour: `compare()` treats the account as correct when `sha512crypt.matches(self.password, current["password"])` (the hash `current()` reads from `/etc/shadow`); otherwise it reports `FieldChange("password", "(hidden)", "(new)")`, as for `password_hash` today. `update_password: on_create` leaves an existing account's password alone. `fix()` sets it with the existing `_password_cmd` using a fresh `sha512crypt.hash(self.password, sha512crypt.new_salt())`, so the plain text never reaches a command line, shell history or log.
+
+- [ ] **Step 1: Write the failing tests**
+
+`tests/engine/test_sha512crypt.py`:
+
+```python
+import pytest
+
+from bastet.engine import sha512crypt
+
+
+def test_known_vector_from_the_sha_crypt_specification():
+    assert sha512crypt.hash("Hello world!", "saltstring") == (
+        "$6$saltstring$svn8UoSVapNtMuq1ukKS4tPQd8iKwSMHWjl/O817G3uBnIFNjnQJuesI68u4OTLiBFdcbYEdFCoEOfaS35inz1")
+
+
+def test_rounds_are_written_when_not_the_default():
+    assert sha512crypt.hash("Hello world!", "saltstring", rounds=10000).startswith("$6$rounds=10000$saltstring$")
+
+
+def test_a_long_salt_is_cut_to_16_characters():
+    assert sha512crypt.hash("x", "a" * 40).startswith("$6$" + "a" * 16 + "$")
+
+
+def test_matches_uses_the_stored_salt_and_rounds():
+    stored = sha512crypt.hash("correct horse", sha512crypt.new_salt())
+    assert sha512crypt.matches("correct horse", stored) and not sha512crypt.matches("wrong", stored)
+    assert sha512crypt.matches("pw", sha512crypt.hash("pw", "abc", rounds=6000))
+
+
+@pytest.mark.parametrize("stored", ["", "!", "*", "x", "$1$abc$def", "$6$", "$6$salt"])
+def test_matches_is_false_for_anything_that_is_not_a_sha512_hash(stored):
+    assert sha512crypt.matches("pw", stored) is False
+
+
+def test_new_salt_is_16_valid_characters_and_varies():
+    a, b = sha512crypt.new_salt(), sha512crypt.new_salt()
+    assert len(a) == 16 and a != b and set(a) <= set("./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")
+```
+
+`tests/engine/test_user_password.py`: copy the construction pattern of the existing `User` tests under `tests/engine/` and assert:
+1. `User(name="root", password="a", password_hash="$6$s$h")` raises `ValueError` matching `password or password_hash, not both`.
+2. `compare` gives no password change when the current hash was made from the same plain text with any salt, and `FieldChange("password", "(hidden)", "(new)")` when it was made from other text or the current hash is `""`, `!` or `*`.
+3. With `update_password="on_create"` an existing account with a different hash gives no change.
+4. `fix` for a password change returns one `chpasswd -e` command containing a `$6$` hash, and the plain text appears in no returned command.
+5. The report text for the change never contains the plain text.
+
+- [ ] **Step 2: Run to verify failure**
+
+Run: `uv run pytest tests/engine/test_sha512crypt.py tests/engine/test_user_password.py -q`
+Expected: FAIL (module missing).
+
+- [ ] **Step 3: Implement `src/bastet/engine/sha512crypt.py`** (Drepper's "Unix crypt using SHA-256 and SHA-512", the SHA-512 variant):
+
+```python
+"""SHA-512 crypt ($6$), implemented here because Python 3.13 dropped `crypt` and Bastet takes no hashing dependency."""
+
+import hashlib
+import secrets
+
+_ALPHABET = "./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+_ORDER = ((0, 21, 42), (22, 43, 1), (44, 2, 23), (3, 24, 45), (25, 46, 4), (47, 5, 26), (6, 27, 48), (28, 49, 7),
+          (50, 8, 29), (9, 30, 51), (31, 52, 10), (53, 11, 32), (12, 33, 54), (34, 55, 13), (56, 14, 35), (15, 36, 57),
+          (37, 58, 16), (59, 17, 38), (18, 39, 60), (40, 61, 19), (62, 20, 41))
+
+
+def new_salt() -> str:
+    return "".join(secrets.choice(_ALPHABET) for _ in range(16))
+
+
+def _b64(a: int, b: int, c: int, n: int) -> str:
+    value, out = (a << 16) | (b << 8) | c, ""
+    for _ in range(n):
+        out += _ALPHABET[value & 0x3F]
+        value >>= 6
+    return out
+
+
+def hash(password: str, salt: str, rounds: int = 5000) -> str:
+    pw, salt = password.encode(), salt[:16]
+    s = salt.encode()
+    b = hashlib.sha512(pw + s + pw).digest()
+    a = hashlib.sha512(pw + s)
+    n = len(pw)
+    while n > 64:
+        a.update(b)
+        n -= 64
+    a.update(b[:n])
+    n = len(pw)
+    while n:
+        a.update(b if n & 1 else pw)
+        n >>= 1
+    c = a.digest()
+    dp = hashlib.sha512(pw * len(pw)).digest()
+    p = (dp * (len(pw) // 64 + 1))[:len(pw)]
+    ds = hashlib.sha512(s * (16 + c[0])).digest()
+    sp = (ds * (len(s) // 64 + 1))[:len(s)]
+    for i in range(rounds):
+        h = hashlib.sha512()
+        h.update(p if i & 1 else c)
+        if i % 3:
+            h.update(sp)
+        if i % 7:
+            h.update(p)
+        h.update(c if i & 1 else p)
+        c = h.digest()
+    out = "".join(_b64(c[x], c[y], c[z], 4) for x, y, z in _ORDER) + _b64(0, 0, c[63], 2)
+    prefix = f"$6$rounds={rounds}$" if rounds != 5000 else "$6$"
+    return f"{prefix}{salt}${out}"
+
+
+def matches(password: str, stored: str) -> bool:
+    parts = stored.split("$")
+    if len(parts) == 5 and parts[1] == "6" and parts[2].startswith("rounds=") and parts[2][7:].isdigit():
+        rounds, salt, tail = int(parts[2][7:]), parts[3], parts[4]
+    elif len(parts) == 4 and parts[1] == "6":
+        rounds, salt, tail = 5000, parts[2], parts[3]
+    else:
+        return False
+    if not salt or not tail:
+        return False
+    return secrets.compare_digest(hash(password, salt, rounds), stored)
+```
+
+If the known-vector test fails, the fault is in the byte permutation or in the order of the `a` updates; compare against the specification's steps, not by trial and error. (Note: the first digest `a` is the *running* hash `hashlib.sha512(pw + s)` updated in place, and `c[0]` is the first byte of its final digest.)
+
+Then `User`: add `password: str | None = None`; the both-given check in `__post_init__`; in `current()`/`compare()` use `sha512crypt.matches`; in `fix()` build the command with a fresh hash (`password_hash` keeps its current path). `users/role.yml`: add `password: {type: string, secret: true, description: "Plain-text password; Bastet hashes it (sha512 crypt). Set it with a secret: reference, never write it in the note"}` beside `password_hash`, and one example.
+
+- [ ] **Step 4: Run to verify pass**
+
+Run: `uv run pytest tests/engine tests/roles -q`
+Expected: all pass.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/bastet tests/engine
+git commit -m "users: plain-text passwords from secrets, hashed by Bastet (sha512 crypt, no new dependency)"
+```
+
+**Review Focus for this task:** a `*`, `!` or empty shadow hash (locked or no password) never counts as a match; the plain text never appears in a command line, report, diff or run record; the same plain text with a different salt on the host is not a change.
+
+---
+
 ### Task 4: `users:` entries
 
 **Files:**
@@ -746,12 +907,12 @@ git commit -m "roles: systemd: entries (unit, time, hostname, locale, dropin)"
 
 | kind | keys | resource |
 |---|---|---|
-| `user` | `name` (required) plus the `User` fields: `uid, group, groups, append, comment, home, create_home, move_home, shell, system, password_hash, update_password, locked, expires, max_days, min_days, warn_days, inactive_days, non_unique, skeleton` | `User` |
+| `user` | `name` (required) plus the `User` fields: `uid, group, groups, append, comment, home, create_home, move_home, shell, system, password, password_hash, update_password, locked, expires, max_days, min_days, warn_days, inactive_days, non_unique, skeleton` | `User` |
 | `group` | `name` (required), `gid`, `system`, `members`, `append_members` | `Group` |
 | `key` | `user`, `key` (required), `options`, `path`, `state` | `AuthorizedKey` |
 | `sudoer` | `name` (required), `rules, user, group, commands, runas, hosts, nopasswd, setenv, defaults` | `sudoer(name, ...)` |
 
-**Passwords from secrets.** A role gets a root (or any user's) password the way every other option does: declare `root_password_hash: {type: string, secret: true}`, use `password_hash: "{{ root_password_hash }}"` in the `user` entry, and the owner sets `secret:<path>` for the option in the host's role note (`bastet secret set <host> <role> root_password_hash`). `password_hash` is a crypt hash (as the `users` role's option says: `mkpasswd -m sha-512`), never plain text. Only the entries that mention the option are marked secret, so the rest of the role still shows its diffs. `root` is an ordinary user name here (only `bastet` is refused).
+**Passwords from secrets.** A role declares `root_password: {type: string, secret: true}`, uses `password: "{{ root_password }}"` in the `user` entry, and the owner sets it with `bastet secret set <host> <role> root_password`. The secret note holds the **plain text** password (`bastet secret unlock` shows it as plain text, `lock` re-encrypts it); Bastet hashes it when it runs (Task 3b), so no one keeps a crypt hash by hand. `password_hash` (an already-made crypt hash) is still accepted; giving both is refused. Only the entries that mention a secret option are marked secret, so the rest of the role still shows its diffs. `root` is an ordinary user name here (only `bastet` is refused).
 
 An entry whose `name` (user/group/sudoer) or `user` (key) is `bastet` is refused at parse time (`the bastet account is managed by Bastet itself`). Lists become tuples. A `password_hash` that resolves from a `secret:` option works through the existing option mechanism (the whole value is the option), no new code.
 
@@ -803,19 +964,19 @@ def test_user_group_key_sudoer(tmp_path):
 
 def test_a_password_hash_from_a_secret_option_marks_only_its_entry_secret(tmp_path):
     r = role(tmp_path, [
-        {"kind": "user", "name": "root", "password_hash": "{{ pw }}", "create_home": False},
+        {"kind": "user", "name": "root", "password": "{{ pw }}", "create_home": False},
         {"kind": "group", "name": "ops"},
     ], options={"pw": {"type": "string", "secret": True}})
     host = HostInfo(name="vps1", type="vps", data={"os": "Arch Linux"}, root=Path("/x"), lab={})
-    [batch] = build(r, {"pw": "$6$saltsalt$hashhash"}, host, secret_options=frozenset({"pw"}))
+    [batch] = build(r, {"pw": "correct horse"}, host, secret_options=frozenset({"pw"}))
     root, ops = batch.resources
-    assert root.password_hash == "$6$saltsalt$hashhash" and root.secret is True
+    assert root.password == "correct horse" and root.secret is True
     assert ops.secret is False
 
 
 def test_without_secret_options_nothing_is_secret(tmp_path):
-    r = role(tmp_path, [{"kind": "user", "name": "root", "password_hash": "{{ pw }}"}], options={"pw": {"type": "string", "secret": True}})
-    assert built(r, {"pw": "$6$x$y"})[0].secret is False
+    r = role(tmp_path, [{"kind": "user", "name": "root", "password": "{{ pw }}"}], options={"pw": {"type": "string", "secret": True}})
+    assert built(r, {"pw": "correct horse"})[0].secret is False
 
 
 def test_when_skips_an_entry(tmp_path):
@@ -832,6 +993,7 @@ def test_when_skips_an_entry(tmp_path):
     ({"kind": "key", "user": "bastet", "key": "k"}, "bastet account is managed by Bastet itself"),
     ({"kind": "sudoer", "name": "bastet", "user": "x"}, "bastet account is managed by Bastet itself"),
     ({"kind": "user", "name": "x", "zzz": 1}, "zzz"),
+    ({"kind": "user", "name": "x", "password": "a", "password_hash": "$6$s$h"}, "password or password_hash, not both"),
     ({"kind": "user", "name": "{{ nope }}"}, "names no option or fact: nope"),
 ])
 def test_users_entry_errors(tmp_path, entry, message):
@@ -852,7 +1014,7 @@ In `entries.py`:
 from bastet.engine.users import AuthorizedKey, Group, User, sudoer
 
 USER_FIELDS = {"name", "uid", "group", "groups", "append", "comment", "home", "create_home", "move_home", "shell", "system",
-               "password_hash", "update_password", "locked", "expires", "max_days", "min_days", "warn_days",
+               "password", "password_hash", "update_password", "locked", "expires", "max_days", "min_days", "warn_days",
                "inactive_days", "non_unique", "skeleton"}
 USERS_KINDS = {
     "user": USER_FIELDS,
@@ -881,6 +1043,8 @@ def parse_users(path: Path, items: object, options: dict) -> list[dict]:
         for need in USERS_REQUIRED[kind]:
             if entry.get(need) in (None, ""):
                 raise _fail(f"{where}: {kind}: needs {need}", path, "users")
+        if entry.get("password") is not None and entry.get("password_hash") is not None:
+            raise _fail(f"{where}: give password or password_hash, not both", path, "users")
         if BASTET_USER in (entry.get("name") if kind != "key" else entry.get("user"), entry.get("user")):
             raise _fail(f"{where}: the bastet account is managed by Bastet itself", path, "users")
         check_common(entry, allowed, where, path, "users")
@@ -984,10 +1148,10 @@ def built(r, values=None):
 
 
 def test_content_becomes_a_file_with_triggers(tmp_path):
-    [f] = built(role(tmp_path, [{"path": "/etc/x.conf", "content": "host {{ domain }}\n", "mode": "0644", "reload": ["caddy.service"]}]),
+    [f] = built(role(tmp_path, [{"path": "/etc/x.conf", "content": "host {{ domain }}\n", "mode": "0644", "reload": ["example-app.service"]}]),
                 {"domain": "example.net"})
     assert isinstance(f, File) and f.content == "host example.net\n" and f.mode == "0644"
-    assert [t.label for t in f.on_change] == ["reload caddy.service"]
+    assert [t.label for t in f.on_change] == ["reload example-app.service"]
 
 
 def test_template_from_the_roles_folder(tmp_path):
@@ -998,7 +1162,7 @@ def test_template_from_the_roles_folder(tmp_path):
 
 def test_directory_link_line_block(tmp_path):
     r = role(tmp_path, [
-        {"path": "/etc/caddy/conf.d", "directory": True, "mode": "0755"},
+        {"path": "/etc/example-app/conf.d", "directory": True, "mode": "0755"},
         {"path": "/srv/current", "link": "/srv/app"},
         {"path": "/etc/default/x", "line": "A=1", "match": "^A=", "unique": True},
         {"path": "/etc/x.conf", "block": "k = v", "marker": "bastet x", "comment": ";"},
@@ -1031,7 +1195,7 @@ def test_content_that_resolves_to_nothing_is_an_error(tmp_path):
     ({"path": "/x", "template": "../site.j2"}, "template must be a file in the role's own folder"),
     ({"path": "/x", "template": "/etc/passwd"}, "template must be a file in the role's own folder"),
     ({"path": "/x", "content": "{{ nope }}"}, "names no option or fact: nope"),
-    ({"path": "/x", "content": "a", "reload": "caddy.service"}, "reload must be a list"),
+    ({"path": "/x", "content": "a", "reload": "example-app.service"}, "reload must be a list"),
 ])
 def test_files_entry_errors(tmp_path, entry, message):
     with pytest.raises(BastetError, match=message):
@@ -1114,10 +1278,10 @@ git commit -m "roles: files: entries for whole files, templates, directories, li
 **Interfaces:**
 - Produces: `UnaccountedUsers(Resource)` in `engine/users.py`: `family = "Users"`, `slot = "reports"`, `root = False`, fields `tracked: tuple[str, ...] = ()`, `allowed: tuple[str, ...] = ()`, `system_accounts: bool = True`. Report-only like `Unaccounted` in `engine/packages.py` (`report_only()` true, `fix()` returns `[]`, never changes a host).
   - `reads()`: `Read("passwd", "getent passwd")` and `Read("defs", "grep -E '^(UID_MIN|UID_MAX)[[:space:]]' /etc/login.defs || true")`.
-  - `current(results)` returns `{"unaccounted": (...)}`: every `getent passwd` account whose name is not in `tracked`, `allowed` or the built-in allowance `("root", "bastet")`; with `system_accounts=False` only accounts with `UID_MIN <= uid <= UID_MAX` (1000 and 60000 when `login.defs` lacks them). Each entry is the text `name (uid 33, /usr/bin/nologin)`, sorted by uid.
+  - `current(results)` returns `{"unaccounted": (...)}`: every `getent passwd` account whose name is not in `tracked` or `allowed` (no built-in allowance: `root` and `bastet` show up like everyone else until a role manages them or `allowed` names them); with `system_accounts=False` only accounts with `UID_MIN <= uid <= UID_MAX` (1000 and 60000 when `login.defs` lacks them). Each entry is the text `name (uid 33, /usr/bin/nologin)`, sorted by uid.
   - `compare()` gives one `FieldChange("unaccounted", f"{n} accounts", "none")` when any are left; `diff_text()` lists up to 60 then `… N more`.
 - Consumes: every `User` resource in every batch (any role, old format or Markdown) is tracked; `batches_for` fills `tracked` the way it already fills `Unaccounted.tracked`.
-- Options on the `users` role (`role.yml`): `allowed` (list of account names fine without a role), `report_unaccounted` (bool, default true), `report_system_accounts` (bool, default true: system accounts such as `nobody` and `systemd-*` are included on purpose; the first real run shows how noisy that is and decides whether the default changes).
+- Options on the `users` role (`role.yml`): `allowed` (list of account names fine without a role), `report_unaccounted` (bool, default true), `report_system_accounts` (bool, default true: `root`, `bastet` and system accounts such as `nobody` and `systemd-*` are included on purpose; the first real run shows how noisy that is and decides whether the default changes).
 
 - [ ] **Step 1: Write the failing tests** in `tests/roles/test_unaccounted_users.py`
 
@@ -1153,17 +1317,20 @@ def host():
 
 def test_everything_not_tracked_or_allowed_is_reported_with_uid_and_shell():
     r = UnaccountedUsers(tracked=("alice",), allowed=("daemon",))
-    assert current(r) == ("bob (uid 1002, /bin/zsh)", "nobody (uid 65534, /usr/bin/nologin)")
+    assert current(r) == ("root (uid 0, /bin/bash)", "bastet (uid 1000, /bin/bash)", "bob (uid 1002, /bin/zsh)",
+                          "nobody (uid 65534, /usr/bin/nologin)")
 
 
-def test_root_and_bastet_are_always_allowed_and_a_broken_line_is_skipped():
+def test_root_and_bastet_show_up_until_tracked_or_allowed_and_a_broken_line_is_skipped():
     names = " ".join(current(UnaccountedUsers()))
-    assert "root" not in names and "bastet" not in names and "broken" not in names
+    assert "root (uid 0" in names and "bastet (uid 1000" in names and "broken" not in names
+    quiet = " ".join(current(UnaccountedUsers(allowed=("root",), tracked=("bastet",))))
+    assert "root" not in quiet and "bastet" not in quiet
 
 
 def test_system_accounts_can_be_left_out_using_login_defs_or_the_defaults():
     r = UnaccountedUsers(system_accounts=False)
-    both = ("alice (uid 1001, /bin/bash)", "bob (uid 1002, /bin/zsh)")
+    both = ("bastet (uid 1000, /bin/bash)", "alice (uid 1001, /bin/bash)", "bob (uid 1002, /bin/zsh)")
     assert current(r, "UID_MIN 1000\nUID_MAX 60000\n") == both
     assert current(r) == both
 
@@ -1203,9 +1370,6 @@ Expected: FAIL (`UnaccountedUsers` not defined).
 `engine/users.py` (import `Read` and `FieldChange` from `engine.model` as the file's other resources do):
 
 ```python
-_ALWAYS_ALLOWED = ("root", "bastet")
-
-
 @dataclass(frozen=True, kw_only=True)
 class UnaccountedUsers(Resource):
     """Accounts on the host that no role manages or allows. Reported, never changed."""
@@ -1241,7 +1405,7 @@ class UnaccountedUsers(Resource):
             parts = line.split()
             if len(parts) == 2 and parts[0] in limits and parts[1].isdigit():
                 limits[parts[0]] = int(parts[1])
-        skip = set(self.tracked) | set(self.allowed) | set(_ALWAYS_ALLOWED)
+        skip = set(self.tracked) | set(self.allowed)
         found = []
         for line in results["passwd"].output.splitlines():
             f = line.split(":")
@@ -1313,10 +1477,10 @@ def demo(tmp_path):
     folder.mkdir()
     data = {"bastet": "role-definition", "name": "web", "version": "1.0.0", "api": 0, "description": "A demo web role",
             "options": {"domain": {"type": "string", "required": True}},
-            "packages": ["caddy"],
+            "packages": ["example-app"],
             "users": [{"kind": "user", "name": "web", "system": True}],
-            "files": [{"path": "/etc/caddy/Caddyfile", "content": "{{ domain }} {\n}\n", "reload": ["caddy.service"]}],
-            "systemd": [{"kind": "unit", "name": "caddy.service", "enabled": True, "state": "up"}]}
+            "files": [{"path": "/etc/example-app/app.conf", "content": "{{ domain }} {\n}\n", "reload": ["example-app.service"]}],
+            "systemd": [{"kind": "unit", "name": "example-app.service", "enabled": True, "state": "up"}]}
     path = folder / "web role.md"
     path.write_text("---\n" + yaml.safe_dump(data, sort_keys=False) + "---\nNotes.\n", encoding="utf-8")
     return parse_role(path)
@@ -1360,7 +1524,7 @@ git commit -m "roles: end-to-end contract test; docs and roadmap for block entri
 
 ## Self-review
 
-- **Spec coverage:** every roadmap item for this step is covered: `packages`/`systemd`/`users` entries (Tasks 2–4), `when:` on every entry (Tasks 2, 5), `files` forms caddy needs (Task 5: content, directory, `reload`), the `{{ }}`/`when` language (Task 1), docs of planned `edit:` types (Task 7), the users drift report (Task 6). Not built on purpose: new `edit:` types (`env`, `sshd`), `systemd` timers/sysctl.d/…, `packages` `hold`/AUR policy, template cross-host variables, per-OS value maps (Jinja conditionals cover them).
+- **Spec coverage:** every roadmap item for this step is covered: `packages`/`systemd`/`users` entries (Tasks 2–4), `when:` on every entry (Tasks 2, 5), `files` forms example-app needs (Task 5: content, directory, `reload`), the `{{ }}`/`when` language (Task 1), docs of planned `edit:` types (Task 7), the users drift report (Task 6). Not built on purpose: new `edit:` types (`env`, `sshd`), `systemd` timers/sysctl.d/…, `packages` `hold`/AUR policy, template cross-host variables, per-OS value maps (Jinja conditionals cover them).
 - **Placeholders:** none; Task 5's `FORM_KEYS` table is spelled out in the interface table, and the one place that depends on real code (`Applied`'s constructor in Task 7) says how to adapt.
 - **Type consistency:** `expr` functions (`check_text`, `check_when`, `resolve`, `truthy`, `context`) and `entries` helpers (`check_common`, `placed`, `build_entries`, `build_files`, `parse_packages|systemd|users`) keep one signature across tasks. `RoleDef` gains `packages`, `systemd`, `users`; `entries` is `build_files`'s input.
 - **Review Focus mapping:** unknown names at parse time (Tasks 1–5 error tables); unset option drops the field (Task 2 `resolves to nothing`, Task 3 `time`); `when` skips the backup (Task 5); `bastet` account refused (Task 4); template escape (Task 5); sandbox (Task 1).
