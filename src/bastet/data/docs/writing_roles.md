@@ -43,7 +43,8 @@ before packages are installed. Repositories belong to the package manager's own 
 its own; the `packages` role has none.
 
 A role file can also list `commands:`. Each entry has a `name`, a `run` command and an `unless` check (the command
-runs only when the check fails), and optionally `when` (a condition, see below) and `before` or `after`.
+runs only when the check fails), and optionally `when` (a condition, see below) and `before` or `after`. The `run`
+and `unless` texts are literal: `{{ }}` in them is not filled in.
 The apt role's `modernize_sources` option uses one to run `apt modernize-sources -y`.
 
 ### Calling the building blocks
@@ -68,7 +69,13 @@ systemd:
   - {kind: unit, name: example-app.service, enabled: true, state: up}
 ```
 
-`files:` entries also come as `template`, `directory`, `link`, `line` and `block`. A password given to a `users:`
+A lone `{{ option }}` keeps its type, and an option left unset drops that field (or, for a list item or a required
+field, is an error). An unset option inside other text, as in `zone={{ tz }}`, is an error too, so write an optional
+part as `{% if tz %}zone={{ tz }}{% endif %}`. Every field of a `files:` entry is filled in, paths and modes
+included, and a `files:` entry can't write Bastet's own `/etc/sudoers.d/bastet` or `authorized_keys`.
+
+`files:` entries also come as `template` (a file in the role's folder, checked when the role is read, and rendered
+in the same sandbox as the expressions), `directory`, `link`, `line` and `block`. A password given to a `users:`
 entry from a secret is hashed on the controller in the host's own scheme.
 
 `bastet doctor <folder>` lints a Markdown role.
