@@ -124,3 +124,28 @@ def test_the_files_owner_group_and_mode_are_left_alone(tmp_path):
     after = path.stat()
     assert run.ok and BEGIN in path.read_text()
     assert stat.S_IMODE(after.st_mode) == 0o640 and (after.st_uid, after.st_gid) == (before.st_uid, before.st_gid)
+
+
+TWICE = """\
+[options]
+Color
+[core]
+NoExtract = keep
+[options]
+NoExtract = a
+Color
+"""
+
+
+def test_every_section_with_the_same_name_is_cleaned_and_the_block_goes_after_the_first_header():
+    s = Settings(path="/etc/pacman.conf", section="options", keys=("NoExtract", "Color"), lines=("NoExtract = b",))
+    out = s.wanted(TWICE)
+    assert out == (f"[options]\n{BEGIN}\nNoExtract = b\n{END}\n#bastet: Color\n"
+                   "[core]\nNoExtract = keep\n[options]\n#bastet: NoExtract = a\n#bastet: Color\n")
+    assert s.wanted(out) == out
+
+
+def test_a_block_inside_a_later_same_name_section_moves_to_the_first_header():
+    s = Settings(path="/etc/pacman.conf", section="options", keys=("NoExtract",), lines=("NoExtract = b",))
+    moved = f"[options]\n[core]\n[options]\n{BEGIN}\nNoExtract = b\n{END}\n"
+    assert s.wanted(moved) == f"[options]\n{BEGIN}\nNoExtract = b\n{END}\n[core]\n[options]\n"

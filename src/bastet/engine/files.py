@@ -380,23 +380,28 @@ class Settings(_Edit):
         rows = text.splitlines(keepends=True)
         header = re.compile(rf"^\s*\[\s*{re.escape(self.section)}\s*\]\s*$")
         any_header = re.compile(r"^\s*\[.*\]\s*$")
-        start = next((i for i, row in enumerate(rows) if header.match(row.rstrip("\n"))), None)
-        if start is None:
+        starts = [i for i, row in enumerate(rows) if header.match(row.rstrip("\n"))]
+        if not starts:
             if not self.lines:
                 return text
             sep = "" if not text or text.endswith("\n") else "\n"
             return text + sep + ("\n" if text else "") + f"[{self.section}]\n" + "".join(block)
-        stop = next((i for i in range(start + 1, len(rows)) if any_header.match(rows[i].rstrip("\n"))), len(rows))
-        body = [row.rstrip("\n") for row in rows[start + 1:stop]]
-        if self.begin in body:
-            i = body.index(self.begin)
-            j = next((k for k in range(i + 1, len(body)) if body[k] in (self.end, self.begin)), None)
-            if j is None or body[j] != self.end:
-                raise ReadError(f"unterminated block: '{self.begin}' has no matching '{self.end}'; fix the file by hand")
-            body = body[:i] + body[j + 1:]
-        if self.keys:
-            managed = re.compile(r"^\s*(" + "|".join(re.escape(k) for k in self.keys) + r")\s*(=|$)")
-            body = [self.off_prefix + row if managed.match(row) else row for row in body]
-        head = rows[:start + 1]
-        head[-1] = head[-1].rstrip("\n") + "\n"
-        return "".join(head + block + [f"{row}\n" for row in body] + rows[stop:])
+        managed = (re.compile(r"^\s*(" + "|".join(re.escape(k) for k in self.keys) + r")\s*(=|$)")
+                   if self.keys else None)
+        out: list[str] = []
+        pos = 0
+        for n, start in enumerate(starts):
+            stop = next((i for i in range(start + 1, len(rows)) if any_header.match(rows[i].rstrip("\n"))), len(rows))
+            body = [row.rstrip("\n") for row in rows[start + 1:stop]]
+            if self.begin in body:
+                i = body.index(self.begin)
+                j = next((k for k in range(i + 1, len(body)) if body[k] in (self.end, self.begin)), None)
+                if j is None or body[j] != self.end:
+                    raise ReadError(f"unterminated block: '{self.begin}' has no matching '{self.end}'; fix the file by hand")
+                body = body[:i] + body[j + 1:]
+            if managed:
+                body = [self.off_prefix + row if managed.match(row) else row for row in body]
+            out += rows[pos:start] + [rows[start].rstrip("\n") + "\n"] + (block if n == 0 else [])
+            out += [f"{row}\n" for row in body]
+            pos = stop
+        return "".join(out + rows[pos:])
