@@ -13,6 +13,7 @@
   `commands`, `reports`. Planned: JSON state (APIs), power control. The `users`, `files`, `packages` and `systemd` roles
   are the special ones that stay Python. Anything that belongs to one package manager, repositories included, is that
   manager's own role (`apt`, `pacman`, and each future manager), not part of `packages`.
+- Lint: `ruff check src tests` (config in `pyproject.toml`) must pass; run it before committing.
 - Conventions: every message goes through `bastet.ui.out` (`tests/test_no_raw_echo.py` forbids `typer.echo` in `src/`);
   test file names must be unique across `tests/` (no `__init__.py`); the version is written only in `pyproject.toml`;
   nothing in Bastet deletes notes or records yet (removal is deferred).
