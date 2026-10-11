@@ -62,6 +62,7 @@ commands:                          # existing
 - A `{{ }}` that names an unknown option or fact fails at **parse time** with the role file and key, not at run time on a host.
 - An option left unset (`None`) used in `{{ x }}` drops the field instead of writing the text `None` into a file or a package name.
 - `when:` false on a `files` entry that has `backup: true` builds neither the entry nor its backup command.
+- A password (or any value) from a `secret:` option never shows in check/apply output or the run record, and marks **only the entries that use it** secret, not the whole role (a role with a `users:` password and a `packages:` list still shows its package diff).
 - A `users:` entry naming the `bastet` account is refused (the account is Bastet's own; the old `users` role guard stays for the Python role).
 - A `files` `template:` cannot escape the role's folder (`../`, absolute path).
 - A shipped role is read-only data: a user role's `{{ }}` can't reach Python internals (sandbox) — `{{ ''.__class__ }}` is refused.
@@ -93,6 +94,7 @@ commands:                          # existing
   - `check_text(text: str, allowed: set[str], where: str) -> None` — raises `BastetError` for a syntax error or a name not in `allowed | FACT_NAMES`; does nothing for text with no `{{` / `{%`.
   - `check_when(text: str, allowed: set[str], where: str) -> None` — same, for a bare expression.
   - `resolve(value: object, ctx: dict) -> object` — walks str/list/dict; a string that is exactly one `{{ expr }}` returns the expression's typed result; any other string with `{{`/`{%` is rendered to text; everything else is returned as is.
+  - `names_in(value: object) -> set[str]` — every variable name used by `{{ }}` / `{% %}` in a string, or recursively in a list/dict (used to find which entries touch a secret option).
   - `truthy(text: str | None, ctx: dict) -> bool` — `None` is `True` (no condition); otherwise the expression's truthiness.
   - `context(role_options: dict, values: dict, host) -> dict` — the context described in "Expressions" above.
 
@@ -165,6 +167,12 @@ def test_check_text_refuses_unknown_names_and_bad_syntax():
         check_text("{{ nope }}", {"tools"}, "packages[0].name")
     with pytest.raises(BastetError, match="packages\\[0\\].name"):
         check_text("{{ tools ", {"tools"}, "packages[0].name")
+
+
+def test_names_in_finds_option_names_recursively():
+    from bastet.roles.expr import names_in
+    assert names_in({"a": ["{{ tz }} x", "plain"], "b": "{{ host.name }}"}) == {"tz", "host"}
+    assert names_in("plain") == set()
 
 
 def test_check_when_refuses_unknown_names():
@@ -257,6 +265,16 @@ def resolve(value: object, ctx: dict) -> object:
     return value
 
 
+def names_in(value: object) -> set[str]:
+    if isinstance(value, str):
+        return set(meta.find_undeclared_variables(_ENV.parse(value))) if _templated(value) else set()
+    if isinstance(value, list):
+        return set().union(*(names_in(v) for v in value)) if value else set()
+    if isinstance(value, dict):
+        return set().union(*(names_in(v) for v in value.values())) if value else set()
+    return set()
+
+
 def truthy(text: str | None, ctx: dict) -> bool:
     return True if text is None else bool(_expression(text, ctx))
 
@@ -300,9 +318,10 @@ git commit -m "roles: the expression language for Markdown role values and when:
   - `COMMON_KEYS = {"when", "before", "after"}`
   - `check_common(entry: dict, allowed: set[str], where: str, path, key: str) -> None` — validates `when` (text, `check_when`), `before`/`after` (text naming a slot in `engine.slots.SLOTS`, never both); every other string value is passed to `check_text`.
   - `parse_packages(path, items, options) -> list[dict]` — a bare string becomes `{"name": s}`; maps allow `name, state, version, aur, purge` + common keys; `name` required; `state` in `present|absent`.
-  - `build_entries(role, values, host) -> list[Resource]` — all block entries of the role (packages here; later tasks add to it), each filtered by `when`, each resolved, each given `run_before`/`run_after`/`provides` via `declarative._placed`-equivalent (do not import `declarative`; put the small `placed()` helper in `entries.py` and have `declarative._placed` call it).
+  - `Applied.secret_options: frozenset[str]` (new field in `roles/resolve.py`, default empty): the top-level option names `resolve_refs` replaced with a decrypted secret. `cli/run.py` sets it next to `a.secret` (`a.secret_options = frozenset(became_secret)`).
+  - `build_entries(role, values, host, secret_options=frozenset()) -> list[Resource]` — all block entries of the role (packages here; later tasks add to it), each filtered by `when`, each resolved, each given `run_before`/`run_after`/`provides` via `declarative._placed`-equivalent (do not import `declarative`; put the small `placed()` helper in `entries.py` and have `declarative._placed` call it).
   - `RoleDef.packages: list[dict]` (new field, default empty).
-- `declarative.build()` gets one extra line: `resources += entries.build_entries(role, values, host)`; commands use `expr.truthy`.
+- `declarative.build(role, values, host, secret_options=frozenset())` gets one extra line: `resources += entries.build_entries(role, values, host, secret_options)`; commands use `expr.truthy`. For its `edit` / `render` / `as: entries` resources it marks them secret when `secret_options` is non-empty (the old role-wide rule, kept for them). `builtin.batches_for` passes `a.secret_options` and no longer blanket-marks a Markdown role's resources afterwards (old-format roles keep the blanket rule).
 
 Behaviour fixed by this task: `commands:` `when` is an expression (a bare option name keeps working, now by truthiness); the parse-time message for an unknown name stays `when names no option: <name>`.
 
@@ -474,11 +493,14 @@ def parse_packages(path: Path, items: object, options: dict) -> list[dict]:
     return out
 
 
-def placed(resource: Resource, role, entry: dict) -> Resource:
-    return replace(resource, run_before=entry.get("before"), run_after=entry.get("after"), provides=tuple(role.provides))
+def placed(resource: Resource, role, entry: dict, secret_options: frozenset = frozenset()) -> Resource:
+    """Order and capabilities from the entry; secret when the entry uses a secret-valued option."""
+    secret = bool(expr.names_in(entry) & secret_options)
+    return replace(resource, run_before=entry.get("before"), run_after=entry.get("after"), provides=tuple(role.provides),
+                   **({"secret": True} if secret else {}))
 
 
-def _packages(role, ctx: dict) -> list[Resource]:
+def _packages(role, ctx: dict, secrets: frozenset) -> list[Resource]:
     out: list[Resource] = []
     for i, entry in enumerate(role.packages):
         if not expr.truthy(entry.get("when"), ctx):
@@ -489,13 +511,13 @@ def _packages(role, ctx: dict) -> list[Resource]:
             raise BastetError(f"{role.name}: packages[{i}]: name resolved to nothing")
         fields = {k: v for k, v in fields.items() if v is not None}
         for n in name if isinstance(name, list) else [name]:
-            out.append(placed(Package(name=str(n), **fields), role, entry))
+            out.append(placed(Package(name=str(n), **fields), role, entry, secrets))
     return out
 
 
-def build_entries(role, values: dict, host) -> list[Resource]:
+def build_entries(role, values: dict, host, secret_options: frozenset = frozenset()) -> list[Resource]:
     ctx = expr.context(role.options, values, host)
-    return [*_packages(role, ctx)]
+    return [*_packages(role, ctx, secret_options)]
 ```
 
 `contract.py`:
@@ -674,7 +696,7 @@ def parse_systemd(path: Path, items: object, options: dict) -> list[dict]:
     return out
 
 
-def _systemd(role, ctx: dict, host) -> list[Resource]:
+def _systemd(role, ctx: dict, host, secrets: frozenset) -> list[Resource]:
     out: list[Resource] = []
     for entry in role.systemd:
         if not expr.truthy(entry.get("when"), ctx):
@@ -691,11 +713,11 @@ def _systemd(role, ctx: dict, host) -> list[Resource]:
             made = [Locale(**f)] if any(v is not None for v in f.values()) else []
         else:
             made = [drop_in(f["unit"], f["name"], f["content"], restart_unit=f.get("restart", True))]
-        out += [placed(r, role, entry) for r in made]
+        out += [placed(r, role, entry, secrets) for r in made]
     return out
 ```
 
-`build_entries` becomes `[*_packages(role, ctx), *_systemd(role, ctx, host)]`. In `contract.py`: `"systemd"` into `ROLE_NOTE_KEYS`, `RoleDef.systemd`, `parse_systemd(...)` in `parse_role`. (`systemd` is not in `ROLE_NOTE_RESERVED`; nothing to remove.)
+`build_entries` becomes `[*_packages(role, ctx, secret_options), *_systemd(role, ctx, host, secret_options)]`. In `contract.py`: `"systemd"` into `ROLE_NOTE_KEYS`, `RoleDef.systemd`, `parse_systemd(...)` in `parse_role`. (`systemd` is not in `ROLE_NOTE_RESERVED`; nothing to remove.)
 
 - [ ] **Step 4: Run to verify pass**
 
@@ -727,6 +749,8 @@ git commit -m "roles: systemd: entries (unit, time, hostname, locale, dropin)"
 | `group` | `name` (required), `gid`, `system`, `members`, `append_members` | `Group` |
 | `key` | `user`, `key` (required), `options`, `path`, `state` | `AuthorizedKey` |
 | `sudoer` | `name` (required), `rules, user, group, commands, runas, hosts, nopasswd, setenv, defaults` | `sudoer(name, ...)` |
+
+**Passwords from secrets.** A role gets a root (or any user's) password the way every other option does: declare `root_password_hash: {type: string, secret: true}`, use `password_hash: "{{ root_password_hash }}"` in the `user` entry, and the owner sets `secret:<path>` for the option in the host's role note (`bastet secret set <host> <role> root_password_hash`). `password_hash` is a crypt hash (as the `users` role's option says: `mkpasswd -m sha-512`), never plain text. Only the entries that mention the option are marked secret, so the rest of the role still shows its diffs. `root` is an ordinary user name here (only `bastet` is refused).
 
 An entry whose `name` (user/group/sudoer) or `user` (key) is `bastet` is refused at parse time (`the bastet account is managed by Bastet itself`). Lists become tuples. A `password_hash` that resolves from a `secret:` option works through the existing option mechanism (the whole value is the option), no new code.
 
@@ -774,6 +798,23 @@ def test_user_group_key_sudoer(tmp_path):
     assert isinstance(u, User) and (u.shell, u.groups, u.system) == ("/bin/bash", ("git",), True)
     assert isinstance(k, AuthorizedKey) and (k.user, k.key) == ("git", "ssh-ed25519 AAAAexample")
     assert isinstance(s, File) and s.path == "/etc/sudoers.d/git" and "NOPASSWD:" in s.content and s.validate == "visudo -cf %s"
+
+
+def test_a_password_hash_from_a_secret_option_marks_only_its_entry_secret(tmp_path):
+    r = role(tmp_path, [
+        {"kind": "user", "name": "root", "password_hash": "{{ pw }}", "create_home": False},
+        {"kind": "group", "name": "ops"},
+    ], options={"pw": {"type": "string", "secret": True}})
+    host = HostInfo(name="vps1", type="vps", data={"os": "Arch Linux"}, root=Path("/x"), lab={})
+    [batch] = build(r, {"pw": "$6$saltsalt$hashhash"}, host, secret_options=frozenset({"pw"}))
+    root, ops = batch.resources
+    assert root.password_hash == "$6$saltsalt$hashhash" and root.secret is True
+    assert ops.secret is False
+
+
+def test_without_secret_options_nothing_is_secret(tmp_path):
+    r = role(tmp_path, [{"kind": "user", "name": "root", "password_hash": "{{ pw }}"}], options={"pw": {"type": "string", "secret": True}})
+    assert built(r, {"pw": "$6$x$y"})[0].secret is False
 
 
 def test_when_skips_an_entry(tmp_path):
@@ -850,7 +891,7 @@ def _tuples(fields: dict) -> dict:
     return {k: tuple(v) if isinstance(v, list) else v for k, v in fields.items() if v is not None}
 
 
-def _users(role, ctx: dict) -> list[Resource]:
+def _users(role, ctx: dict, secrets: frozenset) -> list[Resource]:
     out: list[Resource] = []
     for entry in role.users:
         if not expr.truthy(entry.get("when"), ctx):
@@ -865,11 +906,11 @@ def _users(role, ctx: dict) -> list[Resource]:
             made = AuthorizedKey(**f)
         else:
             made = sudoer(f.pop("name"), **f)
-        out.append(placed(made, role, entry))
+        out.append(placed(made, role, entry, secrets))
     return out
 ```
 
-Order in `build_entries`: `[*_users(...), *_packages(...), *_systemd(...)]` is irrelevant (the engine orders by slot); keep `packages, users, systemd`. Add `users` to `ROLE_NOTE_KEYS`, `RoleDef.users`, and the parse call. Note: the `entry.get("user")` check also catches a `sudoer` for user `bastet` and `user` entries are caught by `name`; `key` entries by `user`.
+`build_entries` returns `[*_packages(...), *_users(role, ctx, secret_options), *_systemd(...)]` (the engine orders by slot, so the list order is irrelevant). Add `users` to `ROLE_NOTE_KEYS`, `RoleDef.users`, and the parse call. Note: the `entry.get("user")` check also catches a `sudoer` for user `bastet` and `user` entries are caught by `name`; `key` entries by `user`.
 
 - [ ] **Step 4: Run to verify pass**
 
@@ -1021,7 +1062,7 @@ def _triggers(entry: dict) -> dict:
     return {"on_change": tuple(units)} if units else {}
 
 
-def build_files(role, ctx: dict, entry: dict, i: int) -> list[Resource]:
+def build_files(role, ctx: dict, entry: dict, i: int, secrets: frozenset = frozenset()) -> list[Resource]:
     path = entry["path"]
     if "directory" in entry:
         made = Directory(path=path, owner=entry.get("owner"), group=entry.get("group"), mode=entry.get("mode"))
@@ -1042,12 +1083,12 @@ def build_files(role, ctx: dict, entry: dict, i: int) -> list[Resource]:
             raise BastetError(f"{role.name}: files[{i}]: content resolved to nothing")
         made = File(path=path, content=str(content), owner=entry.get("owner"), group=entry.get("group"), mode=entry.get("mode"),
                     validate=entry.get("validate"), **_triggers(entry))
-    return [placed(made, role, entry)]
+    return [placed(made, role, entry, secrets)]
 ```
 
 (A `mode`/`owner`/`group` of `None` is accepted by the dataclasses.)
 
-`declarative.py` `build()`: for each files entry compute `ctx` once, skip it when `not expr.truthy(entry.get("when"), ctx)` (before emitting its backup command), route `edit`/`render` as today (and attach `restart`/`reload` triggers to their resources only if present — not needed now, so keep unchanged), route other forms to `entries.build_files(role, ctx, entry, i)`. Use `enumerate(role.entries)` for the index.
+`declarative.py` `build()`: for each files entry compute `ctx` once, skip it when `not expr.truthy(entry.get("when"), ctx)` (before emitting its backup command), route `edit`/`render` as today (and attach `restart`/`reload` triggers to their resources only if present — not needed now, so keep unchanged), route other forms to `entries.build_files(role, ctx, entry, i, secret_options)`. Use `enumerate(role.entries)` for the index.
 
 - [ ] **Step 4: Run to verify pass**
 
