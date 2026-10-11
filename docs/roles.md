@@ -75,6 +75,7 @@ repositories:
 | repositories[].enabled | bool |  |  |
 | repositories[].trusted | bool |  |  |
 | repositories[].signed_by | string |  | A key file path, or the armored key text |
+| modernize_sources | bool | false | Run `apt modernize-sources` to convert leftover legacy .list files to .sources; does nothing when there is nothing to convert. Where apt cannot work out Signed-By it prints a warning and the new file has none |
 
 ## base
 

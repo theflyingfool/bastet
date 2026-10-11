@@ -25,10 +25,11 @@ VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 ROLE_NOTE_RESERVED = {"uses", "needs", "contributes", "collects", "requires", "tags", "cssclasses", "types",
                       "not_types", "os_min", "data", "vars", "presets", "packages", "templates", "units", "hooks",
                       "source", "source_hash"}
-ROLE_NOTE_KEYS = {"bastet", "name", "version", "api", "description", "os", "provides", "options", "examples", "files"}
+ROLE_NOTE_KEYS = {"bastet", "name", "version", "api", "description", "os", "provides", "options", "examples", "files", "commands"}
 FILE_EDITS = ("ini",)
 FILE_RENDERS = ("apt",)
 FILE_KEYS = {"path", "edit", "render", "mode", "owner", "group", "validate", "before", "after", "backup"}
+COMMAND_KEYS = {"name", "run", "unless", "when", "before", "after"}
 GENERATE_KINDS = ("password", "token")
 SECRET_SOURCES = ("generated", "chosen", "issued")
 
@@ -72,6 +73,7 @@ class RoleDef:
     os: tuple[str, ...] = ()
     provides: tuple[str, ...] = ()
     entries: list[dict] = field(default_factory=list)
+    commands: list[dict] = field(default_factory=list)
     markdown: bool = False
     raw: dict = field(default_factory=dict)
 
@@ -182,6 +184,25 @@ def _file_entry(path: Path, entry: object) -> dict:
     return dict(entry)
 
 
+def _command_entry(path: Path, entry: object, options: dict[str, Option]) -> dict:
+    if not isinstance(entry, dict):
+        raise BastetError("each commands entry must be a map", file=path, key="commands")
+    unknown = sorted(str(k) for k in set(entry) - COMMAND_KEYS)
+    if unknown:
+        raise BastetError(f"commands entry: unknown key {', '.join(unknown)}", file=path, key=unknown[0])
+    for key in ("name", "run", "unless"):
+        if not isinstance(entry.get(key), str) or not entry[key].strip():
+            raise BastetError(f"commands entry needs a {key}", file=path, key="commands")
+    for key in ("when", "before", "after"):
+        if key in entry and not isinstance(entry[key], str):
+            raise BastetError(f"commands entry: {key} must be text", file=path, key="commands")
+    if "before" in entry and "after" in entry:
+        raise BastetError("commands entry: use before or after, not both", file=path, key="commands")
+    if "when" in entry and entry["when"] not in options:
+        raise BastetError(f"commands entry: when names no option: {entry['when']}", file=path, key="commands")
+    return entry
+
+
 def parse_role(path: Path) -> RoleDef:
     """Read one Markdown role note ("<name> role.md"): the frontmatter is the contract."""
     doc = parse_document(path.read_text(encoding="utf-8"), path)
@@ -216,12 +237,16 @@ def parse_role(path: Path) -> RoleDef:
         if not isinstance(files, list):
             raise BastetError("files must be a list", file=path, key="files")
         entries = [_file_entry(path, e) for e in files]
+        commands = data.get("commands") or []
+        if not isinstance(commands, list):
+            raise BastetError("commands must be a list", file=path, key="commands")
+        commands = [_command_entry(path, e, options) for e in commands]
     except BastetError as exc:
         if exc.line is None and exc.key in doc.key_lines:
             raise BastetError(exc.message, file=path, line=doc.key_lines[exc.key], key=exc.key) from None
         raise
     return RoleDef(name, description, options, path, examples, api=data["api"], version=version, os=os_,
-                   provides=provides, entries=entries, markdown=True,
+                   provides=provides, entries=entries, commands=commands, markdown=True,
                    raw={k: data[k] for k in ROLE_NOTE_RESERVED if k in data})
 
 

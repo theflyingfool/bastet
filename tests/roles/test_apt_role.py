@@ -92,3 +92,12 @@ def test_the_config_file_is_applied_before_repositories_and_packages():
     apt_at = next(n for n, r in enumerate(order) if isinstance(r, File) and r.path == PATH)
     later = [n for n, r in enumerate(order) if isinstance(r, Package) or (isinstance(r, File) and r.path.endswith(".sources"))]
     assert later and all(apt_at < n for n in later)
+
+
+def test_modernize_sources_is_a_command_only_when_switched_on():
+    from bastet.engine.command import Command
+    assert not [r for r in built({}) if isinstance(r, Command)]
+    assert not [r for r in built({"modernize_sources": False}) if isinstance(r, Command)]
+    [c] = [r for r in built({"modernize_sources": True}) if isinstance(r, Command)]
+    assert (c.name, c.run, c.run_before) == ("modernize apt sources", "apt modernize-sources -y", "packages")
+    assert "modernize-sources" in c.unless and "deb-src" in c.unless

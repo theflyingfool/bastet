@@ -187,7 +187,14 @@ def build(role: RoleDef, values: dict, host) -> list[Batch]:
             made = RENDERERS[entry["render"]](role, values, entry)
         resources += [_placed(r, role, entry) for r in made]
     resources += _entries(role, values)
+    resources += _commands(role, values)
     return [Batch(role.name, resources)]
+
+
+def _commands(role: RoleDef, values: dict) -> list[Resource]:
+    """The role's commands whose `when` option (if any) is on."""
+    return [Command(name=c["name"], run=c["run"], unless=c["unless"], run_before=c.get("before"), run_after=c.get("after"))
+            for c in role.commands if "when" not in c or values.get(c["when"]) is True]
 
 
 def _placed(resource: Resource, role: RoleDef, entry: dict) -> Resource:

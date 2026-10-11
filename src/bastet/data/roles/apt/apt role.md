@@ -121,6 +121,10 @@ options:
           as: text
           key: Signed-By
           description: A key file path, or the armored key text
+  modernize_sources:
+    type: bool
+    default: false
+    description: 'Run `apt modernize-sources` to convert leftover legacy .list files to .sources; does nothing when there is nothing to convert. Where apt cannot work out Signed-By it prints a warning and the new file has none'
 examples:
 - title: Go through a proxy (all Debian hosts)
   yaml: |
@@ -141,6 +145,12 @@ examples:
         components:
           - main
         signed_by: /usr/share/keyrings/debian-archive-keyring.gpg
+commands:
+- name: modernize apt sources
+  run: apt modernize-sources -y
+  unless: "! apt --help 2>/dev/null | grep -q modernize-sources || ! grep -qsE '^[[:space:]]*(deb|deb-src)[[:space:]]' /etc/apt/sources.list /etc/apt/sources.list.d/*.list"
+  when: modernize_sources
+  before: packages
 files:
 - path: /etc/apt/apt.conf.d/90-bastet
   render: apt
