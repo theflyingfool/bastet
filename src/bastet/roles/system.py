@@ -1,4 +1,4 @@
-"""Roles built on the building blocks: base, pacman and proxmox."""
+"""Roles built on the building blocks: base, ssh and harden."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from bastet.core.errors import BastetError
 from bastet.core.osinfo import ARCH_LIKE
 from bastet.engine.command import Command
 from bastet.engine.files import File, Line, Symlink
-from bastet.engine.packages import Package, Repository, StraySources
+from bastet.engine.packages import Package
 from bastet.engine.run import Batch
 from bastet.engine.model import Trigger
 from bastet.engine.security import AppArmorStatus, ListeningPorts, LynisReport, ServiceExposure, VulnerablePackages
@@ -45,64 +45,6 @@ def base(v: dict, host) -> list[Batch]:
                               f"on {host.data.get('cpu')}; set microcode: never")
         res.append(Package(name=package))
     return [Batch("base", res)]
-
-
-DEBIAN_KEY = "/usr/share/keyrings/debian-archive-keyring.gpg"
-PVE_KEY = "/usr/share/keyrings/proxmox-archive-keyring.gpg"
-PVE_JS = "/usr/share/javascript/proxmox-widget-toolkit/proxmoxlib.js"
-NAG = "res.data.status.toLowerCase() !== 'active'"
-NAG_SED = NAG.replace(".", "\\.")  # sed basic regex: ( ) are literal; only the dots need escaping
-
-
-def _suite(v: dict, host) -> str:
-    if v.get("suite"):
-        return str(v["suite"])
-    m = re.search(r"\(([a-z]+)\)", str(host.data.get("os") or ""))
-    if not m:
-        raise BastetError(f"proxmox.suite: can't tell the Debian codename from '{host.data.get('os')}'; "
-                          "set suite (e.g. trixie) or run bastet run -g")
-    return m.group(1)
-
-
-def proxmox(v: dict, host) -> list[Batch]:
-    s = _suite(v, host)
-    comps = tuple(v.get("debian_components") or ())
-    which = v.get("repository") or "no-subscription"
-    res: list = [
-        Repository(name="debian", uris=(v["debian_mirror"],), suites=(s, f"{s}-updates"), components=comps,
-                   signed_by=DEBIAN_KEY),
-        Repository(name="debian-security", uris=("http://security.debian.org/debian-security",),
-                   suites=(f"{s}-security",), components=comps, signed_by=DEBIAN_KEY),
-        Repository(name="proxmox", uris=("http://download.proxmox.com/debian/pve",), suites=(s,),
-                   components=("pvetest" if which == "test" else "pve-no-subscription",), signed_by=PVE_KEY,
-                   enabled=which != "enterprise"),
-        Repository(name="pve-enterprise", uris=("https://enterprise.proxmox.com/debian/pve",), suites=(s,),
-                   components=("pve-enterprise",), signed_by=PVE_KEY, enabled=which == "enterprise"),
-        _ceph(v, s),
-        StraySources(keep=("debian", "debian-security", "proxmox", "pve-enterprise", "ceph"),
-                     remove=v.get("stray_sources") == "remove"),
-    ]
-    res += [Package(name=t) for t in v.get("tools") or []]
-    if v.get("subscription_notice") == "remove":  # last: a failure here mustn't stop the tools
-        res.append(Command(
-            name="proxmox subscription notice",
-            unless=f"grep -q BASTET-NOTICE-OFF {PVE_JS}",
-            run=(f"grep -qF \"{NAG}\" {PVE_JS} || {{ echo 'pattern not found; Proxmox changed proxmoxlib.js, or another "
-                 f"tool already patched it (apt reinstall proxmox-widget-toolkit, then apply again)' >&2; exit 1; }}; "
-                 f"sed -i.bastet-bak \"s/{NAG_SED}/false \\/* BASTET-NOTICE-OFF *\\//g\" {PVE_JS} && "
-                 "systemctl restart pveproxy.service"),
-        ))
-    return [Batch("proxmox", res)]
-
-
-def _ceph(v: dict, suite: str) -> Repository:
-    """ceph.sources: disabled unless asked for, so an enterprise Ceph entry can't break apt on a no-subscription node."""
-    which, release = v.get("ceph") or "none", v.get("ceph_release") or "squid"
-    if which == "no-subscription":
-        return Repository(name="ceph", uris=(f"http://download.proxmox.com/debian/ceph-{release}",), suites=(suite,),
-                          components=("no-subscription",), signed_by=PVE_KEY)
-    return Repository(name="ceph", uris=(f"https://enterprise.proxmox.com/debian/ceph-{release}",), suites=(suite,),
-                      components=("enterprise",), signed_by=PVE_KEY, enabled=which == "enterprise")
 
 
 # --- ssh -------------------------------------------------------------------------------------------------------------

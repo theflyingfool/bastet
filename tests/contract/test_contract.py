@@ -51,7 +51,7 @@ def test_command_contract(host):
                                           unless="test -e /var/tmp/bastet-marker")])])
 
 
-from bastet.engine.packages import Package, Repository  # noqa: E402
+from bastet.engine.packages import Package  # noqa: E402
 from bastet.engine.users import AuthorizedKey, Group, User, sudoer  # noqa: E402
 
 HASH = "$6$bastetsalt$" + "x" * 86
@@ -84,12 +84,12 @@ def test_packages_contract(host):
 
 
 def test_repository_contract(host):
-    converge(host, [
-        Batch("repo", [Repository(name="bastet-backports", uris=("http://deb.debian.org/debian",),
-                                  suites=("trixie-backports",), components=("main",),
-                                  signed_by="/usr/share/keyrings/debian-archive-keyring.gpg")]),
-        Batch("pkg", [Package(name="tree")]),
-    ])
+    info = HostInfo(name="media01", type="vm", data={"os": "Debian GNU/Linux 13 (trixie)", "hostname": "media01"},
+                    root=Path("/x"), lab={})
+    apt = _applied("apt", {"repositories": [{"name": "bastet-backports", "uris": ["http://deb.debian.org/debian"],
+                                             "suites": ["trixie-backports"], "components": ["main"],
+                                             "signed_by": "/usr/share/keyrings/debian-archive-keyring.gpg"}]})
+    converge(host, [*batches_for([apt], info), Batch("pkg", [Package(name="tree")])])
     assert "trixie-backports" in host.run("apt-cache policy").stdout
 
 

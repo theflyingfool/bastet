@@ -1,4 +1,4 @@
-"""Packages family: packages for apt, pacman, dnf, zypper and apk, and their repositories.
+"""Packages family: packages for apt, pacman, dnf, zypper and apk, and their updates.
 
 Every knob either works on a manager or raises Unsupported there; nothing is silently ignored.
 """
@@ -8,7 +8,6 @@ import shlex
 from dataclasses import dataclass
 from typing import ClassVar
 
-from bastet.engine.files import File, Line
 from bastet.engine.model import ABSENT, FieldChange, Read, ReadError, Resource, Unsupported
 
 MANAGERS = ("apt-get", "pacman", "dnf", "zypper", "apk")
@@ -200,185 +199,6 @@ class Package(Resource):
 
     def fix(self, changes, current):
         return type(self).fix_group([(self, changes, current)])
-
-
-REPO_NAME = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]*$")
-KEY_NAME = re.compile(r"^[A-Za-z0-9@_][A-Za-z0-9@._+-]*$")
-
-
-@dataclass(frozen=True, kw_only=True)
-class Repository(Resource):
-    family: ClassVar[str] = "Packages"
-    slot: ClassVar[str] = "repositories"
-    name: str
-    uris: tuple[str, ...]
-    suites: tuple[str, ...] = ()
-    components: tuple[str, ...] = ()
-    types: tuple[str, ...] = ("deb",)
-    architectures: tuple[str, ...] = ()
-    key: str | None = None
-    key_name: str | None = None
-    signed_by: str | None = None
-    enabled: bool = True
-    trusted: bool | None = None
-    options: tuple[tuple[str, str], ...] = ()
-
-    def __post_init__(self):
-        if not REPO_NAME.match(self.name or ""):
-            raise ValueError(f"not a repository name: {self.name!r}")
-        if not self.uris:
-            raise ValueError(f"repository {self.name} needs at least one URI")
-        if self.key and self.signed_by:
-            raise ValueError(f"repository {self.name}: give key or signed_by, not both")
-        if self.key_name is not None and not KEY_NAME.match(self.key_name):
-            raise ValueError(f"not a key file name: {self.key_name!r}")
-
-    @property
-    def identity(self) -> str:
-        return f"repo:{self.name}"
-
-    @property
-    def label(self) -> str:
-        return f"repository {self.name}"
-
-    def touches(self) -> str | None:
-        # pacman.conf and /etc/apk/repositories are shared, so a second repository in a run re-reads first
-        return "package-repositories"
-
-    def desired(self):
-        return {"uris": self.uris, "suites": self.suites, "components": self.components, "types": self.types,
-                "architectures": self.architectures, "key": self.key, "key_name": self.key_name,
-                "signed_by": self.signed_by, "enabled": self.enabled, "trusted": self.trusted, "options": self.options}
-
-    def _deb822(self) -> str:
-        lines = [f"Types: {' '.join(self.types)}", f"URIs: {' '.join(self.uris)}", f"Suites: {' '.join(self.suites)}"]
-        if self.components:
-            lines.append(f"Components: {' '.join(self.components)}")
-        if self.architectures:
-            lines.append(f"Architectures: {' '.join(self.architectures)}")
-        if not self.enabled:
-            lines.append("Enabled: no")
-        if self.trusted is not None:
-            lines.append(f"Trusted: {'yes' if self.trusted else 'no'}")
-        if self.key:
-            lines.append("Signed-By:")
-            lines += [f" {line}" if line.strip() else " ." for line in self.key.strip().splitlines()]
-        elif self.signed_by:
-            lines.append(f"Signed-By: {self.signed_by}")
-        lines += [f"{k}: {v}" for k, v in self.options]
-        return "\n".join(lines) + "\n"
-
-    def _rpm_key_path(self) -> str:
-        return f"/etc/pki/rpm-gpg/RPM-GPG-KEY-bastet-{self.name}"
-
-    def _ini(self, manager: str) -> str:
-        if manager == "zypper" and len(self.uris) != 1:
-            raise ValueError(f"repository {self.name}: zypper takes exactly one URI")
-        baseurl = "\n        ".join(self.uris)
-        signed = (bool(self.key or self.signed_by) or self.trusted is False) and self.trusted is not True
-        lines = [f"[{self.name}]", f"name={self.name}", f"baseurl={baseurl}", f"enabled={1 if self.enabled else 0}",
-                 f"gpgcheck={1 if signed else 0}"]
-        if self.key:
-            lines.append(f"gpgkey=file://{self._rpm_key_path()}")
-        elif self.signed_by:
-            lines.append(f"gpgkey={self.signed_by}")
-        lines += [f"{k}={v}" for k, v in self.options]
-        return "\n".join(lines) + "\n"
-
-    def _apk_key_path(self) -> str:
-        return f"/etc/apk/keys/{self.key_name or self.name + '.rsa.pub'}"
-
-    def parts(self, manager: str) -> list[Resource]:
-        common = {"root": self.root}
-        if manager == "apt-get":
-            return [File(path=f"/etc/apt/sources.list.d/{self.name}.sources", content=self._deb822(), mode="0644", **common)]
-        if manager in RPM:
-            folder = "/etc/yum.repos.d" if manager == "dnf" else "/etc/zypp/repos.d"
-            parts: list[Resource] = [File(path=f"{folder}/{self.name}.repo", content=self._ini(manager), mode="0644", **common)]
-            if self.key:
-                parts.append(File(path=self._rpm_key_path(), content=self.key, mode="0644", **common))
-            return parts
-        if manager == "apk":
-            parts = [Line(path="/etc/apk/repositories", line=("" if self.enabled else "#") + u,
-                          match=r"^#?" + re.escape(u) + r"$", **common) for u in self.uris]
-            if self.key:
-                parts.append(File(path=self._apk_key_path(), content=self.key, mode="0644", **common))
-            return parts
-        return []
-
-    def reads(self):
-        reads = [Read("manager", DETECT)]
-        for m in MANAGERS:
-            try:
-                parts = self.parts(m)
-            except ValueError:
-                continue
-            for j, part in enumerate(parts):
-                reads += [Read(f"{m}.{j}.{r.name}", r.command, root=r.root) for r in part.reads()]
-        return tuple(reads)
-
-    def _check(self, manager: str) -> None:
-        if manager != "apt-get":
-            for knob, used in (("suites", self.suites), ("components", self.components),
-                               ("architectures", self.architectures), ("types", tuple(self.types) != ("deb",))):
-                if used:
-                    raise Unsupported(f"{knob} only applies to apt repositories; this host uses {manager}")
-        if manager == "apk":
-            for knob, used in (("options", self.options), ("signed_by", self.signed_by),
-                               ("trusted", self.trusted is not None)):
-                if used:
-                    raise Unsupported(f"{knob} isn't supported for apk repositories")
-        if manager == "pacman":
-            raise Unsupported("pacman repositories are set in the pacman role")
-        if manager == "zypper" and len(self.uris) != 1:
-            raise Unsupported("zypper takes exactly one URI per repository")
-
-    def current(self, results):
-        m = results["manager"]
-        if not m.ok or not m.output.strip():
-            raise Unsupported("no supported package manager (apt, pacman, dnf, zypper, apk)")
-        manager = m.output.strip()
-        self._check(manager)
-        parts = self.parts(manager)
-        states = [p.current({r.name: results[f"{manager}.{j}.{r.name}"] for r in p.reads()}) for j, p in enumerate(parts)]
-        return {"manager": manager, "parts": states}
-
-    def _threaded(self, current):
-        """Parts editing one shared file see the earlier parts' edits, so they don't overwrite each other."""
-        pairs = []
-        latest: dict[str, str] = {}
-        for part, state in zip(self.parts(str(current["manager"])), current["parts"]):
-            path = getattr(part, "path", None)
-            edits = hasattr(part, "wanted")
-            if edits and path in latest:
-                state = {**state, "content": latest[path]}
-            if edits:
-                latest[path] = part.wanted(state["content"])
-            pairs.append((part, state))
-        return pairs
-
-    def compare(self, current):
-        changes = []
-        for part, state in self._threaded(current):
-            where = getattr(part, "path", part.label)
-            changes += [FieldChange(f"{where}:{c.field}", c.before, c.after) for c in part.compare(state)]
-        return changes
-
-    def fix(self, changes, current):
-        cmds: list[str] = []
-        key_changed = False
-        for part, state in self._threaded(current):
-            own = part.compare(state)
-            if own:
-                cmds += part.fix(own, state)
-                key_changed = key_changed or getattr(part, "path", "") == self._rpm_key_path()
-        if current["manager"] == "zypper" and key_changed:
-            cmds.append(f"rpm --import {self._rpm_key_path()}")
-        return cmds
-
-    def diff_text(self, current):
-        texts = [part.diff_text(state) for part, state in self._threaded(current) if part.compare(state)]
-        return "\n".join(t for t in texts if t) or None
 
 
 def _per_manager(cases: dict[str, str]) -> str:
@@ -595,49 +415,6 @@ class Reboot(Resource):
     def fix(self, changes, current):
         return []
 
-
-STRAY = ("for f in /etc/apt/sources.list.d/*.sources /etc/apt/sources.list.d/*.list; do "
-         "[ -f \"$f\" ] && grep -qE 'debian\\.org|proxmox\\.com' \"$f\" && echo \"$f\"; done; true")
-
-STRAY_FILE = re.compile(r"^/etc/apt/sources\.list\.d/[^/]+\.(sources|list)$")
-
-
-@dataclass(frozen=True, kw_only=True)
-class StraySources(Resource):
-    """apt source files for Debian/Proxmox that the proxmox role doesn't own: duplicates that make apt warn."""
-
-    family: ClassVar[str] = "Packages"
-    slot: ClassVar[str] = "repositories"
-    keep: tuple[str, ...] = ()
-    remove: bool = False
-
-    @property
-    def identity(self) -> str:
-        return "stray-apt-sources"
-
-    @property
-    def label(self) -> str:
-        return "other Debian/Proxmox source files"
-
-    def report_only(self) -> bool:
-        return not self.remove
-
-    def desired(self):
-        return {"keep": self.keep, "remove": self.remove}
-
-    def reads(self):
-        return (Read("stray", STRAY),)
-
-    def current(self, results):
-        files = [line.strip() for line in results["stray"].output.splitlines() if STRAY_FILE.match(line.strip())]
-        keep = {f"/etc/apt/sources.list.d/{k}.{ext}" for k in self.keep for ext in ("sources", "list")}
-        return {"stray": tuple(sorted(f for f in files if f not in keep))}
-
-    def compare(self, current):
-        return [FieldChange("stray", ", ".join(current["stray"]), "none")] if current["stray"] else []
-
-    def fix(self, changes, current):
-        return ["rm -f -- " + " ".join(_q(f) for f in current["stray"])]
 
 EXPLICIT = _per_manager({
     "pacman": "pacman -Qqe",

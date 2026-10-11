@@ -8,9 +8,8 @@ Every role Bastet ships. Put values in a role file's properties (`_roles/lab/<ro
 | [base](#base) | The basics every host gets: admin tools, and CPU microcode on physical machines |
 | [files](#files) | Files, directories, links, and blocks or lines inside other files |
 | [harden](#harden) | Security knobs and reports |
-| [packages](#packages) | Packages and package repositories for apt, pacman, dnf, zypper and apk |
+| [packages](#packages) | Packages for apt, pacman, dnf, zypper and apk |
 | [pacman](#pacman) | pacman's own settings: every [options] setting in /etc/pacman.conf (Arch-based hosts; aim it at `arch`) |
-| [proxmox](#proxmox) | A Proxmox VE node's own setup: the PVE and Debian repositories, the subscription notice, Proxmox tools |
 | [ssh](#ssh) | OpenSSH server settings: every sshd_config keyword, plus Match blocks |
 | [systemd](#systemd) | Settings systemd owns: time and time sync, hostname, locale, and services with their drop-ins |
 | [users](#users) | Users, groups, SSH keys and sudoers rules |
@@ -235,7 +234,7 @@ sysctl:
 
 ## packages
 
-Packages and package repositories for apt, pacman, dnf, zypper and apk.
+Packages for apt, pacman, dnf, zypper and apk.
 
 ### Examples
 
@@ -281,20 +280,11 @@ install:
     version: "1.7.1-3"
 ```
 
-**Remove a package, add a repository**
+**Remove a package**
 
 ```yaml
 remove:
   - nano
-repositories:
-  - name: backports
-    uris:
-      - http://deb.debian.org/debian
-    suites:
-      - trixie-backports
-    components:
-      - main
-    signed_by: /usr/share/keyrings/debian-archive-keyring.gpg
 ```
 
 ### Options
@@ -327,19 +317,6 @@ repositories:
 | remove[].dpkg_options | list of string |  |  |
 | remove[].allow_change_held | bool |  |  |
 | remove[].extra_args | list of string |  |  |
-| repositories | list of object |  | Package repositories, written in the host's own format (dnf, zypper, apk). On Arch-based hosts set them in the pacman role, on Debian-based hosts in the apt role |
-| repositories[].name | string |  |  |
-| repositories[].uris | list of string |  |  |
-| repositories[].suites | list of string |  | apt only |
-| repositories[].components | list of string |  | apt only |
-| repositories[].types | list of string |  | apt only (deb, deb-src) |
-| repositories[].architectures | list of string |  | apt only |
-| repositories[].key | string |  | Public key text (armored/PEM) |
-| repositories[].key_name | string |  | apk only: key file name in /etc/apk/keys |
-| repositories[].signed_by | string |  | Path or URL of an existing key |
-| repositories[].enabled | bool |  |  |
-| repositories[].trusted | bool |  |  |
-| repositories[].options | map of string |  | Extra fields in the repository's own format |
 | updates | string | manual | manual: check reports pending updates, apply installs them only with --updates. auto: apply installs them. security: apply installs security updates (apt, dnf, zypper) (one of manual, auto, security) |
 | aur_user | string | bastet-aur | Arch only: the user AUR packages are built as (created when needed). It may run pacman through sudo, so treat it as root-equivalent |
 | aur_helper | string | yay-bin | Arch only: the AUR package that provides yay, installed only on hosts that list AUR packages |
@@ -422,33 +399,6 @@ repositories:
 | repositories[].sig_level | string |  | e.g. Required, Optional or Never |
 | repositories[].usage | string |  |  |
 | repositories[].enabled | bool |  | false comments the whole block out |
-
-## proxmox
-
-A Proxmox VE node's own setup: the PVE and Debian repositories, the subscription notice, Proxmox tools. Every proxmox gets it from its type.
-
-### Examples
-
-**Use your local Debian mirror and clean up old source files (on one node)**
-
-```yaml
-debian_mirror: http://ftp.us.debian.org/debian
-stray_sources: remove
-```
-
-### Options
-
-| Option | Type | Default | Description |
-|---|---|---|---|
-| repository | string | no-subscription | Which PVE repository: no-subscription (pve-no-subscription), enterprise (needs a subscription), test (pvetest) (one of no-subscription, enterprise, test) |
-| suite | string |  | Debian codename (trixie for PVE 9); default: from the gathered OS |
-| debian_mirror | string | http://deb.debian.org/debian | Debian mirror for the main and -updates suites |
-| debian_components | list of string | ['main', 'contrib', 'non-free-firmware'] | Debian components; non-free-firmware carries CPU microcode |
-| ceph | string | none | Ceph repository (ceph.sources): none writes it disabled so an enterprise entry can't break apt (one of none, no-subscription, enterprise) |
-| ceph_release | string | squid | Ceph release name in the repository path (squid for PVE 9) |
-| subscription_notice | string | remove | remove: patch out the 'No valid subscription' notice (re-applied when a Proxmox update restores it) (one of remove, keep) |
-| tools | list of string | ['libguestfs-tools'] | Proxmox-side tools to install |
-| stray_sources | string | report | Other Debian/Proxmox source files in /etc/apt/sources.list.d (old duplicates): report them, or remove them (one of report, remove) |
 
 ## ssh
 

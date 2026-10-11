@@ -11,7 +11,7 @@ from bastet.core.osinfo import ARCH_LIKE, os_id
 from bastet.engine.command import Command
 from bastet.engine.files import Block, Directory, File, Line, Symlink
 from bastet.engine.model import Trigger
-from bastet.engine.packages import Package, Reboot, Repository, StraySources, Unaccounted, Updates
+from bastet.engine.packages import Package, Reboot, Unaccounted, Updates
 from bastet.engine.run import Batch
 from bastet.engine.security import ServiceExposure
 from bastet.engine.systemd import Hostname, Locale, TimeSettings, Unit, drop_in, reload, restart
@@ -20,7 +20,7 @@ from bastet.engine.users import AuthorizedKey, Group, User, sudoer
 from bastet.roles import declarative, system
 from bastet.roles.resolve import Applied
 
-ORDER = ("proxmox", "pacman", "packages", "base", "users", "files", "ssh", "harden", "systemd")  # repositories and pacman.conf before installs
+ORDER = ("pacman", "packages", "base", "users", "files", "ssh", "harden", "systemd")  # repositories and pacman.conf before installs
 DEBIAN_LIKE = ("debian", "ubuntu", "proxmox", "raspbian", "mint")
 
 
@@ -117,14 +117,6 @@ def _packages(v: dict, host: HostInfo) -> list[Batch]:
         raise BastetError("packages.full_upgrade only applies while installing packages; add `install:` "
                           "(keeping a whole system upgraded on its own isn't a role option yet)")
     names = {p["name"] for p in installs}
-    repos = []
-    if v.get("repositories") and (host.os_id in ARCH_LIKE or host.debian_like):
-        raise BastetError("packages.repositories: set repositories in the pacman role on Arch-based hosts "
-                          "and in the apt role on Debian-based hosts")
-    for r in v.get("repositories") or []:
-        r = dict(r)
-        r["options"] = tuple((k, val) for k, val in (r.get("options") or {}).items())
-        repos.append(Repository(**_kw(r)))
     removes = []
     for p in v.get("remove") or []:
         if p["name"] in names:
@@ -151,7 +143,7 @@ def _packages(v: dict, host: HostInfo) -> list[Batch]:
     if wants_aur:
         extras = [replace(r, tracked=(*r.tracked, helper)) if isinstance(r, Unaccounted) else r for r in extras]
     out = [Batch("packages (AUR setup)", _aur_bootstrap(aur_user, helper))] if wants_aur else []
-    return [*out, Batch("packages", [*repos, *removes, *packages, *extras])]
+    return [*out, Batch("packages", [*removes, *packages, *extras])]
 
 
 AUR_NAME = re.compile(r"^[a-z0-9][a-z0-9._+-]*$")
@@ -245,7 +237,7 @@ def _files(v: dict, host: HostInfo) -> list[Batch]:
 
 
 BUILDERS = {"systemd": _systemd, "packages": _packages, "users": _users, "files": _files, "base": system.base,
-            "proxmox": system.proxmox, "ssh": system.ssh, "harden": system.harden}
+            "ssh": system.ssh, "harden": system.harden}
 
 
 def batches_for(applied: list[Applied], host: HostInfo) -> list[Batch]:
@@ -277,16 +269,12 @@ def batches_for(applied: list[Applied], host: HostInfo) -> list[Batch]:
         batches += built
     # Everything Bastet installs is accounted for, whichever role installs it.
     present = sorted({r.name for b in batches for r in b.resources if isinstance(r, Package) and r.state == "present"})
-    repos = tuple(r.name for b in batches for r in b.resources if isinstance(r, Repository))
-    repos += tuple(r.path.rsplit("/", 1)[1][:-len(".sources")] for b in batches for r in b.resources
-                   if isinstance(r, File) and r.path.startswith("/etc/apt/sources.list.d/") and r.path.endswith(".sources"))
     units = tuple(dict.fromkeys(
         [r.name for b in batches for r in b.resources if isinstance(r, Unit)]
         + [r.path.split("/")[-2][:-2] for b in batches for r in b.resources
            if isinstance(r, File) and r.path.startswith("/etc/systemd/system/") and r.path.split("/")[-2].endswith(".d")]))
     for b in batches:
         b.resources = [replace(r, tracked=tuple(dict.fromkeys((*r.tracked, *present)))) if isinstance(r, Unaccounted)
-                       else replace(r, keep=tuple(dict.fromkeys((*r.keep, *repos)))) if isinstance(r, StraySources)
                        else replace(r, managed=tuple(u for u in units if u.endswith(".service"))) if isinstance(r, ServiceExposure)
                        else r
                        for r in b.resources]

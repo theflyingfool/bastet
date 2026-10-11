@@ -62,10 +62,11 @@ def test_precedence_and_lists_add_up(tmp_path):
     assert [p["name"] for p in a["packages"].values["install"]] == ["git", "vim", "powertop"]
 
 
-def test_type_baseline_beats_lab(tmp_path):
-    s = applied(lab(tmp_path), "pve1")["systemd"].values
-    assert s["ntp_service"] == "chrony" and s["timezone"] == "UTC"
-    assert "packages" not in applied(lab(tmp_path), "pve1")
+def test_the_proxmox_type_adds_no_baseline_roles(tmp_path):
+    a = applied(lab(tmp_path), "pve1")
+    assert a["systemd"].values["ntp_service"] == "timesyncd" and a["systemd"].values["timezone"] == "UTC"
+    assert a["systemd"].origins["ntp_service"] == "lab"
+    assert "packages" not in a and "proxmox" not in a
 
 
 def test_sibling_groups_conflict_and_priority(tmp_path):
@@ -109,8 +110,15 @@ def test_bad_role_files(tmp_path):
     assert any("applies_to" in str(p) for p in inv.problems)
 
 
+def test_the_proxmox_role_is_gone(tmp_path):
+    from bastet.core.errors import BastetError
+    inv = lab(tmp_path, {"_roles/hosts/hp-13/proxmox.md": '---\nbastet: role\nrole: proxmox\napplies_to: "[[hp-13]]"\n---\n'})
+    with pytest.raises(BastetError, match="unknown role 'proxmox'"):
+        resolve(inv, inv.get("hp-13"), TYPES, ROLES)
+
+
 def test_host_types_have_baseline_roles():
-    assert TYPES["proxmox"].roles == {"systemd": {"ntp_service": "chrony", "manage_hostname": False}, "proxmox": {}}
+    assert TYPES["proxmox"].roles == {}
     assert TYPES["laptop"].roles == {}
 
 

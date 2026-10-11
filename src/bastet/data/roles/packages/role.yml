@@ -1,4 +1,4 @@
-description: "Packages and package repositories for apt, pacman, dnf, zypper and apk."
+description: "Packages for apt, pacman, dnf, zypper and apk."
 options:
   refresh: {type: bool, default: true, description: "Refresh the package index before installing (no effect on pacman)"}
   install_recommends: {type: bool, description: "apt recommends / dnf weak deps / zypper recommends; unset = distro default"}
@@ -38,24 +38,6 @@ options:
         dpkg_options: {type: list, items: {type: string}}
         allow_change_held: {type: bool}
         extra_args: {type: list, items: {type: string}}
-  repositories:
-    type: list
-    description: "Package repositories, written in the host's own format (dnf, zypper, apk). On Arch-based hosts set them in the pacman role, on Debian-based hosts in the apt role"
-    items:
-      type: object
-      fields:
-        name: {type: string, required: true}
-        uris: {type: list, items: {type: string}, required: true}
-        suites: {type: list, items: {type: string}, description: "apt only"}
-        components: {type: list, items: {type: string}, description: "apt only"}
-        types: {type: list, items: {type: string}, description: "apt only (deb, deb-src)"}
-        architectures: {type: list, items: {type: string}, description: "apt only"}
-        key: {type: string, description: "Public key text (armored/PEM)"}
-        key_name: {type: string, description: "apk only: key file name in /etc/apk/keys"}
-        signed_by: {type: string, description: "Path or URL of an existing key"}
-        enabled: {type: bool}
-        trusted: {type: bool}
-        options: {type: map, items: {type: string}, description: "Extra fields in the repository's own format"}
   updates:
     type: string
     default: manual
@@ -100,16 +82,7 @@ examples:
       install:
         - name: jq
           version: "1.7.1-3"
-  - title: Remove a package, add a repository
+  - title: Remove a package
     yaml: |
       remove:
         - nano
-      repositories:
-        - name: backports
-          uris:
-            - http://deb.debian.org/debian
-          suites:
-            - trixie-backports
-          components:
-            - main
-          signed_by: /usr/share/keyrings/debian-archive-keyring.gpg

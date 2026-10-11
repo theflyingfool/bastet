@@ -94,7 +94,7 @@ Generic mechanisms every role is assembled from (roles spec §8). Roles never im
 
 | | Block | What it does | Missing |
 |---|---|---|---|
-| ◐ | packages | Repositories and signing keys, installs, updates, reboot-needed marking | `hold` (pinning distro packages), install-method support (`native`/`container`), AUR bootstrap and update/reboot policy as block options (today in the role), `wants: package-manager` |
+| ◐ | packages | Installs, updates, reboot-needed marking (each package manager's role owns its repositories) | `hold` (pinning distro packages), install-method support (`native`/`container`), AUR bootstrap and update/reboot policy as block options (today in the role), `wants: package-manager` |
 | ☑ | users | Users, groups, authorized keys, sudoers drop-ins | |
 | ◐ | files | Whole files, directories, symlinks, lines, blocks; owner/mode; validate before swap; Jinja2 templates (below) | Settings edits from options (`edit: ini` and apt's `render: apt` are built; `kv`, `sshd` next); format checking (YAML, JSON, TOML, INI parsed on the controller; `visudo -cf`, `sshd -t`, `systemd-analyze verify` on the host; a role's own `validate:`); replace-with-check; `before:`/`after:` is built (`run_before`/`run_after`) |
 | ◐ | templates (part of files) | Files rendered with Jinja2 (`StrictUndefined`) | The full language; role-folder includes only, plain-data context, `toyaml`/`tojson`/`quote` |
@@ -121,7 +121,7 @@ they are converted one at a time to straight Markdown (roles architecture spec �
 | ☑ | — | base | Admin tools everywhere; CPU microcode on physical hosts | |
 | ☑ | — | pacman | Every `pacman.conf` option | Arch. Markdown-only, no Python (the proof) |
 | ☑ | — | apt | Curated apt options, written to `/etc/apt/apt.conf.d/90-bastet` | Debian. New, Markdown-only; the option list is curated and incomplete (full list generated later) |
-| ☑ | — | proxmox | No-subscription repositories, the subscription-notice patch, libguestfs-tools | Grows into node setup (1) |
+| ✗ | — | proxmox | Deleted. The apt role owns repositories now; the subscription-notice patch and the tools it installed are gone | A new Proxmox role is to be designed (see Proxmox node setup, 1) |
 | ☑ | — | users | Users, groups, keys, sudoers | |
 | ☑ | — | files | Files you want on a host | |
 | ☑ | — | ssh | Every sshd option, with the lockout guard | |

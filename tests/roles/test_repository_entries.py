@@ -6,7 +6,7 @@ import yaml
 from bastet.core.errors import BastetError
 from bastet.engine.files import Block, File
 from bastet.roles.builtin import HostInfo, batches_for
-from bastet.roles.contract import load_roles, parse_role, with_defaults
+from bastet.roles.contract import check_values, load_roles, parse_role, with_defaults
 from bastet.roles.resolve import Applied
 
 ROLES = load_roles()
@@ -22,10 +22,6 @@ def debian_host():
 
 def arch_host():
     return _host("Arch Linux")
-
-
-def fedora_host():
-    return _host("Fedora Linux 42")
 
 
 def built(role_name, values, host):
@@ -100,17 +96,9 @@ def test_no_repositories_means_no_extra_resources():
     assert not [r for r in built("apt", {}, debian_host()) if isinstance(r, File) and "sources.list.d" in r.path]
 
 
-@pytest.mark.parametrize("host_kind", ["arch", "debian"])
-def test_the_packages_role_refuses_repositories_on_apt_and_pacman_hosts(host_kind):
-    host = arch_host() if host_kind == "arch" else debian_host()
-    with pytest.raises(BastetError, match="set repositories in the pacman role"):
-        built("packages", {"repositories": [{"name": "x", "uris": ["http://x"]}]}, host)
-
-
-def test_the_packages_role_still_takes_repositories_for_other_managers():
-    from bastet.engine.packages import Repository
-    out = built("packages", {"repositories": [{"name": "x", "uris": ["http://x"]}]}, fedora_host())
-    assert any(isinstance(r, Repository) for r in out)
+def test_the_packages_role_has_no_repositories_option():
+    with pytest.raises(BastetError, match="packages has no option 'repositories'"):
+        check_values(ROLES["packages"], {"repositories": [{"name": "x", "uris": ["http://x"]}]}, "f")
 
 
 _ITEMS = {"type": "object", "fields": {"name": {"type": "string"}}}

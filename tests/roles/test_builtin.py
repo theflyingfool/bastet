@@ -6,7 +6,7 @@ from bastet.core.errors import BastetError
 from bastet.core.shell import ProbeResult
 from bastet.engine.files import Block, Directory, File, Line, Symlink
 from bastet.engine.model import Unsupported
-from bastet.engine.packages import Package, Repository
+from bastet.engine.packages import Package
 from bastet.engine.systemd import Hostname, Locale, TimeSettings, Unit
 from bastet.engine.users import AuthorizedKey, Group, User
 from bastet.roles.builtin import HostInfo, batches_for
@@ -89,12 +89,9 @@ def test_packages_role():
         "install_recommends": False,
         "install": ["tree", {"name": "jq", "version": "1.7", "extra_args": ["--foo"]}],
         "remove": [{"name": "nano", "purge": True}],
-        "repositories": [{"name": "b", "uris": ["http://deb.debian.org/debian"], "suites": ["trixie-backports"],
-                          "options": {"X-Repolib-Name": "Backports"}}],
     }), host=info(os="Fedora Linux 42"))
-    assert [type(r).__name__ for r in out] == ["Repository", "Package", "Package", "Package", "Updates", "Reboot", "Unaccounted"]
-    repo, nano, tree, jq = out[:4]
-    assert repo.options == (("X-Repolib-Name", "Backports"),) and repo.suites == ("trixie-backports",)
+    assert [type(r).__name__ for r in out] == ["Package", "Package", "Package", "Updates", "Reboot", "Unaccounted"]
+    nano, tree, jq = out[:3]
     assert (nano.name, nano.state, nano.purge) == ("nano", "absent", True)
     assert tree.install_recommends is False and jq.version == "1.7" and jq.extra_args == ("--foo",)
     with pytest.raises(BastetError):

@@ -4,7 +4,7 @@ import pytest
 
 from bastet.core.errors import BastetError
 from bastet.engine.files import File
-from bastet.engine.packages import Package, Repository
+from bastet.engine.packages import Package
 from bastet.engine.run import collect_items
 from bastet.engine.slots import apply_order
 from bastet.roles.builtin import HostInfo, batches_for

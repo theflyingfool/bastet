@@ -47,10 +47,11 @@ def test_table_shows_winner_origin_merged_lists_and_defaults(tmp_path):
     assert not [r for r in rows(text) if "| ntp |" in r]  # unset, no default: not shown
 
 
-def test_type_roles_show_and_summary_embeds_table(tmp_path):
+def test_summary_embeds_table_and_proxmox_type_adds_no_roles(tmp_path):
     inv = lab(tmp_path)
     summary = host_summary(inv, inv.get("pve1"), TYPES, [])
-    assert "| [[systemd role\\|systemd]] | ntp_service | chrony | type proxmox |" in summary
+    assert "| [[systemd role\\|systemd]] | ntp_service | timesyncd | lab |" in summary
+    assert "type proxmox" not in summary
     assert summary.index("[!grid]") < summary.index("Resolved roles")
 
 
