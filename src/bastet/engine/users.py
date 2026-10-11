@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import ClassVar
 
 from bastet.core.shell import ProbeResult
+from bastet.engine import passwords
 from bastet.engine.files import FILE_TAIL, File, _parse_file
 from bastet.engine.model import ABSENT, FieldChange, Read, ReadError, Resource, Unsupported
 
@@ -44,6 +45,7 @@ class User(Resource):
     shell: str | None = None
     system: bool = False
     password_hash: str | None = None
+    password: str | None = None
     update_password: str = "always"
     locked: bool | None = None
     expires: str | None = None
@@ -58,6 +60,8 @@ class User(Resource):
         _check_name("user", self.name)
         if self.update_password not in ("always", "on_create"):
             raise ValueError("update_password must be always or on_create")
+        if self.password is not None and self.password_hash is not None:
+            raise ValueError("give password or password_hash, not both")
         if self.expires not in (None, "never"):
             dt.date.fromisoformat(self.expires)
 
@@ -72,7 +76,7 @@ class User(Resource):
     def desired(self):
         return {"exists": True, "uid": None if self.uid is None else str(self.uid), "group": self.group,
                 "groups": None if self.groups is None else tuple(sorted(set(self.groups))), "comment": self.comment,
-                "home": self.home, "shell": self.shell, "password": self.password_hash, "locked": self.locked,
+                "home": self.home, "shell": self.shell, "password": self.password_hash if self.password is None else "(new)", "locked": self.locked,
                 "expires": self.expires, **{k: None if v is None else str(v) for k, v in self._ageing().items()}}
 
     def _ageing(self) -> dict[str, int | None]:
@@ -123,14 +127,16 @@ class User(Resource):
                 if set(want) != set(have):
                     changes.append(FieldChange("groups", _joined(have), _joined(want)))
             elif k == "password":
-                if have != v and self.update_password == "always":
+                same = passwords.matches(self.password, str(have)) if self.password is not None else have == v
+                if not same and self.update_password == "always":
                     changes.append(FieldChange("password", "(hidden)", "(new)"))
             elif have != v:
                 changes.append(FieldChange(k, have, v))
         return changes
 
     def _password_cmd(self) -> str:
-        return f"printf '%s:%s\\n' {_q(self.name)} {_q(str(self.password_hash))} | chpasswd -e"
+        hashed = self.password_hash if self.password is None else passwords.hash(self.password, passwords.new_salt())
+        return f"printf '%s:%s\\n' {_q(self.name)} {_q(str(hashed))} | chpasswd -e"
 
     def fix(self, changes, current):
         fields = {c.field for c in changes}
@@ -181,7 +187,7 @@ class User(Resource):
                                               ("-I", "inactive_days")) if k in fields]
         if ageing:
             cmds.append(" ".join(["chage"] + [f"{flag} {self._ageing()[k]}" for flag, k in ageing] + [n]))
-        if "password" in fields and self.password_hash is not None:
+        if "password" in fields and (self.password_hash is not None or self.password is not None):
             cmds.append(self._password_cmd())
         if "locked" in fields:
             cmds.append(f"usermod {'-L' if self.locked else '-U'} {n}")

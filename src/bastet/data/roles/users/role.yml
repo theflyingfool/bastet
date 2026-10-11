@@ -17,6 +17,7 @@ options:
         shell: {type: string}
         system: {type: bool}
         password_hash: {type: string, secret: true, description: "crypt hash, e.g. from mkpasswd -m sha-512"}
+        password: {type: string, secret: true, description: "Plain-text password; Bastet hashes it (SHA-512) with openssl on the machine running Bastet. Set it with a secret: reference, never write it in the note"}
         update_password: {type: string, choices: [always, on_create]}
         locked: {type: bool}
         expires: {type: string, description: "YYYY-MM-DD or never"}

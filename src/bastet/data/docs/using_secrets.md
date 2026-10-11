@@ -16,6 +16,9 @@ memory when it runs.
 Bastet's own key, and a recovery key whose private half is shown once and kept offline, never
 written to disk.
 
+Passwords: the secret holds the plain text; Bastet hashes it (SHA-512) with `openssl` on the machine
+running Bastet, so that machine needs `openssl` and the managed hosts need nothing extra.
+
 ## Recovering a value by hand
 
 Without Bastet, with only `age` and your SSH private key: strip the frontmatter and decrypt the
