@@ -29,6 +29,8 @@ the hardware split, one Bastet note per object, `_templates/`, user docs in `_ba
 `other` type. The memory facts key is now `memory_type`, and Tasks 7–11 have since been reviewed and their
 follow-ups fixed.
 
+**Priority (decided 2026-10-11): the VPS apps** (milestone 3c below): vaultwarden, forgejo and caddy, via the gates, secrets in files, `edit: env`, and rewriting ssh, base and harden. Hugo, a host firewall and backups are held off.
+
 **Next: the roles architecture, first slice** (`docs/specs/2026-10-10-bastet-roles-architecture-design.md`, approved 2026-10-10; the first-slice plan is `docs/plans/2026-10-10-bastet-roles-arch-1-slice.md`: the phase engine, the Markdown loader and generic builder, then pacman and a new apt role, followed by a stop for hard testing). Building blocks stay Python; roles become straight Markdown (about 99%); a host runs by phase across all roles; roles are converted one at a time, starting with pacman. The first slice is the draft contract, the generic builder, `files` settings (`edit: ini`), `before:`/`after:`, `wants`/`provides`, the phase engine (with daemon-reload and a health check), and pacman as Markdown-only. The six old subplans are replaced: subplan 1 (the host-note split) is merged, and the audited library, update, lint and pages work (old subplan 2, `docs/plans/2026-10-07-bastet-roles-2-format-library.md`) is on hold until the end.
 
 **Audit increment 1 (make the shipped roles safe) is built** on branch `audit-inc-1` (`docs/plans/2026-10-10-audit-inc-1-shared-roles-safe.md`; reviews pending). `edit: ini` writes a section-scoped managed block, so pacman can no longer touch a repository's settings; `as: entries` and `commands:` entries let the apt and pacman roles own their repositories as data; the proxmox role, the Repository resource and the packages `repositories` option are removed. The next step is the owner's `run -c` diff on a real Arch host, then the next increments of `docs/plans/2026-10-10-bastet-audit-correction-plan.md`; role conversion resumes after increments 1 to 3.
@@ -44,7 +46,8 @@ follow-ups fixed.
 | — | Parallel hosts: gather/check/apply in parallel, apply asks once | ☑ |
 | 3 | **Roles architecture:** Markdown roles over Python building blocks, phase execution, one role converted at a time (host-note split done) | ◐ in progress |
 | 3b | **Run logs:** an ordered record of every run, readable in Obsidian, with its own verbosity (below). All three plans done | ☑ |
-| 4 | Infrastructure roles: Proxmox node setup, ZFS, guest creation, firewall, container runtime | ☐ |
+| 3c | **VPS apps:** vaultwarden, forgejo and caddy on the VPS, reached by finishing the gates, the secrets and `edit: env` block work, and rewriting ssh, base and harden (below) | ☐ next |
+| 4 | Infrastructure roles: Proxmox node setup, ZFS, guest creation, firewall, container runtime (set aside until a Proxmox system is up) | ☐ |
 | 5 | Secrets part 2: rotation and rekey (once real secret-using roles exist) | ☐ |
 | 6 | App roles, then proxy and DNS roles that configure themselves from the whole lab | ☐ |
 | 7 | Orchestrator LXC and web UI; run logs and resilience | ☐ |
@@ -54,10 +57,23 @@ follow-ups fixed.
 Design: `docs/specs/2026-10-10-bastet-roles-architecture-design.md`. Each step ends with merged, working software, and the next is planned only when it is next.
 
 1. ☑ **First slice** (`docs/plans/2026-10-10-bastet-roles-arch-1-slice.md`; apt is included, and we stop for hard testing afterwards): draft contract (`api: 0`), the generic builder next to the old Python builders, `files` settings (`edit: ini`), `before:`/`after:` on entries, `wants`/`provides`, the phase engine across all roles (triggers once at the end, daemon-reload, health check), and **pacman as Markdown-only**. Done when pacman has no Python, every existing pacman test passes unchanged, and `check` output on an Arch host is identical. Built: pacman is Markdown-only; apt is a new Markdown-only role (curated, incomplete option list); the engine runs entries from all roles by block slot and each trigger once per host. **Next gate: hard testing** (the full suite, `BASTET_CONTRACT=1 uv run pytest tests/contract -q`, real runs, failure cases, Ctrl-C, `-vv`), and no more roles are converted until it is done. Known risk: the AUR (roles table item 8) is out of scope and may break on Arch hosts in the new order.
-2. ☐ **One role at a time, evaluating after each:** ssh (`edit: sshd` with its `sshd -t` check and a few `warn` rules; the lockout guard is dropped), base (`when:` for microcode), harden, systemd (time, hostname, locale), the thin `users` and `files` roles, `packages` (AUR, update and reboot policy become block features), proxmox. Each adds only the block or contract features it needs.
+2. ☐ **One role at a time, evaluating after each** (ssh, base and harden are pulled forward into the VPS apps milestone above and rewritten there; the rest wait until after it): ssh (`edit: sshd` with its `sshd -t` check and a few `warn` rules; the lockout guard is dropped), base (`when:` for microcode), harden, systemd (time, hostname, locale), the thin `users` and `files` roles, `packages` (AUR, update and reboot policy become block features), proxmox. Each adds only the block or contract features it needs.
 3. ☐ **Capabilities and contributions** beyond `wants`, when a real role needs them: the firewall (same-host), then the Git forge (a host waits for the whole provider host; guests already wait for their node).
 4. ☐ **Stabilize:** the library, `role update`, `doctor <dir>` and role pages (the audited old subplan 2), then presets, boards and the guided `add role`.
 5. ◐ **Versioning:** ☑ version 0.2.0 (run logs done), written only in `pyproject.toml`; bump at each milestone; no git tags for now. Roles use semver plus the content hash; the contract stays a draft until about 1.0.
+
+## VPS apps (milestone 3c)
+
+Goal (decided 2026-10-11): vaultwarden, forgejo and caddy running on the VPS as soon as possible. This is pulled ahead of the Proxmox and ZFS work and of the rest of "one role at a time" (roles architecture step 2). All four apps are in the Arch repos, so each is a native role over the existing blocks. Each step ends with merged, working software, and the next is planned only when it is next.
+
+1. ☐ **Finish the gates in flight:** hard testing of the first slice, review of audit increment 1 and the owner's `run -c` on a real Arch host. Audit increments 2 and 3 only if they touch what the VPS needs.
+2. ☐ **Secrets usable in files and templates:** forgejo needs `SECRET_KEY` and tokens, vaultwarden needs `ADMIN_TOKEN`. Secrets part 1 exists; first check whether `files` and templates can already reference a secret. If not, this is the first block work.
+3. ☐ **`files` gets `edit: env`:** `KEY=value` files (vaultwarden's env file, systemd `EnvironmentFile`, `/etc/default/*`), with one documented quoting rule (the systemd one). `sysctl`-style `key = value` files can come later as an option or their own edit type.
+4. ☐ **Rewrite ssh, base and harden in the new format**, one at a time with an evaluation after each, ssh first (it can lock you out). Rewrite, not port: ssh needs `edit: sshd` with the `sshd -t` check, base needs `when:` for microcode.
+5. ☐ **`caddy`:** package, service, and a Caddyfile that imports a `conf.d` directory. Automatic TLS, so no certificate block. Cross-role contributions can wait; each app role drops its own vhost file.
+6. ☐ **`vaultwarden` and `forgejo`:** package, config (`edit: env` and `edit: ini`), secrets, service through a systemd drop-in, each dropping its Caddy vhost.
+
+**Held off for now:** hugo (and with it the `fetch` block, which stays planned), a host firewall (the VPS uses the provider's firewall) and backups.
 
 ## Run logs (milestone 3b)
 
@@ -98,10 +114,17 @@ Generic mechanisms every role is assembled from (roles spec §8). Roles never im
 |---|---|---|---|
 | ◐ | packages | Installs, updates, reboot-needed marking (each package manager's role owns its repositories; `packages` has no `repositories` option) | `hold` (pinning distro packages), install-method support (`native`/`container`), AUR bootstrap and update/reboot policy as block options (today in the role), `wants: package-manager` |
 | ☑ | users | Users, groups, authorized keys, sudoers drop-ins | |
-| ◐ | files | Whole files, directories, symlinks, lines, blocks; owner/mode; validate before swap; Jinja2 templates (below). Section settings: `edit: ini` writes a managed block per section, originals commented `#bastet: `, off and empty supported, removal deferred; `backup: true` keeps the original once as `<path>.bastet-orig`. Also apt's `render: apt` and `as: entries` (`deb822`, `ini_section`), `before:`/`after:` (`run_before`/`run_after`) | More settings edits (`kv`, `sshd` next); format checking (YAML, JSON, TOML, INI parsed on the controller; `visudo -cf`, `sshd -t`, `systemd-analyze verify` on the host; a role's own `validate:`); replace-with-check |
+| ◐ | files | Whole files, directories, symlinks, lines, blocks; owner/mode; validate before swap; Jinja2 templates (below). Section settings: `edit: ini` writes a managed block per section, originals commented `#bastet: `, off and empty supported, removal deferred; `backup: true` keeps the original once as `<path>.bastet-orig`. Also apt's `render: apt` and `as: entries` (`deb822`, `ini_section`), `before:`/`after:` (`run_before`/`run_after`) | More settings edits (`env` and `sshd` next; `sysctl`-style `key = value` later); format checking (YAML, JSON, TOML, INI parsed on the controller; `visudo -cf`, `sshd -t`, `systemd-analyze verify` on the host; a role's own `validate:`); replace-with-check |
 | ◐ | templates (part of files) | Files rendered with Jinja2 (`StrictUndefined`) | The full language; role-folder includes only, plain-data context, `toyaml`/`tojson`/`quote` |
-| ◐ | systemd | Units, drop-ins, hostname, locale, time | Timers, `.mount` units, sysctl.d, modules-load.d, tmpfiles.d, hardening drop-ins from `access` |
-| ☐ | JSON state | APIs and JSON-speaking CLIs: read, find, compare a subset, create/update/delete; on the host or the controller | Everything |
+| ◐ | systemd | Units, drop-ins, hostname, locale, time | Timers (cron-style schedules belong here, so `systemd` covers all of systemd), `.mount` units, sysctl.d, modules-load.d, tmpfiles.d, hardening drop-ins from `access` |
+| ☐ | secrets in other blocks | Let `files`, templates and the other blocks use a secret's value without it reaching the inventory or the logs | Check what works today; needed for the VPS apps |
+| ☐ | api (JSON state) | Common JSON API interaction, and JSON-speaking CLIs: read, find, compare a subset, create/update/delete; on the host or the controller | Everything. Not needed for the VPS apps |
+| ☐ | fetch | Remote files, wherever they are: the machine running Bastet, a git repository at a given point, curl/ftp-style sources | Everything. Held with hugo |
+| ? | git | Git as managed state (clone, pull, commit, deploy keys), apart from `fetch` pulling a repo at a point | Maybe its own block later |
+| ? | wait / probe | Health checks, port or HTTP readiness, waiting after reboots | To investigate; may feed phase ordering. Network checks (ping and the like) may live here |
+| ? | storage | Mounts, disks and the ZFS work, if it goes the block route | Decide when ZFS is picked up |
+
+Other ideas judged to be roles, not blocks: network config (covered by `systemd` and `files`), kernel settings, certificates. Containers (podman) are files plus `systemd` (Quadlet); a role that needs `commands` should first be checked for whether a new block is really required.
 | ◐ | commands | A command with a check; role files can declare `commands:` entries (`name`, `run`, `unless`, optional `when`, `before`/`after`) | Phase hooks (`changed` / `always` / `check:`) later |
 | ◐ | reports | Read-only information: lynis, listening ports, service exposure, vulnerable and unaccounted packages | Report options any role can offer, the per-host reports note. Done: a provider's stock-image packages (Linode Arch) are allowed in the unaccounted report from shipped baselines |
 | ☐ | power control | On, off and status through IPMI, Redfish or Wake-on-LAN | Everything |
@@ -122,25 +145,28 @@ Rows marked ⏸ (the Proxmox and ZFS infrastructure roles) are set aside until a
 |---|---|---|---|---|
 | ☑ | — | systemd | Time, NTP, hostname, locale | Python: the systemd block's own role. Time moves to the `time` role later |
 | ☑ | — | packages | Installs, updates and reboot policy per host | Python: the packages block's own role. No `repositories` option; each manager's role owns them |
-| ☑ | — | base | Admin tools everywhere; CPU microcode on physical hosts | |
+| ◐ | — | base | Admin tools everywhere; CPU microcode on physical hosts | Works in the old format; to be rewritten in Markdown (VPS apps, step 4) |
 | ☑ | — | pacman | Every `[options]` setting as a managed block in `pacman.conf` (originals commented `#bastet: `, one-time backup); repositories as `bastet repo <name>` blocks | Arch. Markdown-only, no Python (the proof) |
 | ☑ | — | apt | Curated apt options, written to `/etc/apt/apt.conf.d/90-bastet`; repositories as `.sources` files; `modernize_sources` | Debian. New, Markdown-only; the option list is curated and incomplete (full list generated later) |
 | ✗ | — | proxmox | The role was removed (audit increment 1). The apt role owns repositories now; the subscription-notice patch and the tools it installed are gone. The `proxmox` host type stays and applies no baseline roles | A new Proxmox role is to be designed (see Proxmox node setup, 1) |
 | ☐ | — | time | Time zone, time sync, NTP | Planned: data that calls the `systemd` block (needs role-file entries that call the blocks first); not a type baseline |
 | ☑ | — | users | Users, groups, keys, sudoers | Python: the users block's own role |
 | ☑ | — | files | Files you want on a host | Python: the files block's own role |
-| ☑ | — | ssh | Every sshd option, with the lockout guard | |
-| ☑ | — | harden | fail2ban, arch-audit / debsecan, lynis | |
+| ◐ | — | ssh | Every sshd option, with the lockout guard | Works in the old format; to be rewritten first in the VPS apps milestone (`edit: sshd`) |
+| ◐ | — | harden | fail2ban, arch-audit / debsecan, lynis | Works in the old format; to be rewritten in Markdown (VPS apps, step 4) |
 | ⏸ | 1 | Proxmox node setup | Bridges (VLAN-aware, applied with a rollback timer), storage, API user and token; shuts guests down cleanly before a reboot and starts them again after (reboot hooks) | Later: IOMMU, clustering, maybe backups |
 | ⏸ | 2 | zfs | Report first, then datasets, scrubs and snapshots (sanoid or timers, undecided), NFS exports, pools gated on blank disks | |
 | ⏸ | 3 | Proxmox guests | The node creates LXCs/VMs described by their host notes; first contact and the bastet user; never recreates | Roles spec §11 |
 | ⏸ | 4 | qemu_guest_agent | Guest agent in VMs | Pointless until guests are created |
-| ☐ | 5 | firewall | nftables, built from the ports other roles contribute | |
+| ☐ | 5 | firewall | nftables, built from the ports other roles contribute | Held: the VPS uses the provider's firewall |
 | ☐ | 6 | podman | Container runtime (Quadlet), rootless where possible | The default runtime |
 | ☐ | 7 | mounts | NFS shares and data disks as `.mount` units | Friendly menu over the systemd block |
 | ☐ | 8 | aur repository | A local, signed pacman repository built with aurutils; reports AUR updates | Design session first. The AUR is out of scope for the first slice and may break on Arch hosts in the new order |
 | ☐ | 9 | docker | Alternative container runtime | Only where docker must stay |
-| ☐ | — | App roles, unordered | caddy, gitea, hugo, lldap or kanidm, grafana, jellyfin, pi_hole, rustdesk, sunshine, glances, unifi, vaultwarden | Native first, podman otherwise |
+| ☐ | V1 | caddy | Web server and reverse proxy; Caddyfile importing a `conf.d` directory, automatic TLS | VPS apps, step 5 |
+| ☐ | V2 | vaultwarden | Native package, env file, `ADMIN_TOKEN` secret, Caddy vhost | VPS apps, step 6 |
+| ☐ | V3 | forgejo | Native package, `app.ini` settings, secrets, Caddy vhost | VPS apps, step 6. Forgejo chosen over gitea |
+| ☐ | — | App roles, unordered | hugo (held, needs `fetch`), lldap or kanidm, grafana, jellyfin, pi_hole, rustdesk, sunshine, glances, unifi | Native first, podman otherwise |
 | ☐ | — | Old docker_* roles, undecided | arr, frigate, homepage, mealie, nextcloud, paperless, uptime, … | See `refs/old-homelab-ansible-roles/` |
 | ? | — | Goals unclear | dev_env, pacman_api | Don't port blind |
 
