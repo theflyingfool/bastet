@@ -10,6 +10,7 @@ from bastet.engine.model import Resource
 from bastet.engine.packages import Package
 from bastet.engine.slots import SLOTS
 from bastet.engine.systemd import Hostname, Locale, TimeSettings, Unit, drop_in
+from bastet.engine.users import AuthorizedKey, Group, User, sudoer
 from bastet.roles import expr
 
 COMMON_KEYS = {"when", "before", "after"}
@@ -22,6 +23,17 @@ SYSTEMD_KINDS = {
     "dropin": {"unit", "name", "content", "restart"},
 }
 SYSTEMD_REQUIRED = {"unit": ("name",), "dropin": ("unit", "name", "content")}
+USER_FIELDS = {"name", "uid", "group", "groups", "append", "comment", "home", "create_home", "move_home", "shell", "system",
+               "password", "password_hash", "update_password", "locked", "expires", "max_days", "min_days", "warn_days",
+               "inactive_days", "non_unique", "skeleton"}
+USERS_KINDS = {
+    "user": USER_FIELDS,
+    "group": {"name", "gid", "system", "members", "append_members"},
+    "key": {"user", "key", "options", "path", "state"},
+    "sudoer": {"name", "rules", "user", "group", "commands", "runas", "hosts", "nopasswd", "setenv", "defaults"},
+}
+USERS_REQUIRED = {"user": ("name",), "group": ("name",), "key": ("user", "key"), "sudoer": ("name",)}
+BASTET_USER = "bastet"
 
 
 def _fail(msg: str, path: Path, key: str) -> BastetError:
@@ -108,6 +120,33 @@ def parse_systemd(path: Path, items: object, options: dict) -> list[dict]:
     return out
 
 
+def parse_users(path: Path, items: object, options: dict) -> list[dict]:
+    if not isinstance(items, list):
+        raise _fail("users must be a list", path, "users")
+    allowed, out = set(options), []
+    for i, entry in enumerate(items):
+        where = f"users[{i}]"
+        if not isinstance(entry, dict):
+            raise _fail(f"{where}: each entry is a map", path, "users")
+        kind = entry.get("kind")
+        if kind is None:
+            raise _fail(f"{where}: needs a kind", path, "users")
+        if kind not in USERS_KINDS:
+            raise _fail(f"{where}: kind must be one of {', '.join(USERS_KINDS)}", path, "users")
+        _unknown(entry, USERS_KINDS[kind] | COMMON_KEYS | {"kind"}, where, path)
+        for need in USERS_REQUIRED[kind]:
+            if entry.get(need) in (None, ""):
+                raise _fail(f"{where}: {kind}: needs {need}", path, "users")
+        if entry.get("password") is not None and entry.get("password_hash") is not None:
+            raise _fail(f"{where}: give password or password_hash, not both", path, "users")
+        named = (entry.get("user"),) if kind == "key" else (entry.get("name"), entry.get("user"))
+        if BASTET_USER in named:
+            raise _fail(f"{where}: the bastet account is managed by Bastet itself", path, "users")
+        check_common(entry, allowed, where, path, "users")
+        out.append(dict(entry))
+    return out
+
+
 def placed(resource: Resource, role, entry: dict, secret_options: frozenset = frozenset()) -> Resource:
     """Order and capabilities from the entry; secret when the entry uses a secret-valued option."""
     secret = bool(expr.names_in(entry) & secret_options)
@@ -127,6 +166,26 @@ def _packages(role, ctx: dict, secrets: frozenset) -> list[Resource]:
         fields = {k: v for k, v in fields.items() if v is not None}
         for n in name if isinstance(name, list) else [name]:
             out.append(placed(Package(name=str(n), **fields), role, entry, secrets))
+    return out
+
+
+def _users(role, ctx: dict, secrets: frozenset) -> list[Resource]:
+    out: list[Resource] = []
+    for entry in role.users:
+        if not expr.truthy(entry.get("when"), ctx):
+            continue
+        kind = entry["kind"]
+        resolved = {k: expr.resolve(v, ctx) for k, v in entry.items() if k not in COMMON_KEYS | {"kind"}}
+        f = {k: tuple(v) if isinstance(v, list) else v for k, v in resolved.items() if v is not None}
+        if kind == "user":
+            made = User(**f)
+        elif kind == "group":
+            made = Group(**f)
+        elif kind == "key":
+            made = AuthorizedKey(**f)
+        else:
+            made = sudoer(f.pop("name"), **f)
+        out.append(placed(made, role, entry, secrets))
     return out
 
 
@@ -153,4 +212,4 @@ def _systemd(role, ctx: dict, host, secrets: frozenset) -> list[Resource]:
 
 def build_entries(role, values: dict, host, secret_options: frozenset = frozenset()) -> list[Resource]:
     ctx = expr.context(role.options, values, host)
-    return [*_packages(role, ctx, secret_options), *_systemd(role, ctx, host, secret_options)]
+    return [*_packages(role, ctx, secret_options), *_users(role, ctx, secret_options), *_systemd(role, ctx, host, secret_options)]
