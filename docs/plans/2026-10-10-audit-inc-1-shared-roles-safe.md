@@ -51,6 +51,7 @@
 | `src/bastet/cli/run.py` | `_node_of_map` stops shadowing `out` |
 | `src/bastet/engine/packages.py` | dpkg options quoted as one argument (two places) |
 | `src/bastet/cli/doctor.py` | `_check_role_dir` accepts a Markdown role folder |
+| `src/bastet/roles/contract.py`, `declarative.py`, `builtin.py`, the `apt` and `pacman` role files | `as: repositories`; the manager roles create the `Repository` resources; `packages` refuses repositories on apt and pacman hosts |
 
 ---
 
@@ -389,7 +390,81 @@ def _check_role_dir(path: Path) -> None:
 
 ---
 
-### Task 4: Docs and the checkpoint
+### Task 4: Repositories move to the manager roles (pacman, apt)
+
+**Files:**
+- Modify: `src/bastet/roles/contract.py` (`OPTION_AS`, option checks), `src/bastet/roles/declarative.py` (`build`), `src/bastet/data/roles/pacman/pacman role.md`, `src/bastet/data/roles/apt/apt role.md`, `src/bastet/roles/builtin.py` (`_packages`), `src/bastet/data/roles/packages/role.yml` (description of `repositories`), the user docs that mention `packages` repositories (find them with `grep -rn "repositories" src/bastet/data/docs docs/*.md`), `docs/roles.md` (regenerate), and the existing tests that put repositories on the `packages` role of an apt or Arch host
+- Test: `tests/roles/test_repositories_option.py` (new)
+
+**Decision (owner):** a repository is the package manager's own setting, so the `pacman` and `apt` roles own the repositories of their manager. The `Repository` resource (inside the `packages` block) is unchanged; the roles now create it.
+
+**Behaviour:**
+- Contract: `as` accepts a fourth value, `repositories`, allowed only on an option of type `list` whose items are objects (error otherwise: `{where}: as: repositories needs a list of objects`).
+- Builder: for every option with `as: repositories` that has a value, `build` appends one `Repository(**fields)` per item to the batch, after the file entries. Convert each item the way `builtin._packages` does today: `options` map → tuple of `(key, value)` pairs, lists → tuples (`uris`, `suites`, `components`, `types`, `architectures`); copy the small conversion locally, because `builtin` imports `declarative`. The role's `provides` and the entry knobs do not apply; `Repository` is already in the `repositories` slot.
+- `apt role.md` gains a `repositories` option (`as: repositories`) with the item fields the `packages` role's option has for apt: `name` (required), `uris` (required), `suites`, `components`, `types`, `architectures`, `key`, `signed_by`, `enabled`, `trusted`, `options`. `pacman role.md` gains one with `name` (required), `uris`, `enabled`, `trusted`, `options` (extra fields such as `SigLevel`, `Include`, in the repository's own format). Descriptions say these are written in the host's own format. Add an example to each.
+- The `packages` role keeps `repositories` for the managers that have no role yet (dnf, zypper, apk). On an Arch-based or Debian-based host, `_packages` raises `BastetError("packages.repositories: set repositories in the pacman role on Arch-based hosts and in the apt role on Debian-based hosts")` when the option is non-empty (use the `HostInfo` helpers the declarative builder uses for its OS check). The proxmox role's own repositories are untouched.
+- Existing host notes that give `repositories:` to the `packages` role on Arch or Debian hosts must move that block to the matching manager role; the error says so.
+
+- [ ] **Step 1: Write the failing tests.** Create `tests/roles/test_repositories_option.py` (use the same temporary-role helpers as `tests/roles/test_ini_settings.py`):
+
+```python
+import pytest
+
+from bastet.core.errors import BastetError
+from bastet.engine.packages import Repository
+
+# helpers: apt/pacman hosts as HostInfo like tests/roles/test_pacman_role.py and test_apt_role.py build them;
+# ap(role_name, values) -> Applied; built(role_name, values, host) -> resources of every batch from batches_for
+
+
+def test_apt_repositories_become_repository_resources():
+    out = built("apt", {"repositories": [{"name": "backports", "uris": ["http://deb.example.net/debian"],
+                                          "suites": ["trixie-backports"], "components": ["main"]}]}, debian_host())
+    [repo] = [r for r in out if isinstance(r, Repository)]
+    assert repo.name == "backports" and repo.uris == ("http://deb.example.net/debian",)
+    assert repo.suites == ("trixie-backports",) and repo.components == ("main",)
+
+
+def test_pacman_repositories_keep_their_own_format_options():
+    out = built("pacman", {"repositories": [{"name": "custom", "uris": ["https://example.net/$repo/os/$arch"],
+                                             "options": {"SigLevel": "Optional"}}]}, arch_host())
+    [repo] = [r for r in out if isinstance(r, Repository)]
+    assert repo.options == (("SigLevel", "Optional"),)
+    assert repo.parts("pacman")[0].block.startswith("[custom]\nServer = https://example.net/$repo/os/$arch")
+
+
+def test_no_repositories_means_no_repository_resources():
+    assert not [r for r in built("apt", {}, debian_host()) if isinstance(r, Repository)]
+
+
+@pytest.mark.parametrize("host_kind", ["arch", "debian"])
+def test_the_packages_role_refuses_repositories_on_apt_and_pacman_hosts(host_kind):
+    host = arch_host() if host_kind == "arch" else debian_host()
+    with pytest.raises(BastetError, match="set repositories in the pacman role"):
+        built("packages", {"repositories": [{"name": "x", "uris": ["http://x"]}]}, host)
+
+
+def test_the_packages_role_still_takes_repositories_for_other_managers():
+    # a host that is neither Arch-based nor Debian-based (for example data={"os": "Fedora Linux 42"})
+    out = built("packages", {"repositories": [{"name": "x", "uris": ["http://x"]}]}, fedora_host())
+    assert any(isinstance(r, Repository) for r in out)
+
+
+def test_as_repositories_needs_a_list_of_objects(tmp_path):
+    with pytest.raises(BastetError, match="as: repositories needs a list of objects"):
+        bad_role(tmp_path, {"type": "string", "as": "repositories", "key": "X"})
+```
+
+(`bad_role` writes a role with that one option the way the other role tests do; `fedora_host` is a `HostInfo` whose `os` is not Arch- or Debian-like.)
+
+- [ ] **Step 2: Run to see them fail.** `uv run pytest tests/roles/test_repositories_option.py -q`.
+- [ ] **Step 3: Implement** as described under Behaviour. Update the existing tests that gave `repositories` to the `packages` role on Debian or Arch hosts (find them in `tests/roles/test_builtin.py` and `tests/roles/test_system_roles.py`): move those cases to the `apt` or `pacman` role, or switch the host to a Fedora-like one if the case is really about the `packages` role itself. Say which tests changed in your report.
+- [ ] **Step 4: Contract test (written, not run).** In `tests/contract/test_contract.py`, if a test builds repositories through the `packages` role on the Debian or Arch container, switch it to the `apt` or `pacman` role.
+- [ ] **Step 5: Run** `uv run pytest tests/roles tests/engine tests/core tests/cli/test_add_role.py tests/test_cli.py -q`, regenerate `docs/roles.md` with `scripts/gen_roles_doc.py`, run `scripts/privacy-check`. **Step 6: Commit** (`roles: apt and pacman own their repositories`).
+
+---
+
+### Task 5: Docs and the checkpoint
 
 **Files:** `docs/specs/2026-10-10-bastet-roles-architecture-design.md`, `docs/ROADMAP.md`, `docs/plans/2026-10-10-bastet-audit-correction-plan.md`, `src/bastet/data/docs/writing_roles.md`.
 
