@@ -155,3 +155,9 @@ All six are answered.
 - Two building blocks that are ideas only, not started: power control (design still open) and a possible `fetch` block
   (curl/wget/git/send from the command host; audit 2 suggests pinned identities and checksums, and safe extraction, when
   a concrete role first needs it). Neither is in the roadmap's blocks table beyond power control.
+- Open design question (owner's view, not decided): repositories may belong to the package manager's own role rather than
+  the cross-distro `packages` block, since a repository is manager-specific data and the manager roles are already aimed
+  per distro. That would give `pacman.conf` a single owning role and move the `repositories` option from the `packages`
+  role to the manager roles (the `Repository` resource stays a block). Needs its own design: option shape, key handling
+  for third-party repositories, migration of existing host notes. Decide with the `packages` role conversion or after
+  increment 2 (overlap detection).
