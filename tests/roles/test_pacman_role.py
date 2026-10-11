@@ -3,7 +3,8 @@ from pathlib import Path
 import pytest
 
 from bastet.core.errors import BastetError
-from bastet.engine.files import Line
+from bastet.engine.command import Command
+from bastet.engine.files import Settings
 from bastet.engine.slots import SLOTS, rank
 from bastet.roles.builtin import HostInfo, batches_for
 from bastet.roles.contract import check_values, load_roles, with_defaults
@@ -11,7 +12,7 @@ from bastet.roles.resolve import Applied
 
 ROLES = load_roles()
 CONF = "/etc/pacman.conf"
-OPTIONS = r"^\[options\]\s*$"
+VALIDATE = "pacman-conf --config %s >/dev/null"
 
 
 def ap(values):
@@ -23,33 +24,37 @@ def arch(os="Arch Linux"):
     return HostInfo(name="laptop1", type="laptop", data={"os": os}, root=Path("/nonexistent"), lab={})
 
 
-def built(values, host=None):
+def everything(values, host=None):
     [batch] = batches_for([ap(values)], host or arch())
     return batch.resources
 
 
-def line(key, text):
-    return Line(path=CONF, line=text, match=rf"^#?\s*{key}\s*(=.*)?$", after=OPTIONS, unique=True, provides=("package-manager",))
+def built(values, host=None):
+    return [r for r in everything(values, host) if isinstance(r, Settings)]
 
 
-COLOR, CANDY = line("Color", "Color"), line("ILoveCandy", "ILoveCandy")
+def settings(keys, lines=None):
+    keys = tuple(keys)
+    return Settings(path=CONF, section="options", keys=keys, lines=keys if lines is None else tuple(lines),
+                    validate=VALIDATE, provides=("package-manager",))
 
 
 def test_defaults_write_color_and_candy_only():
-    assert built({}) == [COLOR, CANDY]
+    assert built({}) == [settings(["Color", "ILoveCandy"])]
 
 
 def test_a_value_option_is_written_in_option_order():
-    assert built({"parallel_downloads": 8}) == [line("ParallelDownloads", "ParallelDownloads = 8"), COLOR, CANDY]
+    assert built({"parallel_downloads": 8}) == [settings(["ParallelDownloads", "Color", "ILoveCandy"],
+                                                         ["ParallelDownloads = 8", "Color", "ILoveCandy"])]
 
 
-def test_a_flag_set_false_is_commented_out():
-    assert built({"color": False}) == [line("Color", "#Color"), CANDY]
+def test_a_flag_set_false_keeps_its_key_but_writes_no_line():
+    assert built({"color": False}) == [settings(["Color", "ILoveCandy"], ["ILoveCandy"])]
 
 
-def test_list_options_join_with_spaces_and_an_empty_list_comments_the_directive_out():
+def test_list_options_join_with_spaces_and_an_empty_list_writes_no_line():
     assert built({"ignore_pkg": ["linux", "linux-headers"], "hold_pkg": []}) == [
-        line("HoldPkg", "#HoldPkg ="), line("IgnorePkg", "IgnorePkg = linux linux-headers"), COLOR, CANDY]
+        settings(["HoldPkg", "IgnorePkg", "Color", "ILoveCandy"], ["IgnorePkg = linux linux-headers", "Color", "ILoveCandy"])]
 
 
 def test_every_option_maps_to_its_pacman_directive():
@@ -63,16 +68,19 @@ def test_every_option_maps_to_its_pacman_directive():
         "local_file_sig_level": "Optional", "remote_file_sig_level": "Required", "color": True, "candy": False,
         "no_progress_bar": True, "verbose_pkg_lists": True, "check_space": True, "use_syslog": False,
     }
-    keys = [(r.line.split(" = ")[0].lstrip("#"), r.line) for r in built(values)]
-    assert [k for k, _ in keys] == [
+    [block] = built(values)
+    assert block.keys == (
         "RootDir", "DBPath", "CacheDir", "HookDir", "GPGDir", "LogFile", "HoldPkg", "IgnorePkg", "IgnoreGroup",
         "NoUpgrade", "NoExtract", "Architecture", "XferCommand", "ParallelDownloads", "DisableDownloadTimeout",
         "DownloadUser", "DisableSandbox", "CleanMethod", "SigLevel", "LocalFileSigLevel", "RemoteFileSigLevel",
-        "Color", "ILoveCandy", "NoProgressBar", "VerbosePkgLists", "CheckSpace", "UseSyslog"]
-    lines = dict(keys)
-    assert lines["DisableDownloadTimeout"] == "DisableDownloadTimeout" and lines["DisableSandbox"] == "#DisableSandbox"
-    assert lines["ILoveCandy"] == "#ILoveCandy" and lines["CleanMethod"] == "CleanMethod = KeepInstalled"
-    assert lines["SigLevel"] == "SigLevel = Required DatabaseOptional" and lines["UseSyslog"] == "#UseSyslog"
+        "Color", "ILoveCandy", "NoProgressBar", "VerbosePkgLists", "CheckSpace", "UseSyslog")
+    assert block.lines == (
+        "RootDir = /", "DBPath = /var/lib/pacman/", "CacheDir = /var/cache/pacman/pkg/", "HookDir = /etc/pacman.d/hooks/",
+        "GPGDir = /etc/pacman.d/gnupg/", "LogFile = /var/log/pacman.log", "HoldPkg = pacman glibc", "IgnorePkg = a",
+        "IgnoreGroup = g", "NoUpgrade = etc/x", "NoExtract = usr/share/doc/*", "Architecture = auto",
+        "XferCommand = /usr/bin/curl -fC - %u -o %o", "ParallelDownloads = 5", "DisableDownloadTimeout",
+        "DownloadUser = alpm", "CleanMethod = KeepInstalled", "SigLevel = Required DatabaseOptional",
+        "LocalFileSigLevel = Optional", "RemoteFileSigLevel = Required", "Color", "NoProgressBar", "VerbosePkgLists", "CheckSpace")
 
 
 def test_a_host_that_is_not_arch_based_is_refused_with_the_group_to_aim_at():
@@ -98,4 +106,11 @@ def test_a_value_option_must_be_one_non_empty_line(bad):
 
 
 def test_pacman_lines_run_before_the_packages_slot():
+    assert all(rank(r) < SLOTS.index("packages") for r in everything({}))
     assert all(rank(r) < SLOTS.index("packages") for r in built({}))
+
+
+def test_the_original_pacman_conf_is_backed_up_first():
+    [backup, block] = everything({})
+    assert isinstance(backup, Command) and backup.run == f"cp -p {CONF} {CONF}.bastet-orig"
+    assert rank(backup) <= rank(block)  # a tie runs in batch order, and the backup comes first

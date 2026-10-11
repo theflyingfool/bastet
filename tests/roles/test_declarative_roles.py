@@ -4,7 +4,7 @@ import pytest
 import yaml
 
 from bastet.core.errors import BastetError
-from bastet.engine.files import File, Line
+from bastet.engine.files import File, Settings
 from bastet.engine.run import Batch
 from bastet.roles.builtin import HostInfo, batches_for
 from bastet.roles.contract import parse_role
@@ -12,7 +12,6 @@ from bastet.roles.declarative import build
 from bastet.roles.resolve import Applied
 
 CONF = "/etc/demo.conf"
-OPTIONS = r"^\[options\]\s*$"
 
 
 def make(tmp_path, options, files, **front):
@@ -29,8 +28,8 @@ def host(os="Arch Linux"):
     return HostInfo(name="laptop1", type="laptop", data={"os": os} if os else {}, root=Path("/nonexistent"), lab={})
 
 
-def line(key, text):
-    return Line(path=CONF, line=text, match=rf"^#?\s*{key}\s*(=.*)?$", after=OPTIONS, unique=True)
+def settings(keys, lines=None, section="options"):
+    return Settings(path=CONF, section=section, keys=tuple(keys), lines=tuple(keys if lines is None else lines))
 
 
 def ini(tmp_path, options, values, **front):
@@ -40,7 +39,7 @@ def ini(tmp_path, options, values, **front):
 def test_flag_true_and_false(tmp_path):
     opts = {"a": {"type": "bool", "key": "Color", "section": "options"},
             "b": {"type": "bool", "key": "ILoveCandy", "section": "options"}}
-    assert ini(tmp_path, opts, {"a": True, "b": False}) == [line("Color", "Color"), line("ILoveCandy", "#ILoveCandy")]
+    assert ini(tmp_path, opts, {"a": True, "b": False}) == [settings(["Color", "ILoveCandy"], ["Color"])]
 
 
 def test_list_empty_list_and_value(tmp_path):
@@ -48,7 +47,7 @@ def test_list_empty_list_and_value(tmp_path):
             "i": {"type": "list", "items": {"type": "string"}, "key": "IgnorePkg", "section": "options"},
             "p": {"type": "int", "key": "ParallelDownloads", "section": "options"}}
     assert ini(tmp_path, opts, {"h": [], "i": ["x", "y"], "p": 8}) == [
-        line("HoldPkg", "#HoldPkg ="), line("IgnorePkg", "IgnorePkg = x y"), line("ParallelDownloads", "ParallelDownloads = 8")]
+        settings(["HoldPkg", "IgnorePkg", "ParallelDownloads"], ["IgnorePkg = x y", "ParallelDownloads = 8"])]
 
 
 def test_no_key_and_none_are_skipped(tmp_path):
@@ -57,15 +56,16 @@ def test_no_key_and_none_are_skipped(tmp_path):
     assert ini(tmp_path, opts, {"a": True, "b": None, "c": None}) == []
 
 
-def test_no_section_means_no_anchor(tmp_path):
+def test_no_section_is_refused(tmp_path):
     opts = {"c": {"type": "string", "key": "LogFile"}}
-    [r] = ini(tmp_path, opts, {"c": "/x"})
-    assert r.after is None
+    with pytest.raises(BastetError, match="demo.c: edit: ini needs a section"):
+        ini(tmp_path, opts, {"c": "/x"})
 
 
 def test_values_follow_contract_order(tmp_path):
     opts = {"z": {"type": "string", "key": "Z", "section": "options"}, "a": {"type": "string", "key": "A", "section": "options"}}
-    assert [r.line for r in ini(tmp_path, opts, {"a": "1", "z": "2"})] == ["Z = 2", "A = 1"]
+    [block] = ini(tmp_path, opts, {"a": "1", "z": "2"})
+    assert block.lines == ("Z = 2", "A = 1")
 
 
 def apt(tmp_path, values, **entry):
@@ -90,9 +90,12 @@ def test_apt_render_false_and_empty_list(tmp_path):
 
 def test_provides_and_placement_reach_resources(tmp_path):
     opts = {"a": {"type": "bool", "key": "Color", "section": "options"}}
-    role = make(tmp_path, opts, [{"path": CONF, "edit": "ini", "before": "packages", "after": "base"}], provides=["ntp"])
+    role = make(tmp_path, opts, [{"path": CONF, "edit": "ini", "before": "packages"}], provides=["ntp"])
     [r] = build(role, {"a": True}, host())[0].resources
-    assert (r.run_before, r.run_after, r.provides) == ("packages", "base", ("ntp",))
+    assert isinstance(r, Settings) and (r.run_before, r.run_after, r.provides) == ("packages", None, ("ntp",))
+    role = make(tmp_path, opts, [{"path": CONF, "edit": "ini", "after": "base"}])
+    [r] = build(role, {"a": True}, host())[0].resources
+    assert (r.run_before, r.run_after) == (None, "base")
 
 
 @pytest.mark.parametrize("os,label,family,bad", [("arch", "Arch", "arch", "Debian GNU/Linux 13"),
@@ -119,4 +122,4 @@ def test_markdown_role_through_batches_for(tmp_path):
     opts = {"a": {"type": "bool", "key": "Color", "section": "options"}}
     role = make(tmp_path, opts, [{"path": CONF, "edit": "ini"}])
     [batch] = batches_for([Applied(role, {"a": True})], host())
-    assert batch.name == "demo" and batch.resources == [line("Color", "Color")]
+    assert batch.name == "demo" and batch.resources == [settings(["Color"])]

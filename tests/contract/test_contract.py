@@ -183,6 +183,21 @@ def test_arch_pacman_contract(arch_host):
     assert arch_host.run("pacman-conf >/dev/null").returncode == 0  # still a valid config
 
 
+def test_arch_pacman_managed_block_contract(arch_host):
+    info = HostInfo(name="ct", type="vm", data={"os": "Arch Linux"}, root=Path("/nonexistent"), lab={})
+    arch_host.run("printf '[options]\\nParallelDownloads = 5\\nColor\\n\\n[custom]\\nSigLevel = Never\\nServer = file:///nonexistent\\n' > /etc/pacman.conf")
+    seeded = arch_host.run("cat /etc/pacman.conf").stdout
+    batches = batches_for([_applied("pacman", {"parallel_downloads": 7, "color": False})], info)
+    assert run_host(arch_host, "ct", batches, apply=True).ok
+    assert arch_host.run("pacman-conf ParallelDownloads").stdout.strip() == "7"
+    assert arch_host.run("pacman-conf --config /etc/pacman.conf | grep -c '^Color'").stdout.strip() == "0"
+    assert arch_host.run("pacman-conf --repo-list").stdout.split() == ["custom"]
+    assert arch_host.run("grep -c '^SigLevel = Never' /etc/pacman.conf").stdout.strip() == "1"
+    assert arch_host.run("cat /etc/pacman.conf.bastet-orig").stdout == seeded
+    again = run_host(arch_host, "ct", batches, apply=True)
+    assert all(i.status == "compliant" for i in again.items), render_host(again, full=True)
+
+
 def test_arch_pacman_all_kinds_contract(arch_host):
     info = HostInfo(name="ct", type="vm", data={"os": "Arch Linux"}, root=Path("/nonexistent"), lab={})
     batches = batches_for([_applied("pacman", {

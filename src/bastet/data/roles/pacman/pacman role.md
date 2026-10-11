@@ -3,7 +3,7 @@ bastet: role-definition
 name: pacman
 version: 1.0.0
 api: 0
-description: 'pacman''s own settings: every [options] setting in /etc/pacman.conf (Arch-based hosts; aim it at [[arch]]). Unset = leave pacman''s setting as it is. Repositories belong to the packages role.'
+description: 'pacman''s own settings: every [options] setting in /etc/pacman.conf (Arch-based hosts; aim it at [[arch]]). Unset = leave pacman''s setting as it is. Settings you give are written in a Bastet block right after [options], and the original lines are commented out with `#bastet: `. Repositories belong to the packages role.'
 os:
 - arch
 provides:
@@ -209,11 +209,13 @@ examples:
 files:
 - path: /etc/pacman.conf
   edit: ini
+  backup: true
+  validate: "pacman-conf --config %s >/dev/null"
 ---
 
 # pacman role
 
-pacman's own settings: every [options] setting in /etc/pacman.conf (Arch-based hosts; aim it at [[arch]]). Unset = leave pacman's setting as it is. Repositories belong to the packages role.
+pacman's own settings: every [options] setting in /etc/pacman.conf (Arch-based hosts; aim it at [[arch]]). Unset = leave pacman's setting as it is. Settings you give are written in a Bastet block right after [options], and the original lines are commented out with `#bastet: `. Repositories belong to the packages role.
 
 ## Changes
 

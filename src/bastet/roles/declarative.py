@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import re
 from dataclasses import replace
 
 from bastet.core.errors import BastetError
 from bastet.core.osinfo import ARCH_LIKE
-from bastet.engine.files import File, Line
+from bastet.engine.command import Command
+from bastet.engine.files import File, Settings
 from bastet.engine.model import Resource
 from bastet.engine.run import Batch
 from bastet.roles.contract import Option, RoleDef
@@ -32,30 +32,43 @@ def _keyed(role: RoleDef, values: dict):
     """The options that name a key in the file and have a value, in contract order."""
     for name, option in role.options.items():
         if option.key and values.get(name) is not None:
-            yield option, values[name]
+            value = values[name]
+            for text in value if isinstance(value, (list, tuple)) else [value]:
+                if isinstance(text, str) and ("\n" in text or "\r" in text):
+                    raise BastetError(f"{role.name}.{name}: a value can't contain a line break")
+            yield option, value
 
 
 def _kind(option: Option) -> str:
     return option.as_ or {"bool": "flag", "list": "list"}.get(option.type, "value")
 
 
-def _ini_line(option: Option, value: object) -> str:
+def _ini_line(option: Option, value: object) -> str | None:
+    """The line to write, or None when the option is switched off (a false flag, an empty list)."""
     key, kind = option.key, _kind(option)
     if kind == "flag":
-        return key if value else f"#{key}"
+        return key if value else None
     if kind == "list":
-        return f"{key} = {' '.join(str(v) for v in value)}" if value else f"#{key} ="
+        return f"{key} = {' '.join(str(v) for v in value)}" if value else None
     return f"{key} = {value}"
 
 
 def _ini(role: RoleDef, values: dict, entry: dict) -> list[Resource]:
-    out = []
+    sections: dict[str, tuple[list[str], list[str]]] = {}
+    for name, option in role.options.items():
+        if option.key and not option.section:
+            if values.get(name) is not None:
+                raise BastetError(f"{role.name}.{name}: edit: ini needs a section")
+    for option in role.options.values():
+        if option.key and option.section:
+            sections.setdefault(option.section, ([], []))
     for option, value in _keyed(role, values):
-        section = option.section
-        out.append(Line(path=entry["path"], line=_ini_line(option, value),
-                        match=rf"^#?\s*{re.escape(option.key)}\s*(=.*)?$",
-                        after=rf"^\[{re.escape(section)}\]\s*$" if section else None, unique=True))
-    return out
+        keys, lines = sections[option.section]
+        keys.append(option.key)
+        if (text := _ini_line(option, value)) is not None:
+            lines.append(text)
+    return [Settings(path=entry["path"], section=section, keys=tuple(keys), lines=tuple(lines), validate=entry.get("validate"))
+            for section, (keys, lines) in sections.items() if keys]
 
 
 def _quote(value: object) -> str:
@@ -86,6 +99,11 @@ def build(role: RoleDef, values: dict, host) -> list[Batch]:
     _check_os(role, host)
     resources: list[Resource] = []
     for entry in role.entries:
+        if entry.get("backup"):
+            path = entry["path"]
+            resources.append(Command(
+                name=f"back up {path}", run=f"cp -p {path} {path}.bastet-orig", run_before="repositories",
+                unless=f"test -e '{path}.bastet-orig' || ! test -f '{path}' || grep -q -e 'Bastet Managed' -e 'Managed by Bastet' '{path}'"))
         if "edit" in entry:
             made = EDITORS[entry["edit"]](role, values, entry)
         else:

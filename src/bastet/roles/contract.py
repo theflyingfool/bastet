@@ -26,7 +26,7 @@ ROLE_NOTE_RESERVED = {"uses", "needs", "contributes", "collects", "requires", "t
 ROLE_NOTE_KEYS = {"bastet", "name", "version", "api", "description", "os", "provides", "options", "examples", "files"}
 FILE_EDITS = ("ini",)
 FILE_RENDERS = ("apt",)
-FILE_KEYS = {"path", "edit", "render", "mode", "owner", "group", "validate", "before", "after"}
+FILE_KEYS = {"path", "edit", "render", "mode", "owner", "group", "validate", "before", "after", "backup"}
 GENERATE_KINDS = ("password", "token")
 SECRET_SOURCES = ("generated", "chosen", "issued")
 
@@ -147,6 +147,13 @@ def _file_entry(path: Path, entry: object) -> dict:
     for kind, allowed in (("edit", FILE_EDITS), ("render", FILE_RENDERS)):
         if kind in entry and entry[kind] not in allowed:
             raise BastetError(f"files entry: {kind} must be one of {', '.join(allowed)}", file=path, key=kind)
+    if "backup" in entry and not isinstance(entry["backup"], bool):
+        raise BastetError("files entry: backup must be true or false", file=path, key="backup")
+    if "edit" in entry and {"mode", "owner", "group"} & set(entry):
+        raise BastetError("files entry: mode, owner and group don't apply to edit (the file keeps its own); use render for a whole file",
+                          file=path, key="files")
+    if "before" in entry and "after" in entry:
+        raise BastetError("files entry: use before or after, not both", file=path, key="files")
     return dict(entry)
 
 
