@@ -737,6 +737,8 @@ git commit -m "roles: systemd: entries (unit, time, hostname, locale, dropin)"
 
 ### Task 3b: Plain-text passwords in the users block
 
+> **As built (supersedes the openssl text below).** Hashing uses the system crypt library (libxcrypt, through `ctypes`) on the machine running Bastet, not `openssl`. `passwords.hash(password, scheme)` makes a fresh setting for `yescrypt`, `sha512` or `sha256`; `passwords.matches` verifies a stored hash of any scheme the library knows (so a correct `$y$` password shows no change); `passwords.scheme_for(login_defs)` reads `ENCRYPT_METHOD`. `User` reads `/etc/login.defs` and writes the host's own default scheme (SHA-512 when unknown). A scheme change alone never rewrites a matching password. The managed hosts need nothing extra.
+
 **Files:**
 - Create: `src/bastet/engine/passwords.py`
 - Modify: `src/bastet/engine/users.py` (`User`), `src/bastet/data/roles/users/role.yml` (`users.<name>.password`); `src/bastet/roles/builtin.py` needs nothing if `_kw` already passes fields through (confirm)
