@@ -350,3 +350,53 @@ class Line(_Edit):
                 return "".join(lines[:k] + [self.line + "\n"] + lines[k:])
         sep = "" if not text or text.endswith("\n") else "\n"
         return text + sep + self.line + "\n"
+
+
+@dataclass(frozen=True, kw_only=True)
+class Settings(_Edit):
+    """A managed block right after a section header; the section's other lines for the same keys are commented out."""
+
+    section: str
+    keys: tuple[str, ...]  # every key the role manages, whether it is set or switched off
+    lines: tuple[str, ...]  # the finished lines of the block, in order
+    begin: str = "### Bastet Managed ###"
+    end: str = "### End Bastet Managed ###"
+    off_prefix: str = "#bastet: "
+
+    @property
+    def identity(self) -> str:
+        return f"settings:{self.path}:{self.section}"
+
+    @property
+    def label(self) -> str:
+        return f"{self.path} [{self.section}]"
+
+    def desired(self):
+        return {"keys": self.keys, "lines": self.lines}
+
+    def wanted(self, content):
+        text = "" if content == ABSENT else str(content)
+        block = [f"{self.begin}\n", *(f"{line}\n" for line in self.lines), f"{self.end}\n"] if self.lines else []
+        rows = text.splitlines(keepends=True)
+        header = re.compile(rf"^\s*\[\s*{re.escape(self.section)}\s*\]\s*$")
+        any_header = re.compile(r"^\s*\[.*\]\s*$")
+        start = next((i for i, row in enumerate(rows) if header.match(row.rstrip("\n"))), None)
+        if start is None:
+            if not self.lines:
+                return text
+            sep = "" if not text or text.endswith("\n") else "\n"
+            return text + sep + ("\n" if text else "") + f"[{self.section}]\n" + "".join(block)
+        stop = next((i for i in range(start + 1, len(rows)) if any_header.match(rows[i].rstrip("\n"))), len(rows))
+        body = [row.rstrip("\n") for row in rows[start + 1:stop]]
+        if self.begin in body:
+            i = body.index(self.begin)
+            j = next((k for k in range(i + 1, len(body)) if body[k] in (self.end, self.begin)), None)
+            if j is None or body[j] != self.end:
+                raise ReadError(f"unterminated block: '{self.begin}' has no matching '{self.end}'; fix the file by hand")
+            body = body[:i] + body[j + 1:]
+        if self.keys:
+            managed = re.compile(r"^\s*(" + "|".join(re.escape(k) for k in self.keys) + r")\s*(=|$)")
+            body = [self.off_prefix + row if managed.match(row) else row for row in body]
+        head = rows[:start + 1]
+        head[-1] = head[-1].rstrip("\n") + "\n"
+        return "".join(head + block + [f"{row}\n" for row in body] + rows[stop:])
