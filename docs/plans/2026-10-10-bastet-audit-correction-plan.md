@@ -9,6 +9,30 @@ increment gets its own spec or plan before code changes. Increment 1 is built (o
 - Where I checked a claim against the current code, the table says so. "Not checked" means plausible from the report's
   own reproduction, but I did not re-read the code.
 
+## Status after increment 1 (2026-10-10, main at 3860cb4)
+
+The two audit bundles are kept locally in `refs/audits-2026-10-10/` (git-ignored) because the findings below keep their
+reproduction details and acceptance checks there. Delete that folder when the last increment is done.
+
+**Addressed:** F03 for `edit: ini` (section-scoped managed block; plain `Line` edits are still global, and nothing uses them
+that way now), F13 (cycle warning crash), F14 (dpkg option quoting), F15 (accepted metadata now acted on or refused; line
+breaks in values refused), UX-13 (`doctor` lints Markdown roles), audit 1's dead `gather`/`apply` messages and failing
+doctor test (already fixed before this work), audit 1's first-run git identity crash (now a friendly error), the AUR sudoers
+risk (the AUR is being cut), and the pacman/apt repository and Proxmox-role overlap.
+
+**Still to do, by increment** (details in the sections above):
+- Increment 2 (safe mutation): F01 remote temp files and symlinks, F02 success while a resource was invalidated, F06 stale
+  source-note writes, F10 unlock file modes (and SIGTERM/SIGHUP relock, audit 1 finding 12).
+- Increment 3 (trustworthy plan): F04 inventory errors gate apply, F05 failed selected node blocks its guests, F16 one
+  outcome model, the host-note exclusion (known-offline hosts), check writes nothing to the vault or git (audit 1 finding 1).
+- Increment 4 (secrets): F07 pre-commit guard, F08 Sync check, F09 literal secret values in logs, unlock wording.
+- Increment 5 (fresh hosts): F11 group/user order, F12 daemon-reload before unit operations, contract-test hygiene (storage
+  config, network-bound and flaky tests, hermetic UI tests), cut the AUR.
+- Increment 6 (contract and UX): UX-01 to UX-12 and UX-14 to UX-18, mode contract, scope and empty states, input validation,
+  readiness summary, narrow layouts, clipboard, dashboard classification.
+- Later or cleanup: repositories for further managers, the `time` role, dead git methods, `show` for hardware facts, thread
+  pool, README and doc drift, the new Proxmox role, manager roles reporting unaccounted packages.
+
 ## 0. State when this plan was written
 
 - `main` is at `5a2c36f`: the roles first slice (phase engine, Markdown loader and generic builder, pacman and apt as
