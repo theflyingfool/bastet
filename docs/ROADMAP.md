@@ -157,6 +157,7 @@ Rows marked ⏸ (the Proxmox and ZFS infrastructure roles) are set aside until a
 - **Drift resolution:** accept reality or restore it (main spec §7b).
 - **The internal DNS provider:** Pi-hole, the UniFi gateway or a local server.
 - **Snapshots, and the UniFi controller key:** undecided.
+- **`bastet add network`** (VLANs): asks for name, VLAN ID and subnet and writes the `networks:` entry in the lab note's properties, after showing the diff. Today the entry is written by hand. Not a quick addition: it edits the lab note's frontmatter in place, so it needs a safe writer that leaves the rest of the note alone.
 - **Clean-install baselines and modified-config reporting.**
 - **Ansible import and the Ansible backend.** May not be needed now that roles are native.
 
