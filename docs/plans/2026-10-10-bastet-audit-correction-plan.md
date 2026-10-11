@@ -168,5 +168,5 @@ All six are answered.
   role, written as data that calls the `systemd` block (time settings, units) and the `packages` and `files` blocks, not as a
   Python builder. That needs the role contract to grow first: entries that call the `systemd` and `packages` blocks, values
   taken from the role's options, and conditions on an option's value and on the host (container or not, Debian or Arch). The
-  proxmox type's baseline entry `systemd: {ntp_service: chrony, manage_hostname: false}` stays until the `time` role replaces
-  it. The `systemd` role keeps hostname, locale, keymap, services and drop-ins.
+  proxmox type's baseline lost its `systemd` entry in increment 1 (no Proxmox machine exists to lose a setting); the new
+  `time` role can be added to that baseline when it exists. The `systemd` role keeps hostname, locale, keymap, services and drop-ins.
