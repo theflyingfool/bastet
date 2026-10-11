@@ -28,9 +28,9 @@ def write_hw_facts(root, item: str, facts: dict) -> None:
 def lab(tmp_path):
     files = {
         "Homelab.md": "---\nbastet: lab\n---\n",
-        "hosts/uxg.md": "---\nbastet: host\ntype: unifi-gateway\nip: 10.10.0.1\n---\n",
-        "hosts/ap.md": "---\nbastet: host\ntype: unifi-ap\nip: 10.10.0.3\n---\n",
-        "hosts/sw.md": "---\nbastet: host\ntype: unifi-switch\nip: 10.10.0.5\n---\n",
+        "hosts/uxg.md": "---\nbastet: host\ntype: unifi\nip: 10.10.0.1\n---\n",
+        "hosts/ap.md": "---\nbastet: host\ntype: unifi\nip: 10.10.0.3\n---\n",
+        "hosts/sw.md": "---\nbastet: host\ntype: unifi\nip: 10.10.0.5\n---\n",
         "hosts/pve3.md": "---\nbastet: host\ntype: proxmox\nip: 10.10.0.15\n---\n",
         "hosts/vm1.md": '---\nbastet: host\ntype: vm\nruns_on: "[[pve3]]"\nip: 10.10.0.60\n---\n',
     }
@@ -43,8 +43,7 @@ def lab(tmp_path):
 
 
 def devices():
-    return {"uxg": ("unifi-gateway", parse_mca(GATEWAY)), "ap": ("unifi-ap", parse_mca(AP)),
-            "sw": ("unifi-switch", parse_mca(SWITCH))}
+    return {"uxg": parse_mca(GATEWAY), "ap": parse_mca(AP), "sw": parse_mca(SWITCH)}
 
 
 def test_unifi_to_unifi_link_goes_downstream(tmp_path):
@@ -74,10 +73,10 @@ def test_existing_links_kept():
 
 def test_single_device_run_still_knows_trunks(tmp_path):
     lab(tmp_path)
-    (tmp_path / "hosts" / "ap.md").write_text("---\nbastet: host\ntype: unifi-ap\nip: 10.10.0.3\n---\n")
+    (tmp_path / "hosts" / "ap.md").write_text("---\nbastet: host\ntype: unifi\nip: 10.10.0.3\n---\n")
     write_facts(tmp_path, "ap", {"mac": "02:00:00:00:00:03"})
     inv = load_inventory(tmp_path, TYPES)
-    props, _ = propose_links(inv, TYPES, {"uxg": ("unifi-gateway", parse_mca(GATEWAY))})
+    props, _ = propose_links(inv, TYPES, {"uxg": parse_mca(GATEWAY)})
     assert not [p for p in props if p.link["to_port"] == "4"]
 
 
@@ -96,7 +95,7 @@ def test_port_with_several_known_hosts_is_not_linked(tmp_path):
     write_facts(tmp_path, "nas", {"interfaces": [{"name": "eno1", "mac": "02:00:00:00:10:02"}]})
     sw = json.loads(SWITCH)
     sw["port_table"][0]["mac_table"].append({"mac": "02:00:00:00:10:02"})
-    props, notes = propose_links(load_inventory(tmp_path, TYPES), TYPES, {"sw": ("unifi-switch", parse_mca(json.dumps(sw)))})
+    props, notes = propose_links(load_inventory(tmp_path, TYPES), TYPES, {"sw": parse_mca(json.dumps(sw))})
     assert not [p for p in props if p.link["to_port"] == "2"]
     assert any("port 2" in n[1] and "unmanaged switch" in n[1] for n in notes)
 
@@ -114,7 +113,7 @@ def test_port_rows_both_directions(tmp_path):
     (tmp_path / "hosts").mkdir()
     (tmp_path / "hardware").mkdir()
     (tmp_path / "hosts" / "sw.md").write_text(
-        '---\nbastet: host\ntype: unifi-switch\nip: 10.0.0.5\n'
+        '---\nbastet: host\ntype: unifi\nip: 10.0.0.5\n'
         'links:\n  - {port: "10", to: "[[gw]]", to_port: "4"}\n---\n# sw\n')
     write_facts(tmp_path, "sw", {"ports": [
         {"port": "1", "name": "eth0", "media": "GE"}, {"port": "2", "name": "eth1", "media": "GE"},
@@ -152,7 +151,7 @@ def bmc_lab(tmp_path):
         {"port_idx": 1, "name": "Port 1", "media": "GE", "is_uplink": False, "mac_table": [{"mac": BMC_MAC}]},
         {"port_idx": 3, "name": "Port 3", "media": "GE", "is_uplink": False, "mac_table": [{"mac": NAS_MAC}, {"mac": BMC2_MAC}]},
     ]
-    return load_inventory(tmp_path, TYPES), {"sw": ("unifi-switch", parse_mca(json.dumps(sw)))}
+    return load_inventory(tmp_path, TYPES), {"sw": parse_mca(json.dumps(sw))}
 
 
 def test_bmc_on_its_own_cable_is_linked_on_the_machine_note(tmp_path):
@@ -177,7 +176,7 @@ def test_two_nics_of_one_host_on_one_port_is_a_warning(tmp_path):
     sw = json.loads(SWITCH)
     sw["port_table"].append({"port_idx": 5, "name": "Port 5", "media": "GE", "is_uplink": False,
                              "mac_table": [{"mac": NAS_MAC}, {"mac": NAS_MAC2}]})
-    props, notes = propose_links(inv, TYPES, {"sw": ("unifi-switch", parse_mca(json.dumps(sw)))})
+    props, notes = propose_links(inv, TYPES, {"sw": parse_mca(json.dumps(sw))})
     assert not [p for p in props if p.link["to_port"] == "5"]
     assert any("port 5" in n[1] and "eno1" in n[1] and "eno2" in n[1] for n in notes)
 
@@ -185,7 +184,7 @@ def test_two_nics_of_one_host_on_one_port_is_a_warning(tmp_path):
 def test_port_rows_keep_every_link_on_a_shared_port(tmp_path):
     (tmp_path / "hosts").mkdir()
     (tmp_path / "hardware").mkdir()
-    (tmp_path / "hosts" / "sw.md").write_text("---\nbastet: host\ntype: unifi-switch\nip: 10.0.0.5\n---\n# sw\n")
+    (tmp_path / "hosts" / "sw.md").write_text("---\nbastet: host\ntype: unifi\nip: 10.0.0.5\n---\n# sw\n")
     (tmp_path / "hosts" / "nas.md").write_text(
         '---\nbastet: host\ntype: server\nlinks:\n  - {port: eno1, to: "[[sw]]", to_port: "3"}\n---\n# nas\n')
     (tmp_path / "hardware" / "Supermicro X11.md").write_text(

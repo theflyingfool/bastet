@@ -1,5 +1,6 @@
-name: laptop
-description: Laptop or workstation; may be the machine Bastet runs on
+name: computer
+description: A user's workstation
+order: 1
 physical: true
 minimal: []
 fields:

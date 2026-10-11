@@ -19,7 +19,8 @@ _SECRET_TEXT = re.compile(r"(key|pass|secret|psk|token)\w*\s*[=:]", re.I)
 def _sensitive(key: object) -> bool:
     k = str(key).lower()
     return k.startswith("x_") or any(s in k for s in SENSITIVE)
-CATEGORY = {"unifi-gateway": "gateway", "unifi-switch": "switch", "unifi-ap": "ap"}
+
+_KIND_BY_TYPE = {"ugw": "gateway", "uxg": "gateway", "udm": "gateway", "usg": "gateway", "usw": "switch", "uap": "ap"}
 
 
 def redact(obj):
@@ -61,6 +62,7 @@ class Device:
     neighbours: list[Neighbour] = field(default_factory=list)
     interface_macs: set[str] = field(default_factory=set)
     networks: list[dict] = field(default_factory=list)
+    kind: str = "switch"  # gateway, switch or ap
 
 
 def _networks(j: dict, uplinks: set[str]) -> list[dict]:
@@ -78,6 +80,16 @@ def _networks(j: dict, uplinks: set[str]) -> list[dict]:
             continue
         out.append({"interface": name, "cidr": str(iface.network), "address": str(iface.ip)})
     return sorted(out, key=lambda x: ipaddress.ip_network(x["cidr"]))
+
+
+def _kind(j: dict) -> str:
+    """What the device is: the type it reports, else a guess (LAN networks mean a gateway, no ports an AP)."""
+    reported = _KIND_BY_TYPE.get(str(j.get("type") or "").lower())
+    if reported:
+        return reported
+    if j.get("network_table"):
+        return "gateway"
+    return "switch" if j.get("port_table") else "ap"
 
 
 def _uplink_names(j: dict) -> set[str]:
@@ -111,7 +123,7 @@ def parse_mca(text: str) -> Device:
     return Device(mac=mac, model=str(j.get("model_display") or j.get("model") or ""), firmware=str(j.get("version") or ""),
                   serial=clean(j.get("serial")), hostname=str(j.get("hostname") or ""),
                   ports=sorted(ports, key=lambda p: (len(p.id), p.id)), neighbours=neighbours,
-                  interface_macs=interface_macs - {""}, networks=_networks(j, _uplink_names(j)))
+                  interface_macs=interface_macs - {""}, networks=_networks(j, _uplink_names(j)), kind=_kind(j))
 
 
 def device_facts(d: Device) -> dict:
@@ -123,8 +135,8 @@ def device_facts(d: Device) -> dict:
     return {k: v for k, v in facts.items() if v}
 
 
-def machine_item(host: str, type_name: str, d: Device) -> Observed:
-    data = {"bastet": "hardware", "category": CATEGORY.get(type_name, "network"), "make": "Ubiquiti", "model": d.model}
+def machine_item(host: str, d: Device) -> Observed:
+    data = {"bastet": "hardware", "category": d.kind, "make": "Ubiquiti", "model": d.model}
     if d.serial:
         data["serial"] = d.serial
     data["status"], data["installed_in"] = "in-service", make_link(host)

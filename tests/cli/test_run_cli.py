@@ -78,14 +78,14 @@ def test_gather_receives_the_exclude_option(runner, inventory, monkeypatch):
 
 def _two_hosts(inventory, monkeypatch):
     import bastet.cli.run as run_mod
-    (inventory / "hosts" / "box.md").write_text("---\nbastet: host\ntype: laptop\nconnection: local\n---\n# box\n")
+    (inventory / "hosts" / "box.md").write_text("---\nbastet: host\ntype: computer\nconnection: local\n---\n# box\n")
     (inventory / "hosts" / "nas1.md").write_text("---\nbastet: host\ntype: server\nip: 10.0.20.40\nconnection: local\n---\n# nas1\n")
     monkeypatch.setattr(run_mod, "connect", lambda ctx, doc, tmp, yes: (AsRootLocally(), None))
 
 
 def test_at_type_selector_restricts_to_that_type(runner, inventory, monkeypatch):
     _two_hosts(inventory, monkeypatch)
-    result = runner.invoke(app, ["run", "-c", "@laptop"])
+    result = runner.invoke(app, ["run", "-c", "@computer"])
     assert result.exit_code == 0, result.output
     assert "box:" in result.output and "nas1:" not in result.output
 

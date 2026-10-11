@@ -76,7 +76,7 @@ def plan_facts(
 
     proposal = propose_type(ex)
     current_type = doc.data.get("type")
-    if proposal and current_type == "unknown":
+    if proposal and current_type == "undefined":
         known = types.get(proposal)
         missing = [f for f in (known.minimal if known else []) if doc.data.get(f) in (None, "")]
         suffix = f" and add {', '.join(missing)}" if missing else ""

@@ -30,7 +30,7 @@ def test_exhausted_returns_none():
 
 def test_used_addresses_strip_prefix_length(tmp_path: Path):
     (tmp_path / "a.md").write_text("---\nbastet: host\ntype: server\nip: 10.0.10.11/24\n---\n")
-    (tmp_path / "c.md").write_text("---\nbastet: host\ntype: laptop\nip: dhcp\n---\n")
+    (tmp_path / "c.md").write_text("---\nbastet: host\ntype: computer\nip: dhcp\n---\n")
     (tmp_path / "b.md").write_text("---\nbastet: hardware\ncategory: server\n---\n")
     facts_dir = tmp_path / "_bastet" / "facts"
     facts_dir.mkdir(parents=True)

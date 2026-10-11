@@ -24,7 +24,7 @@ def test_facts_and_machine():
     assert device_facts(d) == {"mac": "02:00:00:00:00:05", "firmware": "8.8.9",
                                "ports": [{"port": "2", "name": "PoE Out + Data", "media": "2P5GE"},
                                          {"port": "8", "name": "PoE Out + Data", "media": "10GE"}]}
-    m = machine_item("udb-switch", "unifi-switch", d)
+    m = machine_item("udb-switch", d)
     assert m.key == "serial:9041b2000005" and m.name == "Ubiquiti UDB Switch 9041B2000005"
     assert m.data["category"] == "switch" and m.data["installed_in"] == "[[udb-switch]]" and m.data["make"] == "Ubiquiti"
 
@@ -64,3 +64,10 @@ def test_wan_found_by_ifname_when_port_names_are_labels():
         p["ifname"], p["name"] = p["name"], f"Port {p['port_idx']}"
     j["network_table"][0]["address"] = "192.168.1.50/24"  # double NAT: a private WAN
     assert [n["interface"] for n in parse_mca(json.dumps(j)).networks] == ["br0", "br20"]
+
+
+def test_the_kind_of_device_comes_from_what_it_reports():
+    assert [parse_mca(x).kind for x in (GATEWAY, SWITCH, AP)] == ["gateway", "switch", "ap"]
+    assert parse_mca(json.dumps({"type": "usw", "mac": "02:00:00:00:00:09"})).kind == "switch"
+    assert parse_mca(json.dumps({"type": "uap", "port_table": [{"port_idx": 1}]})).kind == "ap"
+    assert parse_mca(json.dumps({"type": "udm"})).kind == "gateway"

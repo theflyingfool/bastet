@@ -146,7 +146,7 @@ def test_role(inventory, tmp_path, monkeypatch):
 
     box_path = inventory / "hosts" / "box.md"
     if not box_path.exists():
-        box_path.write_text("---\nbastet: host\ntype: laptop\n---\n# box\n")
+        box_path.write_text("---\nbastet: host\ntype: computer\n---\n# box\n")
     roles = inventory / "_roles" / "hosts" / "box"
     roles.mkdir(parents=True, exist_ok=True)
     (roles / "testsecret.md").write_text(

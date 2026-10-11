@@ -34,7 +34,7 @@ def test_required_tools_on_any_host_and_denied_is_unknown():
 def test_smartmontools_only_with_real_drives():
     import json
     blk = json.dumps({"blockdevices": [{"name": "zram0", "type": "disk", "size": 1}]})
-    assert "smartmontools" not in needed_tools(results(dict(LAPTOP, smart=(127, ""), lsblk=blk)), TYPES["laptop"])
+    assert "smartmontools" not in needed_tools(results(dict(LAPTOP, smart=(127, ""), lsblk=blk)), TYPES["computer"])
 
 
 def test_install_scripts():

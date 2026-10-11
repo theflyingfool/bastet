@@ -6,8 +6,7 @@ from bastet.core.hosttypes import load_host_types
 
 def test_shipped_types():
     types = load_host_types()
-    assert set(types) == {"proxmox", "server", "laptop", "vps", "lxc", "vm", "unknown",
-                          "unifi-gateway", "unifi-switch", "unifi-ap", "other"}
+    assert set(types) == {"proxmox", "server", "computer", "vps", "lxc", "vm", "undefined", "unifi", "other"}
     assert types["other"].gather is False and types["other"].managed is False
     assert types["vps"].minimal == ["provider", "ip"]
     assert types["lxc"].minimal == ["runs_on", "ip"]

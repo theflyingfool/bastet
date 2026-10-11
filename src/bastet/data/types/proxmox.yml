@@ -1,5 +1,6 @@
 name: proxmox
-description: Proxmox VE node on physical hardware
+description: Proxmox node
+order: 3
 physical: true
 minimal: [ip]
 fields:

@@ -83,7 +83,7 @@ location: "[[Closet]]"
 ```markdown
 ---
 bastet: host
-type: laptop
+type: computer
 ip: 10.0.10.50
 ---
 # laptop
@@ -321,7 +321,7 @@ The host page's roles table shows every role, where it came from, and each optio
 
 ## 6. Host types
 
-Types ship in the Bastet repo; you can add your own. v1: `proxmox`, `lxc`, `vm`, `vps`, `laptop`, `server`, and `unknown` (imported hosts whose type couldn't be inferred; gather offers the right type in its diff). UniFi types (`unifi-gateway`, `unifi-switch`, `unifi-ap`) follow after the slice.
+Types ship in the Bastet repo; you can add your own. v1: `proxmox`, `lxc`, `vm`, `vps`, `computer`, `server`, and `undefined` (imported hosts whose type couldn't be inferred; gather offers the right type in its diff). The UniFi type (`unifi`) follow after the slice.
 
 Each type declares:
 
@@ -629,7 +629,7 @@ A role option, resolved through the usual precedence:
 
 `bastet import --inventory <dir> --playbook <site.yml> [--roles <dir>…]` takes over an existing Ansible setup so it runs through Bastet **unchanged**, then lets you migrate role by role.
 
-1. **Inventory → files.** Each host becomes a host file; each group becomes a group file, nesting kept. The type is inferred where possible (e.g. a group of Proxmox nodes → `proxmox`, container groups → `lxc`), otherwise `unknown`.
+1. **Inventory → files.** Each host becomes a host file; each group becomes a group file, nesting kept. The type is inferred where possible (e.g. a group of Proxmox nodes → `proxmox`, container groups → `lxc`), otherwise `undefined`.
 2. **Playbook → role assignments.** `import_playbook` is followed, and every play is resolved to which hosts get which roles, in which order:
    - a play targeting exactly one group becomes a role assignment on that group's file;
    - other patterns (`all:!pvenodes`) become assignments on the resolved hosts;
@@ -771,7 +771,7 @@ Goal: get inventory in, both by importing an existing Ansible setup and by fresh
 - Git handling (chapter 4).
 
 **Stage 2: Gather.**
-- Gather for `vps`, `proxmox`, `laptop`, `lxc` and `server`: Bastet's own collector, **no Ansible and no Python needed on the target**. The tools come from the survey in `inv.sh`/`inv2.sh`; Bastet calls each tool itself over SSH (at 127.0.0.1 for the controller), prefers JSON output (`lsblk -J`, `ip -j`, `smartctl -j`, `hostnamectl --json`), has a parser and tests per tool, and keeps the raw output as the snapshot. The stage plan compares the tool list against Ansible's fact gathering and fills the gaps. Then diff-then-write, hardware files, unit normalisation.
+- Gather for `vps`, `proxmox`, `computer`, `lxc` and `server`: Bastet's own collector, **no Ansible and no Python needed on the target**. The tools come from the survey in `inv.sh`/`inv2.sh`; Bastet calls each tool itself over SSH (at 127.0.0.1 for the controller), prefers JSON output (`lsblk -J`, `ip -j`, `smartctl -j`, `hostnamectl --json`), has a parser and tests per tool, and keeps the raw output as the snapshot. The stage plan compares the tool list against Ansible's fact gathering and fills the gaps. Then diff-then-write, hardware files, unit normalisation.
 - Host type proposal from systemd's chassis type (`hostnamectl`; `/sys/class/dmi/id/chassis_type` fallback) plus markers such as `pveversion` (proxmox) and the DMI vendor (VPS providers).
 - Value-history attribution, ⚠ on physical facts, `--take`.
 - Access (8): connect as `bastet` with Bastet's key; on rejection fall back to the user's own SSH login and offer, as a confirmable change, to set up the `bastet` user (user, key, sudo, Python); host-key recording. Credential fallback for fresh `proxmox` installs (age-encrypted secret notes, recovery key).

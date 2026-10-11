@@ -21,7 +21,7 @@ def ap(values):
 
 
 def arch(os="Arch Linux"):
-    return HostInfo(name="laptop1", type="laptop", data={"os": os}, root=Path("/nonexistent"), lab={})
+    return HostInfo(name="laptop1", type="computer", data={"os": os}, root=Path("/nonexistent"), lab={})
 
 
 def everything(values, host=None):
@@ -90,7 +90,7 @@ def test_a_host_that_is_not_arch_based_is_refused_with_the_group_to_aim_at():
 
 def test_an_unknown_os_is_refused_too():
     with pytest.raises(BastetError, match=r"isn't Arch-based \(OS unknown\)"):
-        built({}, HostInfo(name="laptop1", type="laptop", data={}, root=Path("/nonexistent"), lab={}))
+        built({}, HostInfo(name="laptop1", type="computer", data={}, root=Path("/nonexistent"), lab={}))
 
 
 @pytest.mark.parametrize("bad", [0, -2])

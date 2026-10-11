@@ -49,7 +49,7 @@ def _choose(label: str, options: list[tuple[str, str]], *, default: str | None =
 @handles_errors
 def add_host(
     name: str | None = typer.Argument(None, help="Host name (asked if not given)."),
-    type_: str | None = typer.Option(None, "--type", help="Host type, e.g. vps, proxmox, lxc, laptop."),
+    type_: str | None = typer.Option(None, "--type", help="Host type, e.g. vps, proxmox, lxc, computer."),
     ip: str | None = typer.Option(None, "--ip", help="Fixed address, or 'dhcp'."),
     on: str | None = typer.Option(None, "--on", help="Parent host for an LXC or VM."),
     network: str | None = typer.Option(None, "--network", help="Lab network; suggests the next free address."),
@@ -70,15 +70,15 @@ def add_host(
     if type_ is None:
         if not asking:
             raise BastetError("--type is required with --yes")
-        types = sorted(ctx.types.values(), key=lambda t: t.name)
+        types = sorted(ctx.types.values(), key=lambda t: (t.order, t.name))
         type_ = _choose("Host type", [(t.name, t.description) for t in types])
     minimal = ctx.types[type_].minimal if type_ in ctx.types else []
 
     if asking:
         if "provider" in minimal and provider is None:
             provider = typer.prompt("Provider (e.g. linode)").strip()
-        # Ask about local status for laptops before IP questions, so we can skip IP when local
-        if type_ == "laptop" and local is None:
+        # Ask about local status for computers before IP questions, so we can skip IP when local
+        if type_ == "computer" and local is None:
             here = socket.gethostname().split(".")[0].lower() == name.lower()
             local = typer.confirm("Is this the computer you're running Bastet on?", default=here)
         if not local:  # Skip these questions when local
@@ -90,7 +90,7 @@ def add_host(
             networks = (inv.lab.data.get("networks") or {}) if inv.lab else {}
             if type_ in ("lxc", "vm") and network is None and ip is None and networks:
                 network = _choose("Network", [(n, str((v or {}).get("cidr", ""))) for n, v in networks.items()], allow_blank=True)
-            if ip is None and type_ != "unknown":
+            if ip is None and type_ != "undefined":
                 default = suggested_ip(inv, network) if network else None
                 if "ip" in minimal:
                     ip = typer.prompt("IP address", default=default, show_default=bool(default)).strip()

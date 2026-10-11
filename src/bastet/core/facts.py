@@ -180,7 +180,7 @@ def propose_type(ex: Extracted) -> str | None:
         text = f"{ex.hints.get('vendor') or ''} {ex.hints.get('product') or ''}".lower()
         return "vps" if any(v in text for v in VPS_VENDORS) else "vm"
     if chassis in ("laptop", "convertible", "tablet"):
-        return "laptop"
+        return "computer"
     if chassis in ("server", "desktop"):
         return "server"
     return None

@@ -211,7 +211,7 @@ with your host types and hardware categories.
 
 ## What's here
 
-- **Host - <type>.md**: Templates for each host type (server, vps, laptop, etc.)
+- **Host - <type>.md**: Templates for each host type (server, vps, computer, etc.)
 - **Hardware - <category>.md**: Templates for each hardware category (drive, memory, nic, etc.)
 - **Role file.md**: Template for a new role configuration
 - **Group.md**: Template for a group of hosts matching a criterion

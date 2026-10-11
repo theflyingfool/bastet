@@ -15,6 +15,7 @@ class HostType(BaseModel):
 
     name: str
     description: str = ""
+    order: int = 100
     physical: bool = False
     gather: bool = True
     managed: bool = True

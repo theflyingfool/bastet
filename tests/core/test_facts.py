@@ -29,7 +29,7 @@ def test_vps_facts_use_binary_storage_for_virtual_disks():
 
 
 def test_type_proposals():
-    assert propose_type(ex(LAPTOP)) == "laptop"
+    assert propose_type(ex(LAPTOP)) == "computer"
     assert propose_type(ex(VPS)) == "vps"
     pve = dict(VPS, pveversion="pve-manager/9.0.6", hostnamectl=(1, ""), chassis_type="17", virt=(1, "none"))
     assert propose_type(ex(pve)) == "proxmox"

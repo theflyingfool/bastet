@@ -40,7 +40,7 @@ def root(tmp_path, keys) -> Path:
         f"---\nbastet: lab\nsecrets:\n  recipients:\n    - {keys['ssh_pub']}\n    - {keys['age_pub']}\n---\n# Homelab\n"
     )
     (r / "hosts").mkdir()
-    (r / "hosts" / "git1.md").write_text("---\nbastet: host\ntype: laptop\n---\n# git1\n")
+    (r / "hosts" / "git1.md").write_text("---\nbastet: host\ntype: computer\n---\n# git1\n")
     GitRepo(r).init()
     git(r, "config", "user.name", "Tester")
     git(r, "config", "user.email", "tester@example.com")
@@ -255,7 +255,7 @@ def test_few_recipients(root, keys):
 
 
 def test_scope_includes_hosts_and_lab_secrets_they_use_only(root, keys, test_role):
-    (root / "hosts" / "git2.md").write_text("---\nbastet: host\ntype: laptop\n---\n# git2\n")
+    (root / "hosts" / "git2.md").write_text("---\nbastet: host\ntype: computer\n---\n# git2\n")
     _add_role_file(root, "git1", "svc", admin_password="secret:admin_password", api_key="secret:lab/shared")
     _add_role_file(root, "git2", "svc", admin_password="secret:admin_password", api_key="secret:git2/svc/api_key")
     git(root, "add", ".")

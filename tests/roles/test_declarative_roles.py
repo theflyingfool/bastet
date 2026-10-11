@@ -25,7 +25,7 @@ def make(tmp_path, options, files, **front):
 
 
 def host(os="Arch Linux"):
-    return HostInfo(name="laptop1", type="laptop", data={"os": os} if os else {}, root=Path("/nonexistent"), lab={})
+    return HostInfo(name="laptop1", type="computer", data={"os": os} if os else {}, root=Path("/nonexistent"), lab={})
 
 
 def settings(keys, lines=None, section="options"):

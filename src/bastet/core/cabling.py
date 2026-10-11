@@ -14,7 +14,7 @@ from bastet.core.inventory import Inventory
 from bastet.core.links import link_target, make_link
 from bastet.core.unifi import Device
 
-TIER = {"unifi-gateway": 3, "unifi-switch": 2, "unifi-ap": 1}
+TIER = {"gateway": 3, "switch": 2, "ap": 1}
 # Interfaces that share a NIC's MAC but aren't a cable end: bridges, bonds, VLANs, wireless, containers.
 NOT_A_CABLE_END = re.compile(r"^(vmbr|bond|br|team|docker|virbr|veth|tap|fwbr|fwpr|fwln|wl|ww)|\.\d+$")
 
@@ -43,7 +43,7 @@ def _host_macs(inv: Inventory, types: dict[str, HostType]) -> dict[str, tuple[st
     out: dict[str, tuple[str, str, str]] = {}
     hosts = {d.name.lower(): d for d in inv.of_kind("host")}
     cabled = {k: d for k, d in hosts.items()
-              if not d.data.get("runs_on") and not str(d.data.get("type", "")).startswith("unifi-")}
+              if not d.data.get("runs_on") and d.data.get("type") != "unifi"}
 
     def add(mac, host, iface, note=None):
         if mac and iface and not NOT_A_CABLE_END.search(str(iface)):
@@ -68,24 +68,24 @@ def _host_macs(inv: Inventory, types: dict[str, HostType]) -> dict[str, tuple[st
     return out
 
 
-def _unifi_macs(inv: Inventory, types: dict[str, HostType], devices: dict[str, tuple[str, Device]]) -> dict[str, str]:
+def _unifi_macs(inv: Inventory, types: dict[str, HostType], devices: dict[str, Device]) -> dict[str, str]:
     """MAC -> UniFi host name: this run's devices plus every UniFi host note's recorded `mac`."""
     from bastet.core.hostview import host_data  # lazy: hostview imports cabling
 
     out = {}
     for doc in inv.of_kind("host"):
-        if str(doc.data.get("type", "")).startswith("unifi-"):
+        if doc.data.get("type") == "unifi":
             mac = host_data(inv, doc, types).get("mac")
             if mac:
                 out[_norm(mac)] = doc.name
-    for name, (_, d) in devices.items():
+    for name, d in devices.items():
         for m in d.interface_macs | {d.mac}:
             out[_norm(m)] = name
     return out
 
 
 def propose_links(
-    inv: Inventory, types: dict[str, HostType], devices: dict[str, tuple[str, Device]]
+    inv: Inventory, types: dict[str, HostType], devices: dict[str, Device]
 ) -> tuple[list[LinkProposal], list[tuple[str, str]]]:
     """Proposals, plus notes (host, message) for evidence too ambiguous to write."""
     by_mac = _unifi_macs(inv, types, devices)
@@ -93,25 +93,25 @@ def propose_links(
     proposals: list[LinkProposal] = []
     notes: list[tuple[str, str]] = []
     seen: set[frozenset] = set()
-    for name, (type_name, d) in devices.items():
+    for name, d in devices.items():
         for n in d.neighbours:
             if n.wired:
                 trunk[name].add(n.local)  # anything speaking LLDP on a wired port is infrastructure, not a host
             other = by_mac.get(_norm(n.chassis))
             if not n.wired or other is None or other == name or other not in devices:
                 continue
-            back = next((m.local for m in devices[other][1].neighbours if m.wired and by_mac.get(_norm(m.chassis)) == name), None)
+            back = next((m.local for m in devices[other].neighbours if m.wired and by_mac.get(_norm(m.chassis)) == name), None)
             pair = frozenset((name, other))
             if pair in seen or back is None:
                 continue
             seen.add(pair)
-            if TIER.get(type_name, 0) <= TIER.get(devices[other][0], 0):
+            if TIER.get(d.kind, 0) <= TIER.get(devices[other].kind, 0):
                 proposals.append(LinkProposal(name, {"port": n.local, "to": make_link(other), "to_port": back}))
             else:
                 proposals.append(LinkProposal(other, {"port": back, "to": make_link(name), "to_port": n.local}))
     host_macs = _host_macs(inv, types)
     found: dict[tuple[str, str], list[tuple[str, str]]] = {}
-    for name, (_, d) in devices.items():
+    for name, d in devices.items():
         for p in d.ports:
             if p.uplink or p.id in trunk[name] or any(_norm(m) in by_mac for m in p.macs):
                 continue

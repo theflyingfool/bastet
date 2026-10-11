@@ -34,7 +34,7 @@ class SystemdUnderTmp(LocalRunner):
 @pytest.fixture
 def box_with_secret_dropin(inventory, secret_keys, monkeypatch, tmp_path) -> Path:
     (inventory / "hosts" / "box.md").write_text(
-        "---\nbastet: host\ntype: laptop\nconnection: local\nhostname: box\n---\n# box\n"
+        "---\nbastet: host\ntype: computer\nconnection: local\nhostname: box\n---\n# box\n"
     )
     roles = inventory / "_roles" / "hosts" / "box"
     roles.mkdir(parents=True)

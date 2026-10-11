@@ -1,5 +1,6 @@
 name: server
 description: Physical Linux server
+order: 2
 physical: true
 minimal: [ip]
 fields:

@@ -48,7 +48,7 @@ def test_secret_audit_subcommand_is_gone(runner, inventory):
 
 
 def test_secrets_md_lists_a_used_by_entry_for_a_shared_credential(runner, secret_keys, inventory, test_role):
-    (inventory / "hosts" / "box2.md").write_text("---\nbastet: host\ntype: laptop\n---\n# box2\n")
+    (inventory / "hosts" / "box2.md").write_text("---\nbastet: host\ntype: computer\n---\n# box2\n")
     folder2 = inventory / "_roles" / "hosts" / "box2"
     folder2.mkdir(parents=True)
     (folder2 / "testsecret.md").write_text(

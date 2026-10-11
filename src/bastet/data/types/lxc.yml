@@ -1,5 +1,6 @@
 name: lxc
-description: LXC container on a Proxmox node
+description: LXC container
+order: 6
 physical: false
 minimal: [runs_on, ip]
 fields:

@@ -23,7 +23,7 @@ FALLBACK_KEYS = ("ssh_host_key", *OBSERVED_BY_OTHERS)
 
 
 def _fields(doc: Document, types: dict[str, HostType]) -> dict[str, str]:
-    host_type = types.get(str(doc.data.get("type"))) or types.get("unknown")
+    host_type = types.get(str(doc.data.get("type"))) or types.get("undefined")
     return host_type.fields if host_type is not None else {}
 
 

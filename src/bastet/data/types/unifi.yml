@@ -1,5 +1,6 @@
-name: unifi-gateway
-description: UniFi gateway (e.g. UXG); configured through the UniFi controller
+name: unifi
+description: UniFi branded hardware
+order: 4
 physical: true
 gather: true
 managed: false

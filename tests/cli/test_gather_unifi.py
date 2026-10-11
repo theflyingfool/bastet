@@ -29,9 +29,9 @@ class DumpRunner:
 @pytest.fixture
 def unifi_lab(inventory, monkeypatch):
     h = inventory / "hosts"
-    (h / "uxg.md").write_text(f"---\nbastet: host\ntype: unifi-gateway\nip: 10.10.0.1\ngather: true\nssh_host_key: {REC}\n---\n# uxg\n")
-    (h / "ap.md").write_text(f"---\nbastet: host\ntype: unifi-ap\nip: 10.10.0.3\ngather: true\nssh_host_key: {REC}\n---\n# ap\n")
-    (h / "sw.md").write_text(f"---\nbastet: host\ntype: unifi-switch\nip: 10.10.0.5\ngather: true\nssh_host_key: {REC}\n---\n# sw\n")
+    (h / "uxg.md").write_text(f"---\nbastet: host\ntype: unifi\nip: 10.10.0.1\ngather: true\nssh_host_key: {REC}\n---\n# uxg\n")
+    (h / "ap.md").write_text(f"---\nbastet: host\ntype: unifi\nip: 10.10.0.3\ngather: true\nssh_host_key: {REC}\n---\n# ap\n")
+    (h / "sw.md").write_text(f"---\nbastet: host\ntype: unifi\nip: 10.10.0.5\ngather: true\nssh_host_key: {REC}\n---\n# sw\n")
     (h / "nas.md").write_text("---\nbastet: host\ntype: server\nip: 10.10.0.20\ngather: false\n---\n# nas\n")
     facts_path(inventory, "nas").parent.mkdir(parents=True, exist_ok=True)
     facts_path(inventory, "nas").write_text(
@@ -61,7 +61,7 @@ def test_gather_unifi_writes_facts_hardware_and_links(runner, unifi_lab, tmp_pat
 
 
 def test_device_without_mca_dump_is_an_error(runner, unifi_lab):
-    (unifi_lab / "hosts" / "odd.md").write_text(f"---\nbastet: host\ntype: unifi-switch\nip: 10.10.0.9\ngather: true\nssh_host_key: {REC}\n---\n# odd\n")
+    (unifi_lab / "hosts" / "odd.md").write_text(f"---\nbastet: host\ntype: unifi\nip: 10.10.0.9\ngather: true\nssh_host_key: {REC}\n---\n# odd\n")
     result = runner.invoke(app, ["run", "-g", "odd", "uxg", "-y"])
     assert "odd: mca-dump" in result.output and "firmware: 6.0.10" in facts(unifi_lab, "uxg")
 

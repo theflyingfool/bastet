@@ -1,5 +1,6 @@
 name: vm
-description: Virtual machine on a Proxmox node
+description: Virtual machine
+order: 5
 physical: false
 minimal: [runs_on, ip]
 fields:

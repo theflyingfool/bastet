@@ -1,5 +1,6 @@
 name: vps
-description: Virtual private server at a provider
+description: Virtual private server
+order: 7
 physical: false
 minimal: [provider, ip]
 fields:

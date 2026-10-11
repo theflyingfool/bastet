@@ -16,8 +16,8 @@ FILES = {
     "hosts/pve1.md": "---\nbastet: host\ntype: proxmox\nip: 10.0.10.11\n---\n# pve1\n",
     "hosts/pve2.md": '---\nbastet: host\ntype: proxmox\nip: 10.0.10.12\ngroups:\n  - "[[servers]]"\n---\n# pve2\n',
     "hosts/media01.md": '---\nbastet: host\ntype: server\nip: 10.0.20.30\ngroups:\n  - "[[servers]]"\n---\n# media01\n',
-    "hosts/archdev.md": "---\nbastet: host\ntype: laptop\nconnection: local\n---\n# archdev\n",
-    "hosts/gone.md": "---\nbastet: host\ntype: laptop\nconnection: local\nstate: destroyed\n---\n# gone\n",
+    "hosts/archdev.md": "---\nbastet: host\ntype: computer\nconnection: local\n---\n# archdev\n",
+    "hosts/gone.md": "---\nbastet: host\ntype: computer\nconnection: local\nstate: destroyed\n---\n# gone\n",
     "_bastet/facts/archdev facts.md": (
         '---\nbastet: facts\nhost: "[[archdev]]"\ngathered: 2026-10-06T10:00:00Z\nos: Arch Linux\n---\n'
     ),

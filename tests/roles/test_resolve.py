@@ -22,7 +22,7 @@ FILES = {
     "Homelab.md": "---\nbastet: lab\n---\n# Homelab\n",
     "groups/workstations.md": "---\nbastet: group\n---\n# workstations\n",
     "groups/laptops.md": '---\nbastet: group\ngroups:\n  - "[[workstations]]"\n---\n# laptops\n',
-    "hosts/hp-13.md": '---\nbastet: host\ntype: laptop\nconnection: local\ngroups:\n  - "[[laptops]]"\n---\n# hp-13\n',
+    "hosts/hp-13.md": '---\nbastet: host\ntype: computer\nconnection: local\ngroups:\n  - "[[laptops]]"\n---\n# hp-13\n',
     "hosts/pve1.md": "---\nbastet: host\ntype: proxmox\nip: 10.0.10.11\n---\n# pve1\n",
     "_roles/lab/systemd.md": ('---\nbastet: role\nrole: systemd\napplies_to: "[[Homelab]]"\ntimezone: UTC\nntp: true\n'
                               "ntp_service: timesyncd\nntp_servers:\n  - 10.0.10.1\n---\n"),
@@ -119,14 +119,14 @@ def test_the_proxmox_role_is_gone(tmp_path):
 
 def test_host_types_have_baseline_roles():
     assert TYPES["proxmox"].roles == {}
-    assert TYPES["laptop"].roles == {}
+    assert TYPES["computer"].roles == {}
 
 
 def test_os_group_by_match(tmp_path):
     (tmp_path / "Homelab.md").write_text("---\nbastet: lab\n---\n# L\n")
     (tmp_path / "hosts").mkdir()
-    (tmp_path / "hosts" / "a.md").write_text("---\nbastet: host\ntype: laptop\n---\n# a\n")
-    (tmp_path / "hosts" / "d.md").write_text("---\nbastet: host\ntype: laptop\n---\n# d\n")
+    (tmp_path / "hosts" / "a.md").write_text("---\nbastet: host\ntype: computer\n---\n# a\n")
+    (tmp_path / "hosts" / "d.md").write_text("---\nbastet: host\ntype: computer\n---\n# d\n")
     write_facts(tmp_path, "a", {"os": "Arch Linux"})
     write_facts(tmp_path, "d", {"os": "Debian GNU/Linux 13 (trixie)"})
     (tmp_path / "_bastet" / "groups").mkdir(parents=True)
@@ -145,7 +145,7 @@ def test_os_group_by_match(tmp_path):
 def _match_lab(tmp_path, rule):
     (tmp_path / "Homelab.md").write_text("---\nbastet: lab\n---\n# L\n")
     (tmp_path / "hosts").mkdir()
-    (tmp_path / "hosts" / "a.md").write_text("---\nbastet: host\ntype: laptop\n---\n# a\n")
+    (tmp_path / "hosts" / "a.md").write_text("---\nbastet: host\ntype: computer\n---\n# a\n")
     write_facts(tmp_path, "a", {"os": "Debian GNU/Linux 13 (trixie)"})
     (tmp_path / "groups").mkdir()
     (tmp_path / "groups" / "g.md").write_text(f"---\nbastet: group\nmatch: {rule}\n---\n# g\n")

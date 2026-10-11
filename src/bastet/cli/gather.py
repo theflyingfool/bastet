@@ -191,7 +191,7 @@ class Prepared:
 
 def _prepare(ctx: Context, doc: Document, host_type, tmp: Path, *, yes: bool, accept: bool) -> Prepared:
     """Pin the host key and log in (asking as needed); the collection itself happens later, in parallel."""
-    if host_type.name.startswith("unifi-"):
+    if host_type.name == "unifi":
         address, known, hostkey, _ = _pin(ctx, doc, tmp, yes=yes, accept=accept)
         user = ctx.config.ssh.bootstrap_user or getpass.getuser()
         return Prepared(hostkey, ssh_runner(SshTarget(address, user, None, known)), True)
@@ -279,7 +279,7 @@ def _tools_round(
     to_run: dict[str, tuple[str, list[str]]] = {}
     for doc in docs:
         host = doc.name
-        if host not in collected or host_types[host].name.startswith("unifi-"):
+        if host not in collected or host_types[host].name == "unifi":
             continue
         decision = _tools_ask(ctx, doc, host_types[host], collected[host], installed[host], yes)
         if decision is not None:
@@ -417,7 +417,7 @@ def _gather(
         live_docs: list[Document] = []
         for doc in docs:
             out.echo(f"{doc.name}: gathering…")
-            host_type = ctx.types.get(str(doc.data.get("type")), ctx.types["unknown"])
+            host_type = ctx.types.get(str(doc.data.get("type")), ctx.types["undefined"])
             host_types[doc.name] = host_type
             try:
                 prepared[doc.name] = _prepare(ctx, doc, host_type, tmp_path, yes=yes, accept=accept_new_hostkey)
@@ -465,17 +465,17 @@ def _gather(
             network_notes: list[tuple[str, str]] = []
             hostkey = prepared[doc.name].hostkey
             try:
-                if host_type.name.startswith("unifi-"):
+                if host_type.name == "unifi":
                     raw = collected[doc.name]
                     device = parse_mca(raw)
                     taken = gathered_at
                     snapshot = Snapshot(doc.name, "ssh", taken,
                                         {"mca_dump": ProbeResult(0, json.dumps(redact(json.loads(raw)), indent=1))})
                     save_snapshot(snapshot, data_dir())
-                    unifi_devices[doc.name] = (host_type.name, device)
+                    unifi_devices[doc.name] = device
                     extracted = Extracted(facts=device_facts(device))
-                    view = HardwareView(items=[machine_item(doc.name, host_type.name, device)])
-                    if host_type.name == "unifi-gateway" and (nets := lab_networks(inv)):
+                    view = HardwareView(items=[machine_item(doc.name, device)])
+                    if device.kind == "gateway" and (nets := lab_networks(inv)):
                         network_notes = compare_networks(nets, device.networks)
                 else:
                     snapshot = collected[doc.name]
@@ -580,7 +580,7 @@ def _gather(
         # Unplugged: a host no device proposes a link for any more, but whose facts note still carries
         # one seen by a device gathered this run. That device's fresh view says nothing is there now.
         for doc in inv.of_kind("host"):
-            if doc.name.lower() in proposed_host_names or str(doc.data.get("type", "")).startswith("unifi-"):
+            if doc.name.lower() in proposed_host_names or doc.data.get("type") == "unifi":
                 continue
             baseline = _facts_baseline(ctx.inventory, facts_acc, doc.name)
             prior_links = baseline.get("links") if isinstance(baseline.get("links"), list) else []

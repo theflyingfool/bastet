@@ -12,8 +12,8 @@ def lab(tmp_path: Path):
         "---\nbastet: lab\nnetworks:\n  lan: {cidr: 10.10.0.0/24}\n  servers: {cidr: 10.10.20.0/24, vlan: 20}\n---\n# L\n")
     h = tmp_path / "hosts"
     h.mkdir()
-    (h / "gw.md").write_text("---\nbastet: host\ntype: unifi-gateway\nip: 10.10.0.1\n---\n# gw\n")
-    (h / "sw.md").write_text('---\nbastet: host\ntype: unifi-switch\nip: 10.10.0.5\nlinks:\n'
+    (h / "gw.md").write_text("---\nbastet: host\ntype: unifi\nip: 10.10.0.1\n---\n# gw\n")
+    (h / "sw.md").write_text('---\nbastet: host\ntype: unifi\nip: 10.10.0.5\nlinks:\n'
                              '  - {port: "9", to: "[[gw]]", to_port: "4", speed: 10G}\n---\n# sw\n')
     (h / "nas.md").write_text('---\nbastet: host\ntype: server\nip: 10.10.20.7\nlinks:\n'
                               '  - {port: eno1, to: "[[sw]]", to_port: "2"}\n---\n# nas\n')

@@ -1,5 +1,6 @@
-name: unknown
+name: undefined
 description: Type not decided yet; gather will propose one
+order: 8
 physical: false
 minimal: []
 fields:

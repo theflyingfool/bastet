@@ -51,7 +51,7 @@ LAPTOP_HOST_KEY = f"ssh-ed25519 {KEYS[0].fingerprint}"
 def laptop(inventory, monkeypatch):
     add_host(
         inventory, "hp-13",
-        f"---\nbastet: host\ntype: laptop\nip: dhcp\nconnection: local\nssh_host_key: {LAPTOP_HOST_KEY}\n---\n# hp-13\n",
+        f"---\nbastet: host\ntype: computer\nip: dhcp\nconnection: local\nssh_host_key: {LAPTOP_HOST_KEY}\n---\n# hp-13\n",
     )
     monkeypatch.setattr(gather_mod, "scan_keys", lambda address, recorded=None, port=22: KEYS)
     monkeypatch.setattr(gather_mod, "ssh_runner", lambda target: FakeRunner(LAPTOP, f"{target.user}@{target.address}"))
@@ -62,7 +62,7 @@ def test_gather_local_laptop_writes_facts(runner, laptop, tmp_path):
     result = runner.invoke(app, ["run", "-g", "hp-13", "-y"])
     assert result.exit_code == 0, result.output
     host = (laptop / "hosts" / "hp-13.md").read_text()
-    assert host == f"---\nbastet: host\ntype: laptop\nip: dhcp\nconnection: local\nssh_host_key: {LAPTOP_HOST_KEY}\n---\n# hp-13\n"
+    assert host == f"---\nbastet: host\ntype: computer\nip: dhcp\nconnection: local\nssh_host_key: {LAPTOP_HOST_KEY}\n---\n# hp-13\n"
     note = facts(laptop, "hp-13")
     assert "os: Arch Linux" in note and "ram: 16 GB" in note and "cpu_cores: 4" in note
     assert (laptop / "hardware" / "HP Spectre x360 Convertible 13-ae0xx 5CD1234XYZ.md").exists()

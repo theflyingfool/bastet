@@ -1,5 +1,6 @@
 name: other
-description: anything on the network Bastet doesn't manage (game consoles, TVs, printers); shown on maps only
+description: Anything on the network Bastet doesn't manage
+order: 9
 physical: true
 gather: false
 managed: false

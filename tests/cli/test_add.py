@@ -44,7 +44,14 @@ def test_add_hardware_command_is_gone(runner, inventory):
 def test_add_local_host_asks_no_address_questions(runner, inventory, monkeypatch):
     import bastet.cli.add as add_mod
     monkeypatch.setattr(add_mod, "_set_up_this_machine", lambda **k: None)
-    result = runner.invoke(app, ["add", "host", "laptop1", "--type", "laptop", "--local"], input="\ny\n")
+    result = runner.invoke(app, ["add", "host", "laptop1", "--type", "computer", "--local"], input="\ny\n")
     assert result.exit_code == 0, result.output
     assert "IP" not in result.output.split("laptop1")[0] and "Name to reach it by" not in result.output
     assert "connection: local" in (inventory / "hosts" / "laptop1.md").read_text()
+
+
+def test_add_host_menu_lists_the_types_in_their_order(runner, inventory):
+    result = runner.invoke(app, ["add", "host", "thing1"], input="9\n")  # picks `other`; the prompts that follow run out of input, which is fine here
+    names = [line.split()[1] for line in result.output.splitlines() if line.startswith("  ") and line[2:3].isdigit()][:9]
+    assert names == ["computer", "server", "proxmox", "unifi", "vm", "lxc", "vps", "undefined", "other"]
+    assert "  1. computer  - A user's workstation" in result.output

@@ -79,9 +79,9 @@ def test_duplicate_ip_is_error(tmp_path):
 
 
 def test_dhcp_hosts_dont_clash(tmp_path):
-    put(tmp_path, "a.md", "---\nbastet: host\ntype: laptop\nip: dhcp\naddress: laptop.local\n---\n")
-    put(tmp_path, "b.md", "---\nbastet: host\ntype: laptop\nip: dhcp\n---\n")
-    put(tmp_path, "c.md", "---\nbastet: host\ntype: laptop\nip: not-an-ip\n---\n")
+    put(tmp_path, "a.md", "---\nbastet: host\ntype: computer\nip: dhcp\naddress: laptop.local\n---\n")
+    put(tmp_path, "b.md", "---\nbastet: host\ntype: computer\nip: dhcp\n---\n")
+    put(tmp_path, "c.md", "---\nbastet: host\ntype: computer\nip: not-an-ip\n---\n")
     inv = load_inventory(tmp_path, TYPES)
     assert [p.error.file.name for p in inv.errors] == ["c.md"]
 
@@ -236,8 +236,8 @@ def test_facts_note_with_no_facts_is_empty(tmp_path):
 
 
 def test_connection_must_be_local_or_ssh(tmp_path):
-    put(tmp_path, "a.md", "---\nbastet: host\ntype: laptop\nconnection: local\n---\n")
-    put(tmp_path, "b.md", "---\nbastet: host\ntype: laptop\nconnection: telnet\n---\n")
+    put(tmp_path, "a.md", "---\nbastet: host\ntype: computer\nconnection: local\n---\n")
+    put(tmp_path, "b.md", "---\nbastet: host\ntype: computer\nconnection: telnet\n---\n")
     inv = load_inventory(tmp_path, TYPES)
     [p] = inv.errors
     assert p.error.key == "connection" and "telnet" in p.error.message
@@ -250,7 +250,7 @@ def test_user_note_wins_over_generated_group(tmp_path):
     (tmp_path / "_bastet" / "groups").mkdir(parents=True)
     (tmp_path / "_bastet" / "groups" / "debian.md").write_text("---\nbastet: group\nmatch:\n  os: debian\n---\n# debian\n")
     (tmp_path / "hosts").mkdir()
-    (tmp_path / "hosts" / "debian.md").write_text("---\nbastet: host\ntype: laptop\n---\n# debian\n")
+    (tmp_path / "hosts" / "debian.md").write_text("---\nbastet: host\ntype: computer\n---\n# debian\n")
     inv = load_inventory(tmp_path, load_host_types())
     assert inv.get("debian").data["bastet"] == "host"
     assert not any("duplicate" in str(p) for p in inv.problems)

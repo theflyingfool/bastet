@@ -38,7 +38,7 @@ def apt_role(tmp_path):
 
 
 def built(role, values):
-    host = HostInfo(name="laptop1", type="laptop", data={"os": "Arch Linux"}, root=Path("/nonexistent"), lab={})
+    host = HostInfo(name="laptop1", type="computer", data={"os": "Arch Linux"}, root=Path("/nonexistent"), lab={})
     [batch] = build(role, values, host)
     return batch.resources
 

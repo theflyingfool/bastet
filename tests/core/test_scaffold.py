@@ -95,7 +95,7 @@ def test_duplicate_address_rejected(tmp_path):
 
 def test_dhcp_laptop_with_address(tmp_path):
     inv = inv_with(tmp_path, {})
-    draft = new_host(inv, TYPES, "laptop", "laptop", ip="dhcp", address="laptop.local")
+    draft = new_host(inv, TYPES, "laptop", "computer", ip="dhcp", address="laptop.local")
     assert "ip: dhcp\naddress: laptop.local\n" in draft.change.after
 
 
@@ -150,7 +150,7 @@ def test_refuses_same_name_any_case_anywhere(tmp_path):
 
 def test_new_host_local_connection(tmp_path):
     inv = inv_with(tmp_path, {})
-    draft = new_host(inv, TYPES, "laptop", "laptop", ip="dhcp", address="laptop.local", connection="local")
+    draft = new_host(inv, TYPES, "laptop", "computer", ip="dhcp", address="laptop.local", connection="local")
     assert "address: laptop.local\nconnection: local\n" in draft.change.after
 
 
@@ -163,12 +163,12 @@ def test_suggested_ip_helper(tmp_path):
         suggested_ip(inv, "iot")
 
 
-def test_unifi_types_are_gathered_with_mca_dump(tmp_path):
+def test_unifi_type_is_gathered_with_mca_dump(tmp_path):
     from bastet.core.hosttypes import HostType, load_host_types
     types = load_host_types()
-    assert {"unifi-gateway", "unifi-switch", "unifi-ap"} <= set(types)
-    assert types["unifi-ap"].gather is True and types["unifi-ap"].fields["ports"] == "fact"
-    draft = new_host(inv_with(tmp_path, {}), types, "u7-pro-xg", "unifi-ap", ip="10.10.0.3")
+    assert "unifi" in types
+    assert types["unifi"].gather is True and types["unifi"].fields["ports"] == "fact"
+    draft = new_host(inv_with(tmp_path, {}), types, "u7-pro-xg", "unifi", ip="10.10.0.3")
     assert "gather: true" in draft.change.after and "hostname: u7-pro-xg" in draft.change.after
     quiet = {**types, "quiet": HostType(name="quiet", minimal=["ip"], gather=False)}
     assert "gather: false" in new_host(inv_with(tmp_path, {}), quiet, "q1", "quiet", ip="10.10.0.9").change.after

@@ -22,7 +22,7 @@ class AsRootLocally(LocalRunner):
 @pytest.fixture
 def box(inventory, monkeypatch, tmp_path):
     out = tmp_path / "out"
-    (inventory / "hosts" / "box.md").write_text("---\nbastet: host\ntype: laptop\nconnection: local\nhostname: box\n---\n# box\n")
+    (inventory / "hosts" / "box.md").write_text("---\nbastet: host\ntype: computer\nconnection: local\nhostname: box\n---\n# box\n")
     roles = inventory / "_roles" / "hosts" / "box"
     roles.mkdir(parents=True)
     (roles / "files.md").write_text(
@@ -54,7 +54,7 @@ def test_apply_asks_and_respects_no(runner, box):
 
 
 def test_unreachable_host_reported_and_others_continue(runner, box, inventory, monkeypatch):
-    (inventory / "hosts" / "box2.md").write_text("---\nbastet: host\ntype: laptop\nconnection: local\n---\n# box2\n")
+    (inventory / "hosts" / "box2.md").write_text("---\nbastet: host\ntype: computer\nconnection: local\n---\n# box2\n")
     other = inventory / "_roles" / "hosts" / "box2"
     other.mkdir(parents=True)
     (other / "files.md").write_text(f'---\nbastet: role\nrole: files\napplies_to: "[[box2]]"\nfiles:\n  {box}/two:\n    content: "2"\n---\n')
@@ -70,7 +70,7 @@ def test_unreachable_host_reported_and_others_continue(runner, box, inventory, m
 
 
 @pytest.mark.parametrize(("host", "host_type", "managed_by"), [
-    ("ap1", "unifi-ap", "the UniFi controller"),
+    ("ap1", "unifi", "the UniFi controller"),
     ("tv", "other", "nothing (shown on maps only)"),
 ])
 def test_unmanaged_types_are_not_role_managed(runner, box, inventory, monkeypatch, host, host_type, managed_by):

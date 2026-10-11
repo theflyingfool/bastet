@@ -12,7 +12,7 @@ TYPES = load_host_types()
 FILES = {
     "Homelab.md": "---\nbastet: lab\n---\n# Homelab\n",
     "groups/laptops.md": "---\nbastet: group\n---\n# laptops\n",
-    "hosts/hp-13.md": '---\nbastet: host\ntype: laptop\nconnection: local\ngroups:\n  - "[[laptops]]"\n---\n# hp-13\n',
+    "hosts/hp-13.md": '---\nbastet: host\ntype: computer\nconnection: local\ngroups:\n  - "[[laptops]]"\n---\n# hp-13\n',
     "hosts/pve1.md": "---\nbastet: host\ntype: proxmox\nip: 10.0.10.11\n---\n# pve1\n",
     "_roles/lab/systemd.md": '---\nbastet: role\nrole: systemd\napplies_to: "[[Homelab]]"\ntimezone: UTC\nntp_service: timesyncd\n---\n',
     "_roles/hosts/hp-13/systemd.md": '---\nbastet: role\nrole: systemd\napplies_to: "[[hp-13]]"\ntimezone: America/Chicago\n---\n',

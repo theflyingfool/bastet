@@ -24,7 +24,7 @@ class AsRootLocally(LocalRunner):
 @pytest.fixture
 def box(inventory, monkeypatch, tmp_path):
     out = tmp_path / "out"
-    (inventory / "hosts" / "box.md").write_text("---\nbastet: host\ntype: laptop\nconnection: local\nhostname: box\n---\n# box\n")
+    (inventory / "hosts" / "box.md").write_text("---\nbastet: host\ntype: computer\nconnection: local\nhostname: box\n---\n# box\n")
     roles = inventory / "_roles" / "hosts" / "box"
     roles.mkdir(parents=True)
     (roles / "files.md").write_text(
