@@ -309,7 +309,7 @@ git commit -m "roles: the expression language for Markdown role values and when:
 **Files:**
 - Create: `src/bastet/roles/entries.py`
 - Modify: `src/bastet/roles/contract.py` (`ROLE_NOTE_KEYS`, `ROLE_NOTE_RESERVED`, `RoleDef`, `parse_role`, `_command_entry`, `_file_entry`)
-- Modify: `src/bastet/roles/declarative.py` (`build`, `_commands`)
+- Modify: `src/bastet/roles/declarative.py` (`build`, `_commands`), `src/bastet/roles/resolve.py` (`Applied.secret_options`), `src/bastet/cli/run.py:71-72` (set it), `src/bastet/roles/builtin.py` (`batches_for` passes it; Markdown roles stop being blanket-marked secret)
 - Test: `tests/roles/test_role_package_entries.py`; edit `tests/roles/test_role_commands.py`
 
 **Interfaces:**
