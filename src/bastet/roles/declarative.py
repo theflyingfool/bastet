@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import replace
 
 from bastet.core.errors import BastetError
 from bastet.core.osinfo import ARCH_LIKE
 from bastet.engine.command import Command
-from bastet.engine.files import File, Settings
+from bastet.engine.files import Block, File, Settings
 from bastet.engine.model import Resource
 from bastet.engine.run import Batch
 from bastet.roles.contract import Option, RoleDef
@@ -91,6 +92,82 @@ def _apt(role: RoleDef, values: dict, entry: dict) -> list[Resource]:
                  group=entry.get("group"), validate=entry.get("validate"))]
 
 
+NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]*$")
+
+
+def _entry_values(role: RoleDef, option_name: str, option: Option, item: dict) -> dict:
+    """One list item with its defaults applied, checked for a usable name and for line breaks."""
+    values = {name: item.get(name) if item.get(name) is not None else field.default
+              for name, field in option.items.fields.items()}
+    name = values.get("name")
+    if not isinstance(name, str) or not NAME_RE.match(name):
+        raise BastetError(f"{role.name}.{option_name}: {name!r} isn't a usable name")
+    for field_name, field in option.items.fields.items():
+        if field.as_ == "text":
+            continue
+        value = values[field_name]
+        for text in value if isinstance(value, (list, tuple)) else [value]:
+            if isinstance(text, str) and ("\n" in text or "\r" in text):
+                raise BastetError(f"{role.name}.{option_name}.{field_name}: a value can't contain a line break")
+    return values
+
+
+def _keyed_fields(option: Option, values: dict):
+    for name, field in option.items.fields.items():
+        if field.key and values.get(name) is not None:
+            yield field, values[name]
+
+
+def _deb822_value(field: Option, value: object) -> str | None:
+    if isinstance(value, bool):
+        return "yes" if value else "no"
+    if isinstance(value, (list, tuple)):
+        return " ".join(str(v) for v in value) or None
+    text = str(value)
+    if field.as_ == "text" and ("\n" in text.strip("\n")):
+        return "".join("\n " + (line if line.strip() else ".") for line in text.strip("\n").splitlines())
+    return text.strip("\n") or None
+
+
+def _deb822(option: Option, name: str, values: dict) -> list[Resource]:
+    lines = []
+    for field, value in _keyed_fields(option, values):
+        if (text := _deb822_value(field, value)) is not None:
+            lines.append(f"{field.key}:{'' if text.startswith(chr(10)) else ' '}{text}")
+    return [File(path=option.path.format(name=name), content="\n".join(lines) + "\n", mode="0644")]
+
+
+def _ini_section(option: Option, name: str, values: dict) -> list[Resource]:
+    lines = [f"[{name}]"]
+    for field, value in _keyed_fields(option, values):
+        if field.as_ == "lines":
+            lines += [f"{field.key} = {v}" for v in value]
+        elif isinstance(value, (list, tuple)):
+            if value:
+                lines.append(f"{field.key} = {' '.join(str(v) for v in value)}")
+        else:
+            lines.append(f"{field.key} = {value}")
+    if values.get("enabled") is False:
+        lines = [f"#{line}" for line in lines]
+    return [Block(path=option.path, block="\n".join(lines), marker=(option.marker or "{name}").format(name=name))]
+
+
+ENTRY_FORMATS = {"deb822": _deb822, "ini_section": _ini_section}
+
+
+def _entries(role: RoleDef, values: dict) -> list[Resource]:
+    """The files for every option declared `as: entries`: one resource per list item."""
+    out: list[Resource] = []
+    for option_name, option in role.options.items():
+        if option.as_ != "entries":
+            continue
+        for item in values.get(option_name) or []:
+            fields = _entry_values(role, option_name, option, item)
+            made = ENTRY_FORMATS[option.format](option, fields["name"], fields)
+            out += [_placed(r, role, {"before": option.before, "after": option.after}) for r in made]
+    return out
+
+
 RENDERERS = {"apt": _apt}
 EDITORS = {"ini": _ini}
 
@@ -109,6 +186,7 @@ def build(role: RoleDef, values: dict, host) -> list[Batch]:
         else:
             made = RENDERERS[entry["render"]](role, values, entry)
         resources += [_placed(r, role, entry) for r in made]
+    resources += _entries(role, values)
     return [Batch(role.name, resources)]
 
 

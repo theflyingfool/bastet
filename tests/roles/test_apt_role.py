@@ -85,10 +85,10 @@ def test_min_and_single_line_errors_name_the_option(values, message):
 
 
 def test_the_config_file_is_applied_before_repositories_and_packages():
-    packages = ap("packages", {"install": ["tree"], "repositories": [{"name": "extra", "uris": ["https://deb.example.net/debian"],
-                                                                      "suites": ["trixie"], "components": ["main"]}]})
-    batches = batches_for([ap("apt", {"install_recommends": False}), packages], host())
+    apt = ap("apt", {"install_recommends": False, "repositories": [{"name": "extra", "uris": ["https://deb.example.net/debian"],
+                                                                    "suites": ["trixie"], "components": ["main"]}]})
+    batches = batches_for([apt, ap("packages", {"install": ["tree"]})], host())
     order = [i.resource for i in apply_order(collect_items(batches))]
     apt_at = next(n for n, r in enumerate(order) if isinstance(r, File) and r.path == PATH)
-    later = [n for n, r in enumerate(order) if isinstance(r, (Repository, Package))]
+    later = [n for n, r in enumerate(order) if isinstance(r, Package) or (isinstance(r, File) and r.path.endswith(".sources"))]
     assert later and all(apt_at < n for n in later)

@@ -16,9 +16,11 @@ TYPES = ("string", "int", "number", "bool", "list", "map", "object", "any")  # a
 SECRET_PREFIX = "secret:"  # a reference, resolved and re-checked against the option's type later
 RESERVED = {"bastet", "role", "applies_to", "priority", "cssclasses", "tags", "aliases", "rotate_every"}
 OPTION_KEYS = {"type", "description", "default", "choices", "items", "fields", "shorthand", "secret", "required",
-               "generate", "source", "rotate_every", "key", "section", "as", "min", "max", "single_line"}
+               "generate", "source", "rotate_every", "key", "section", "as", "min", "max", "single_line",
+               "format", "path", "marker", "before", "after"}
 API_VERSIONS = (0,)
-OPTION_AS = ("flag", "value", "list")
+OPTION_AS = ("flag", "value", "list", "lines", "text", "entries")
+ENTRY_FORMATS = ("deb822", "ini_section")
 VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 ROLE_NOTE_RESERVED = {"uses", "needs", "contributes", "collects", "requires", "tags", "cssclasses", "types",
                       "not_types", "os_min", "data", "vars", "presets", "packages", "templates", "units", "hooks",
@@ -51,6 +53,11 @@ class Option:
     min: int | float | None = None  # int/number only
     max: int | float | None = None  # int/number only
     single_line: bool = False  # string only: one non-empty line
+    format: str | None = None  # as: entries only: deb822 | ini_section, the file format of each entry
+    path: str | None = None  # as: entries only: where entries are written; may contain {name}
+    marker: str | None = None  # as: entries, ini_section only: the block marker; may contain {name}
+    before: str | None = None  # as: entries only: the slot the entries are written before
+    after: str | None = None  # as: entries only: the slot the entries are written after
 
 
 @dataclass
@@ -91,12 +98,30 @@ def _option(where: str, raw: object, path: Path) -> Option:
                 raise BastetError(f"{where}: {bound} must be a number", file=path)
     if raw.get("single_line") is not None and raw["type"] != "string":
         raise BastetError(f"{where}: single_line only applies to string options", file=path)
+    entries = raw.get("as") == "entries"
+    for knob in ("format", "path", "marker", "before", "after"):
+        if knob in raw and not entries:
+            raise BastetError(f"{where}: {knob} only applies to as: entries", file=path)
+    if entries:
+        item_type = raw["items"].get("type") if isinstance(raw.get("items"), dict) else None
+        if raw["type"] != "list" or item_type != "object":
+            raise BastetError(f"{where}: as: entries needs a list of objects", file=path)
+        if raw.get("format") not in ENTRY_FORMATS:
+            raise BastetError(f"{where}: as: entries needs format ({', '.join(ENTRY_FORMATS)})", file=path)
+        if not isinstance(raw.get("path"), str) or not raw["path"]:
+            raise BastetError(f"{where}: as: entries needs a path", file=path)
+        if "marker" in raw and raw["format"] != "ini_section":
+            raise BastetError(f"{where}: marker only applies to ini_section", file=path)
+        if "before" in raw and "after" in raw:
+            raise BastetError(f"{where}: use before or after, not both", file=path)
     opt = Option(type=raw["type"], description=str(raw.get("description", "")), default=raw.get("default"),
                  choices=tuple(raw["choices"]) if "choices" in raw else None, shorthand=raw.get("shorthand"),
                  secret=bool(raw.get("secret", False)), required=bool(raw.get("required", False)),
                  generate=generate, source=source, rotate_every=raw.get("rotate_every"),
                  key=raw.get("key"), section=raw.get("section"), as_=raw.get("as"), min=raw.get("min"),
-                 max=raw.get("max"), single_line=bool(raw.get("single_line", False)))
+                 max=raw.get("max"), single_line=bool(raw.get("single_line", False)),
+                 format=raw.get("format"), path=raw.get("path"), marker=raw.get("marker"), before=raw.get("before"),
+                 after=raw.get("after"))
     if opt.type in ("list", "map"):
         if "items" not in raw:
             raise BastetError(f"{where}: a {opt.type} option needs items", file=path)

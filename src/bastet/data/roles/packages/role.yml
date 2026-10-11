@@ -40,7 +40,7 @@ options:
         extra_args: {type: list, items: {type: string}}
   repositories:
     type: list
-    description: "Package repositories, written in the host's own format"
+    description: "Package repositories, written in the host's own format (dnf, zypper, apk). On Arch-based hosts set them in the pacman role, on Debian-based hosts in the apt role"
     items:
       type: object
       fields:

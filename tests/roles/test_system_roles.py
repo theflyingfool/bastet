@@ -142,7 +142,7 @@ def test_proxmox_node_type_baseline_includes_proxmox():
 
 def test_stray_sources_keep_every_planned_repository():
     from bastet.engine.packages import StraySources
-    batches = batches_for([ap("proxmox", {}), ap("packages", {"repositories": [
+    batches = batches_for([ap("proxmox", {}), ap("apt", {"repositories": [
         {"name": "backports", "uris": ["http://deb.debian.org/debian"], "suites": ["trixie-backports"]}]})], pve())
     stray = next(r for b in batches for r in b.resources if isinstance(r, StraySources))
     assert "backports" in stray.keep and "debian" in stray.keep

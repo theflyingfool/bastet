@@ -8,7 +8,7 @@ import shlex
 from dataclasses import dataclass
 from typing import ClassVar
 
-from bastet.engine.files import Block, File, Line
+from bastet.engine.files import File, Line
 from bastet.engine.model import ABSENT, FieldChange, Read, ReadError, Resource, Unsupported
 
 MANAGERS = ("apt-get", "pacman", "dnf", "zypper", "apk")
@@ -285,16 +285,6 @@ class Repository(Resource):
         lines += [f"{k}={v}" for k, v in self.options]
         return "\n".join(lines) + "\n"
 
-    def _pacman(self) -> str:
-        lines = [f"[{self.name}]"]
-        if self.trusted is True and not any(k == "SigLevel" for k, _ in self.options):
-            lines.append("SigLevel = Never")
-        lines += [f"Server = {u}" for u in self.uris]
-        lines += [f"{k} = {v}" for k, v in self.options]
-        if not self.enabled:
-            lines = [f"#{line}" for line in lines]
-        return "\n".join(lines)
-
     def _apk_key_path(self) -> str:
         return f"/etc/apk/keys/{self.key_name or self.name + '.rsa.pub'}"
 
@@ -308,8 +298,6 @@ class Repository(Resource):
             if self.key:
                 parts.append(File(path=self._rpm_key_path(), content=self.key, mode="0644", **common))
             return parts
-        if manager == "pacman":
-            return [Block(path="/etc/pacman.conf", block=self._pacman(), marker=f"bastet repo {self.name}", **common)]
         if manager == "apk":
             parts = [Line(path="/etc/apk/repositories", line=("" if self.enabled else "#") + u,
                           match=r"^#?" + re.escape(u) + r"$", **common) for u in self.uris]
@@ -341,12 +329,7 @@ class Repository(Resource):
                 if used:
                     raise Unsupported(f"{knob} isn't supported for apk repositories")
         if manager == "pacman":
-            if self.key:
-                raise Unsupported("pacman keys are added with pacman-key; not supported yet")
-            if self.signed_by:
-                raise Unsupported("pacman has no per-repository key file; use options (SigLevel)")
-            if self.trusted is False:
-                raise Unsupported("pacman: set signature checking through options (SigLevel)")
+            raise Unsupported("pacman repositories are set in the pacman role")
         if manager == "zypper" and len(self.uris) != 1:
             raise Unsupported("zypper takes exactly one URI per repository")
 

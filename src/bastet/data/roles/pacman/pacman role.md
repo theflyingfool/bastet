@@ -3,7 +3,7 @@ bastet: role-definition
 name: pacman
 version: 1.0.0
 api: 0
-description: 'pacman''s own settings: every [options] setting in /etc/pacman.conf (Arch-based hosts; aim it at [[arch]]). Unset = leave pacman''s setting as it is. Settings you give are written in a Bastet block right after [options], and the original lines are commented out with `#bastet: `. Repositories belong to the packages role.'
+description: 'pacman''s own settings: every [options] setting in /etc/pacman.conf (Arch-based hosts; aim it at [[arch]]). Unset = leave pacman''s setting as it is. Settings you give are written in a Bastet block right after [options], and the original lines are commented out with `#bastet: `. Repositories are written in pacman''s own format (a block in /etc/pacman.conf, marked `bastet repo <name>`).'
 os:
 - arch
 provides:
@@ -192,6 +192,41 @@ options:
     key: UseSyslog
     section: options
     as: flag
+  repositories:
+    type: list
+    description: 'Extra pacman repositories, one marked block each at the end of /etc/pacman.conf, written before packages are installed'
+    as: entries
+    format: ini_section
+    path: /etc/pacman.conf
+    marker: bastet repo {name}
+    before: packages
+    items:
+      type: object
+      fields:
+        name:
+          type: string
+          required: true
+          description: Repository name, letters, digits and . _ + -
+        servers:
+          type: list
+          items:
+            type: string
+          as: lines
+          key: Server
+        include:
+          type: string
+          key: Include
+          description: A mirror list file, e.g. /etc/pacman.d/mirrorlist
+        sig_level:
+          type: string
+          key: SigLevel
+          description: e.g. Required, Optional or Never
+        usage:
+          type: string
+          key: Usage
+        enabled:
+          type: bool
+          description: false comments the whole block out
 examples:
 - title: All Arch hosts (put in _roles/groups/pacman.md with applies_to "[[arch]]")
   yaml: |
@@ -206,6 +241,13 @@ examples:
       - usr/share/doc/*
     clean_method:
       - KeepCurrent
+- title: A custom repository
+  yaml: |
+    repositories:
+      - name: custom
+        servers:
+          - https://repo.example.net/$repo/os/$arch
+        sig_level: Optional
 files:
 - path: /etc/pacman.conf
   edit: ini
@@ -215,7 +257,7 @@ files:
 
 # pacman role
 
-pacman's own settings: every [options] setting in /etc/pacman.conf (Arch-based hosts; aim it at [[arch]]). Unset = leave pacman's setting as it is. Settings you give are written in a Bastet block right after [options], and the original lines are commented out with `#bastet: `. Repositories belong to the packages role.
+pacman's own settings: every [options] setting in /etc/pacman.conf (Arch-based hosts; aim it at [[arch]]). Unset = leave pacman's setting as it is. Settings you give are written in a Bastet block right after [options], and the original lines are commented out with `#bastet: `. Repositories are written in pacman's own format (a block in /etc/pacman.conf, marked `bastet repo <name>`).
 
 ## Changes
 

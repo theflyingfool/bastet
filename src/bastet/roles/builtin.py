@@ -7,7 +7,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from bastet.core.errors import BastetError
-from bastet.core.osinfo import os_id
+from bastet.core.osinfo import ARCH_LIKE, os_id
 from bastet.engine.command import Command
 from bastet.engine.files import Block, Directory, File, Line, Symlink
 from bastet.engine.model import Trigger
@@ -118,6 +118,9 @@ def _packages(v: dict, host: HostInfo) -> list[Batch]:
                           "(keeping a whole system upgraded on its own isn't a role option yet)")
     names = {p["name"] for p in installs}
     repos = []
+    if v.get("repositories") and (host.os_id in ARCH_LIKE or host.debian_like):
+        raise BastetError("packages.repositories: set repositories in the pacman role on Arch-based hosts "
+                          "and in the apt role on Debian-based hosts")
     for r in v.get("repositories") or []:
         r = dict(r)
         r["options"] = tuple((k, val) for k, val in (r.get("options") or {}).items())
@@ -275,6 +278,8 @@ def batches_for(applied: list[Applied], host: HostInfo) -> list[Batch]:
     # Everything Bastet installs is accounted for, whichever role installs it.
     present = sorted({r.name for b in batches for r in b.resources if isinstance(r, Package) and r.state == "present"})
     repos = tuple(r.name for b in batches for r in b.resources if isinstance(r, Repository))
+    repos += tuple(r.path.rsplit("/", 1)[1][:-len(".sources")] for b in batches for r in b.resources
+                   if isinstance(r, File) and r.path.startswith("/etc/apt/sources.list.d/") and r.path.endswith(".sources"))
     units = tuple(dict.fromkeys(
         [r.name for b in batches for r in b.resources if isinstance(r, Unit)]
         + [r.path.split("/")[-2][:-2] for b in batches for r in b.resources

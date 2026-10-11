@@ -17,7 +17,7 @@ Every role Bastet ships. Put values in a role file's properties (`_roles/lab/<ro
 
 ## apt
 
-apt's own settings, written to /etc/apt/apt.conf.d/90-bastet (Debian-based hosts; aim it at `debian`). Unset = leave apt's setting as it is. A curated, incomplete list of options. Repositories belong to the packages role.
+apt's own settings, written to /etc/apt/apt.conf.d/90-bastet (Debian-based hosts; aim it at `debian`). Unset = leave apt's setting as it is. A curated, incomplete list of options. Repositories are written in apt's own format (deb822 files in /etc/apt/sources.list.d).
 
 ### Examples
 
@@ -33,6 +33,20 @@ acquire_retries: 3
 
 ```yaml
 install_recommends: false
+```
+
+**Debian backports**
+
+```yaml
+repositories:
+  - name: backports
+    uris:
+      - http://deb.debian.org/debian
+    suites:
+      - trixie-backports
+    components:
+      - main
+    signed_by: /usr/share/keyrings/debian-archive-keyring.gpg
 ```
 
 ### Options
@@ -51,6 +65,16 @@ install_recommends: false
 | acquire_https_proxy | string |  | Acquire::https::Proxy |
 | acquire_languages | list of string |  | Acquire::Languages: translations to download (en, none, …) |
 | dpkg_options | list of string |  | Dpkg::Options: options passed to dpkg |
+| repositories | list of object |  | Extra apt repositories, one /etc/apt/sources.list.d/<name>.sources file each, written before packages are installed |
+| repositories[].name | string |  | File name, letters, digits and . _ + - |
+| repositories[].types | list of string | ['deb'] | deb, deb-src |
+| repositories[].uris | list of string |  |  |
+| repositories[].suites | list of string |  |  |
+| repositories[].components | list of string |  |  |
+| repositories[].architectures | list of string |  |  |
+| repositories[].enabled | bool |  |  |
+| repositories[].trusted | bool |  |  |
+| repositories[].signed_by | string |  | A key file path, or the armored key text |
 
 ## base
 
@@ -302,7 +326,7 @@ repositories:
 | remove[].dpkg_options | list of string |  |  |
 | remove[].allow_change_held | bool |  |  |
 | remove[].extra_args | list of string |  |  |
-| repositories | list of object |  | Package repositories, written in the host's own format |
+| repositories | list of object |  | Package repositories, written in the host's own format (dnf, zypper, apk). On Arch-based hosts set them in the pacman role, on Debian-based hosts in the apt role |
 | repositories[].name | string |  |  |
 | repositories[].uris | list of string |  |  |
 | repositories[].suites | list of string |  | apt only |
@@ -326,7 +350,7 @@ repositories:
 
 ## pacman
 
-pacman's own settings: every [options] setting in /etc/pacman.conf (Arch-based hosts; aim it at `arch`). Unset = leave pacman's setting as it is. Settings you give are written in a Bastet block right after [options], and the original lines are commented out with `#bastet: `. Repositories belong to the packages role.
+pacman's own settings: every [options] setting in /etc/pacman.conf (Arch-based hosts; aim it at `arch`). Unset = leave pacman's setting as it is. Settings you give are written in a Bastet block right after [options], and the original lines are commented out with `#bastet: `. Repositories are written in pacman's own format (a block in /etc/pacman.conf, marked `bastet repo <name>`).
 
 ### Examples
 
@@ -347,6 +371,16 @@ no_extract:
   - usr/share/doc/*
 clean_method:
   - KeepCurrent
+```
+
+**A custom repository**
+
+```yaml
+repositories:
+  - name: custom
+    servers:
+      - https://repo.example.net/$repo/os/$arch
+    sig_level: Optional
 ```
 
 ### Options
@@ -380,6 +414,13 @@ clean_method:
 | verbose_pkg_lists | bool |  | VerbosePkgLists: old and new versions in a table |
 | check_space | bool |  | CheckSpace: check disk space before installing |
 | use_syslog | bool |  | UseSyslog: log to syslog too |
+| repositories | list of object |  | Extra pacman repositories, one marked block each at the end of /etc/pacman.conf, written before packages are installed |
+| repositories[].name | string |  | Repository name, letters, digits and . _ + - |
+| repositories[].servers | list of string |  |  |
+| repositories[].include | string |  | A mirror list file, e.g. /etc/pacman.d/mirrorlist |
+| repositories[].sig_level | string |  | e.g. Required, Optional or Never |
+| repositories[].usage | string |  |  |
+| repositories[].enabled | bool |  | false comments the whole block out |
 
 ## proxmox
 

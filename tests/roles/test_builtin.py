@@ -91,7 +91,7 @@ def test_packages_role():
         "remove": [{"name": "nano", "purge": True}],
         "repositories": [{"name": "b", "uris": ["http://deb.debian.org/debian"], "suites": ["trixie-backports"],
                           "options": {"X-Repolib-Name": "Backports"}}],
-    }))
+    }), host=info(os="Fedora Linux 42"))
     assert [type(r).__name__ for r in out] == ["Repository", "Package", "Package", "Package", "Updates", "Reboot", "Unaccounted"]
     repo, nano, tree, jq = out[:4]
     assert repo.options == (("X-Repolib-Name", "Backports"),) and repo.suites == ("trixie-backports",)

@@ -50,14 +50,6 @@ def test_dnf_and_zypper_ini_with_key_file():
         Repository(name="two", uris=("http://a", "http://b")).parts("zypper")
 
 
-def test_pacman_block_and_key_unsupported():
-    repo = Repository(name="chaotic", uris=("https://cdn-mirror.chaotic.cx/$repo/$arch",), options=(("SigLevel", "Required"),))
-    files, _ = contents(repo, "pacman")
-    assert files["/etc/pacman.conf"] == "[chaotic]\nServer = https://cdn-mirror.chaotic.cx/$repo/$arch\nSigLevel = Required"
-    with pytest.raises(Unsupported):
-        Repository(name="k", uris=("http://a",), key=KEY).current(results_for(Repository(name="k", uris=("http://a",), key=KEY), "pacman"))
-
-
 def test_apk_lines_and_key():
     repo = Repository(name="edge", uris=("https://dl-cdn.alpinelinux.org/alpine/edge/testing",), key="-----BEGIN PUBLIC KEY-----\nMIIB\n-----END PUBLIC KEY-----\n")
     parts = repo.parts("apk")
@@ -116,10 +108,9 @@ def test_repository_knobs_unsupported_off_apt():
         repo = Repository(name="r", uris=("http://a",), **knob)
         with pytest.raises(Unsupported):
             repo.current(results_for(repo, "apk"))
-    for knob in ({"signed_by": "/k"}, {"trusted": False}):
-        repo = Repository(name="r", uris=("http://a",), **knob)
-        with pytest.raises(Unsupported):
-            repo.current(results_for(repo, "pacman"))
+    pacman = Repository(name="r", uris=("http://a",))
+    with pytest.raises(Unsupported, match="pacman role"):
+        pacman.current(results_for(pacman, "pacman"))
     two = Repository(name="two", uris=("http://a", "http://b"))
     with pytest.raises(Unsupported):
         two.current(results_for(two, "zypper"))

@@ -3,7 +3,7 @@ bastet: role-definition
 name: apt
 version: 1.0.0
 api: 0
-description: 'apt''s own settings, written to /etc/apt/apt.conf.d/90-bastet (Debian-based hosts; aim it at [[debian]]). Unset = leave apt''s setting as it is. A curated, incomplete list of options. Repositories belong to the packages role.'
+description: 'apt''s own settings, written to /etc/apt/apt.conf.d/90-bastet (Debian-based hosts; aim it at [[debian]]). Unset = leave apt''s setting as it is. A curated, incomplete list of options. Repositories are written in apt''s own format (deb822 files in /etc/apt/sources.list.d).'
 os:
 - debian
 provides:
@@ -67,6 +67,60 @@ options:
     items:
       type: string
     key: Dpkg::Options
+  repositories:
+    type: list
+    description: 'Extra apt repositories, one /etc/apt/sources.list.d/<name>.sources file each, written before packages are installed'
+    as: entries
+    format: deb822
+    path: /etc/apt/sources.list.d/{name}.sources
+    before: packages
+    items:
+      type: object
+      fields:
+        name:
+          type: string
+          required: true
+          description: File name, letters, digits and . _ + -
+        types:
+          type: list
+          items:
+            type: string
+          key: Types
+          default:
+          - deb
+          description: deb, deb-src
+        uris:
+          type: list
+          items:
+            type: string
+          key: URIs
+          required: true
+        suites:
+          type: list
+          items:
+            type: string
+          key: Suites
+        components:
+          type: list
+          items:
+            type: string
+          key: Components
+        architectures:
+          type: list
+          items:
+            type: string
+          key: Architectures
+        enabled:
+          type: bool
+          key: Enabled
+        trusted:
+          type: bool
+          key: Trusted
+        signed_by:
+          type: string
+          as: text
+          key: Signed-By
+          description: A key file path, or the armored key text
 examples:
 - title: Go through a proxy (all Debian hosts)
   yaml: |
@@ -76,6 +130,17 @@ examples:
 - title: No recommended packages
   yaml: |
     install_recommends: false
+- title: Debian backports
+  yaml: |
+    repositories:
+      - name: backports
+        uris:
+          - http://deb.debian.org/debian
+        suites:
+          - trixie-backports
+        components:
+          - main
+        signed_by: /usr/share/keyrings/debian-archive-keyring.gpg
 files:
 - path: /etc/apt/apt.conf.d/90-bastet
   render: apt
@@ -85,7 +150,7 @@ files:
 
 # apt role
 
-apt's own settings, written to /etc/apt/apt.conf.d/90-bastet (Debian-based hosts; aim it at [[debian]]). Unset = leave apt's setting as it is. Repositories belong to the packages role.
+apt's own settings, written to /etc/apt/apt.conf.d/90-bastet (Debian-based hosts; aim it at [[debian]]). Unset = leave apt's setting as it is. Repositories are written in apt's own format (deb822 files in /etc/apt/sources.list.d).
 
 The option list is curated and incomplete: it covers the settings homelabs reach for most. The full list of apt options will be generated later.
 
