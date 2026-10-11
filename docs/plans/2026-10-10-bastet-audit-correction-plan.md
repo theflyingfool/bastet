@@ -164,3 +164,9 @@ All six are answered.
 - The proxmox role is deleted (owner decision): the apt and pacman roles own their repositories, and every future package
   manager will own its own. A new Proxmox role will be designed later (subscription-notice patch, tools, repositories as
   apt role entries). The host type `proxmox` stays.
+- A `time` role (owner decision): systemd is a building block, not a type baseline. Time zone, time sync and NTP get their own
+  role, written as data that calls the `systemd` block (time settings, units) and the `packages` and `files` blocks, not as a
+  Python builder. That needs the role contract to grow first: entries that call the `systemd` and `packages` blocks, values
+  taken from the role's options, and conditions on an option's value and on the host (container or not, Debian or Arch). The
+  proxmox type's baseline entry `systemd: {ntp_service: chrony, manage_hostname: false}` stays until the `time` role replaces
+  it. The `systemd` role keeps hostname, locale, keymap, services and drop-ins.
