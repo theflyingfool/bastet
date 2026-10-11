@@ -8,7 +8,7 @@ from bastet.roles.expr import FACT_NAMES, check_text, check_when, context, names
 
 
 def host(**kw):
-    base = dict(name="vps1", type="vps", data={"os": "Arch Linux", "cpu": "AuthenticAMD"}, root=Path("/x"), lab={"domain": "example.net"})
+    base = dict(name="vps1", type="vps", data={"os": "Arch Linux", "cpu": "AuthenticAMD"}, root=Path("/x"), lab={"domain": "example.com"})
     return HostInfo(**{**base, **kw})
 
 
@@ -44,7 +44,7 @@ def test_host_facts():
     assert truthy("host.arch_like", c) is True and truthy("host.debian_like", c) is False
     assert truthy("host.container", c) is False and truthy("host.physical", c) is False
     assert resolve("{{ host.cpu }}", c) == "AuthenticAMD"
-    assert resolve("{{ lab.domain }}", c) == "example.net"
+    assert resolve("{{ lab.domain }}", c) == "example.com"
 
 
 def test_truthy_none_means_no_condition_and_bare_option_names_work():
@@ -93,4 +93,21 @@ def test_evaluation_errors_are_bastet_errors():
     with pytest.raises(BastetError):
         resolve("{{ host.nope }}", ctx())
     with pytest.raises(BastetError):
+        resolve("{{ 1 / 0 }}", ctx())
+
+
+def test_an_unset_option_inside_text_is_an_error_not_the_word_none():
+    with pytest.raises(BastetError, match="tz.*unset.*zone="):
+        resolve("zone={{ tz }}\n", ctx())
+    with pytest.raises(BastetError, match="unset"):
+        resolve("{{ tz }}-tools", ctx())
+    assert resolve("zone={{ tz }}\n", ctx({"tz": "UTC"})) == "zone=UTC\n"
+    assert resolve("{% if tz %}zone={{ tz }}{% endif %}", ctx()) == ""
+
+
+def test_evaluation_errors_name_the_expression_and_the_error_type_not_the_values():
+    with pytest.raises(BastetError) as raised:
+        resolve("{{ lab[pw] }}", ctx({"pw": "hunter2-example"}, options=("pw",)))
+    assert "lab[pw]" in str(raised.value) and "hunter2-example" not in str(raised.value)
+    with pytest.raises(BastetError, match="ZeroDivisionError"):
         resolve("{{ 1 / 0 }}", ctx())

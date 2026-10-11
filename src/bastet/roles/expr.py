@@ -5,14 +5,14 @@ from __future__ import annotations
 import re
 from types import SimpleNamespace
 
-from jinja2 import StrictUndefined, TemplateError, Undefined, meta
-from jinja2.sandbox import SandboxedEnvironment
+from jinja2 import TemplateError, Undefined, UndefinedError, meta
 
 from bastet.core.errors import BastetError
 from bastet.core.osinfo import ARCH_LIKE
+from bastet.engine.templates import UnsetInText, environment
 
 FACT_NAMES = ("host", "lab")
-_ENV = SandboxedEnvironment(undefined=StrictUndefined, keep_trailing_newline=True, autoescape=False)
+_ENV = environment(sandbox=True)
 _WHOLE = re.compile(r"^\s*\{\{(?P<expr>(?:(?!\}\}).)+)\}\}\s*$", re.DOTALL)
 
 
@@ -45,6 +45,13 @@ def check_when(text: str, allowed: set[str], where: str) -> None:
         raise BastetError(f"{where}: when names no option: {', '.join(bad)}")
 
 
+def _reason(exc: Exception) -> str:
+    """Why an expression failed. Syntax and sandbox errors are fixed text; others could quote a value, so give the type."""
+    if isinstance(exc, TemplateError) and not isinstance(exc, UndefinedError):
+        return str(exc)
+    return f"{type(exc).__name__} (a name or attribute that doesn't exist, or a bad operation)"
+
+
 def _expression(text: str, ctx: dict) -> object:
     try:
         result = _ENV.compile_expression(text.strip(), undefined_to_none=False)(**ctx)
@@ -52,7 +59,7 @@ def _expression(text: str, ctx: dict) -> object:
             result._fail_with_undefined_error()
         return result
     except Exception as exc:  # TemplateError (incl. SecurityError, UndefinedError) and runtime errors like 1 / 0
-        raise BastetError(f"{{{{ {text.strip()} }}}}: {exc}") from None
+        raise BastetError(f"{{{{ {text.strip()} }}}}: {_reason(exc)}") from None
 
 
 def resolve(value: object, ctx: dict) -> object:
@@ -64,8 +71,12 @@ def resolve(value: object, ctx: dict) -> object:
             return _expression(m.group("expr"), ctx)
         try:
             return _ENV.from_string(value).render(**ctx)
+        except UnsetInText:
+            unset = ", ".join(f"`{n}`" for n in sorted(names_in(value)) if ctx.get(n) is None and n not in FACT_NAMES)
+            raise BastetError(f"{unset or 'an option'} is unset (in {value[:40]!r}); "
+                              "write the optional part as {% if option %}...{% endif %}") from None
         except Exception as exc:
-            raise BastetError(f"{value[:40]!r}: {exc}") from None
+            raise BastetError(f"{value[:40]!r}: {_reason(exc)}") from None
     if isinstance(value, list):
         return [resolve(v, ctx) for v in value]
     if isinstance(value, dict):
