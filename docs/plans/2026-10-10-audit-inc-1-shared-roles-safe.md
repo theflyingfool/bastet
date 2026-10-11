@@ -596,7 +596,29 @@ Add to `tests/roles/test_apt_role.py`: with `modernize_sources` false or unset t
 
 ---
 
-### Task 7: Docs and the checkpoint
+### Task 7: A `time` role; systemd stays a building block
+
+**Decision (owner):** systemd is a building block, so it is not a type baseline. Time, time zone and NTP get their own role, `time`, and types that want a clock setup apply that.
+
+**Files:**
+- Create: `src/bastet/data/roles/time/role.yml`
+- Modify: `src/bastet/roles/builtin.py` (`_systemd` loses the NTP and time-settings part; new `_time` builder holding exactly that code; `ORDER` gets `"time"` just before `"systemd"`; `BUILDERS` gets `"time"`), `src/bastet/data/roles/systemd/role.yml` (remove `timezone`, `ntp`, `ntp_service`, `ntp_servers`, `fallback_ntp_servers`, `rtc_local` and the time example; fix the description), `src/bastet/data/types/proxmox.yml` (the baseline entry `systemd: {ntp_service: chrony, manage_hostname: false}` becomes `time: {ntp_service: chrony}`; the type no longer applies the `systemd` role, which also means it no longer manages the hostname, as `manage_hostname: false` already said), `docs/ROADMAP.md` (roles table: add a `time` row), `docs/roles.md` (regenerate), user docs that describe the time options under the systemd role (`grep -rn "ntp_service\|timezone" src/bastet/data/docs docs/*.md`)
+- Tests: move every NTP, time-zone and rtc test from `tests/roles/test_system_roles.py` to the `time` role (new file `tests/roles/test_time_role.py`; keep the cases and their expected resources, change only the role name and the error-message prefix `systemd.` to `time.`); fix `tests/roles/test_resolve.py` and `tests/roles/test_resolved_table.py` (the proxmox type baseline now carries `time`); add: the `systemd` role no longer accepts the time options (unknown-option error), and the proxmox type's baseline contains `time` and not `systemd`
+
+**Behaviour:**
+- `time` options are the same names, types, defaults, choices and descriptions the `systemd` role has today for `timezone`, `ntp`, `ntp_service`, `ntp_servers`, `fallback_ntp_servers`, `rtc_local`. The `_time` builder produces exactly the resources `_systemd` produced for them today (the packages, the config file or block, the units, `TimeSettings`), including the container and distro rules and the NTP error messages with the prefix `time.`.
+- Implemented with the existing Python builder for now: a Markdown `time` role needs role-file entries for packages and units and an option-driven `when`, which the contract does not have yet. Moving it to Markdown later is a separate step.
+- `systemd` keeps hostname, locale, keymap, services and drop-ins. Nothing else about it changes.
+- A host note or lab note that still gives the time options to the `systemd` role gets the normal unknown-option error with its "did you mean" hint (the hint will point at the `time` role if the contract suggests roles; otherwise say so in the commit message).
+
+- [ ] **Step 1: Write the failing tests** (the new `tests/roles/test_time_role.py` with the moved cases, the systemd-rejects-time-options test, the proxmox type baseline test).
+- [ ] **Step 2: Run to see them fail.** `uv run pytest tests/roles/test_time_role.py tests/roles/test_resolve.py -q`.
+- [ ] **Step 3: Implement.** Do not change any resource class or the proxmox host type beyond its baseline entry.
+- [ ] **Step 4: Run** `uv run pytest tests/roles tests/engine tests/core tests/cli -q`, regenerate `docs/roles.md` with `scripts/gen_roles_doc.py`, run `scripts/privacy-check`. **Step 5: Commit** (`time: a role for time, time zone and NTP; systemd is not a baseline`).
+
+---
+
+### Task 8: Docs and the checkpoint
 
 **Files:** `docs/specs/2026-10-10-bastet-roles-architecture-design.md`, `docs/ROADMAP.md`, `docs/plans/2026-10-10-bastet-audit-correction-plan.md`, `src/bastet/data/docs/writing_roles.md`.
 
