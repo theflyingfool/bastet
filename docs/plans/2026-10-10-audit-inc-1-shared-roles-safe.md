@@ -433,20 +433,6 @@ def test_pacman_repositories_keep_their_own_format_options():
     assert repo.parts("pacman")[0].block.startswith("[custom]\nServer = https://example.net/$repo/os/$arch")
 
 
-@pytest.mark.parametrize("role_name, host_kind", [("apt", "debian"), ("pacman", "arch")])
-def test_everything_the_manager_role_makes_runs_before_installs(role_name, host_kind):
-    from bastet.engine.packages import Package
-    from bastet.engine.slots import apply_order
-
-    host = debian_host() if host_kind == "debian" else arch_host()
-    repo = {"name": "extra-repo", "uris": ["http://x.example.net/"]}
-    # batches_for with the manager role (with a setting and a repository) and a packages role installing "tree";
-    # collect_items(batches) then apply_order(...) gives the run order of every resource
-    order = [type(i.resource).__name__ for i in run_order(role_name, {"repositories": [repo], **a_setting(role_name)}, host, install=["tree"])]
-    assert order.index("Repository") < order.index("Package")
-    assert order.index(settings_class(role_name)) < order.index("Package")
-
-
 def test_no_repositories_means_no_repository_resources():
     assert not [r for r in built("apt", {}, debian_host()) if isinstance(r, Repository)]
 
@@ -469,7 +455,7 @@ def test_as_repositories_needs_a_list_of_objects(tmp_path):
         bad_role(tmp_path, {"type": "string", "as": "repositories", "key": "X"})
 ```
 
-(`run_order`, `a_setting` and `settings_class` are small helpers in the test file: `a_setting("apt")` is `{"install_recommends": False}` (class `File`), `a_setting("pacman")` is `{"parallel_downloads": 8}` (class `Settings`); `bad_role` writes a role with that one option the way the other role tests do; `fedora_host` is a `HostInfo` whose `os` is not Arch- or Debian-like.)
+(`bad_role` writes a role with that one option the way the other role tests do; `fedora_host` is a `HostInfo` whose `os` is not Arch- or Debian-like.)
 
 - [ ] **Step 2: Run to see them fail.** `uv run pytest tests/roles/test_repositories_option.py -q`.
 - [ ] **Step 3: Implement** as described under Behaviour. Update the existing tests that gave `repositories` to the `packages` role on Debian or Arch hosts (find them in `tests/roles/test_builtin.py` and `tests/roles/test_system_roles.py`): move those cases to the `apt` or `pacman` role, or switch the host to a Fedora-like one if the case is really about the `packages` role itself. Say which tests changed in your report.
