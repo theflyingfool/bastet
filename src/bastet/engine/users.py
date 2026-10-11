@@ -4,9 +4,10 @@ import base64
 import datetime as dt
 import re
 import shlex
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import ClassVar
 
+from bastet.core.errors import BastetError
 from bastet.core.shell import ProbeResult
 from bastet.engine import passwords
 from bastet.engine.files import FILE_TAIL, File, _parse_file
@@ -44,8 +45,8 @@ class User(Resource):
     move_home: bool = False
     shell: str | None = None
     system: bool = False
-    password_hash: str | None = None
-    password: str | None = None
+    password_hash: str | None = field(default=None, repr=False)  # never in a repr, a traceback or a test message
+    password: str | None = field(default=None, repr=False)
     update_password: str = "always"
     locked: bool | None = None
     expires: str | None = None
@@ -129,15 +130,23 @@ class User(Resource):
                 if set(want) != set(have):
                     changes.append(FieldChange("groups", _joined(have), _joined(want)))
             elif k == "password":
-                same = passwords.matches(self.password, str(have)) if self.password is not None else have == v
-                if not same and self.update_password == "always":
+                if self.update_password != "always":  # nothing will be written, so don't spend a verification on it
+                    continue
+                try:
+                    same = passwords.matches(self.password, str(have)) if self.password is not None else have == v
+                except BastetError as e:  # libcrypt trouble: skip this user with the message, not the whole host
+                    raise Unsupported(e.message) from None
+                if not same:
                     changes.append(FieldChange("password", "(hidden)", "(new)"))
             elif have != v:
                 changes.append(FieldChange(k, have, v))
         return changes
 
     def _password_cmd(self, scheme: str = "sha512") -> str:
-        hashed = self.password_hash if self.password is None else passwords.hash(self.password, scheme)
+        try:
+            hashed = self.password_hash if self.password is None else passwords.hash(self.password, scheme)
+        except BastetError as e:
+            raise Unsupported(e.message) from None
         return f"printf '%s:%s\\n' {_q(self.name)} {_q(str(hashed))} | chpasswd -e"
 
     def fix(self, changes, current):
@@ -323,7 +332,7 @@ class UnaccountedUsers(Resource):
         return []
 
 
-SUDOERS_NAME =re.compile(r"^[A-Za-z0-9_-]+$")
+SUDOERS_NAME = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 @dataclass(frozen=True, kw_only=True)

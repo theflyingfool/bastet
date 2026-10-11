@@ -2,7 +2,7 @@ import pytest
 
 from bastet.core.errors import Unreachable
 from bastet.core.remote import LocalRunner
-from bastet.engine.model import Trigger
+from bastet.engine.model import Trigger, Unsupported
 from bastet.engine.run import Batch, ConflictError, run_host
 from engine_fakes import Append, Broken, DeniedRunner, ExplodingRunner, Flag, NoSystemd, Stubborn, UnreadableReportOnly
 
@@ -115,6 +115,18 @@ def test_unsupported_is_skipped(tmp_path):
     [item] = run.items
     assert (item.status, item.error) == ("skipped", "no systemd on this host")
     assert not (tmp_path / "a").exists()
+
+
+def test_unsupported_while_fixing_skips_only_that_item(tmp_path):
+    class CantMake(Flag):
+        def fix(self, changes, current):
+            raise Unsupported("this machine can't make it")
+
+    bad, good = str(tmp_path / "bad"), str(tmp_path / "good")
+    run = run_host(LocalRunner(), "h", [Batch("one", [CantMake(path=bad, value="1"), Flag(path=good, value="2")])], apply=True)
+    s = statuses(run)
+    assert s[bad] == ("skipped", "this machine can't make it")
+    assert s[good][0] == "changed" and (tmp_path / "good").read_text() == "2" and not (tmp_path / "bad").exists()
 
 
 def test_same_file_edits_see_each_other(tmp_path):

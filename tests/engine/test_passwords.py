@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import pytest
 
 from bastet.core.errors import BastetError
@@ -59,7 +61,24 @@ def test_without_the_library_the_error_says_what_to_install(monkeypatch):
     def broken():
         raise OSError("no libcrypt")
 
+    passwords._library.cache_clear()
     monkeypatch.setattr(passwords, "_load", broken)
     for call in (lambda: passwords.hash("pw"), lambda: passwords.matches("pw", SPEC_VECTOR)):
         with pytest.raises(BastetError, match="needs libcrypt"):
             call()
+
+
+def test_the_library_is_loaded_once(monkeypatch):
+    calls = []
+    passwords._library.cache_clear()
+    monkeypatch.setattr(passwords, "_load", lambda: calls.append(1) or object())
+    first, second = passwords._library(), passwords._library()
+    passwords._library.cache_clear()
+    assert first is second and len(calls) == 1
+
+
+def test_a_library_that_cannot_make_yescrypt_says_so_instead_of_asking_to_install_libcrypt():
+    old_libcrypt = SimpleNamespace()  # no crypt_gensalt_rn
+    with pytest.raises(BastetError, match="can't make yescrypt hashes.*libxcrypt"):
+        passwords.new_setting(old_libcrypt, "yescrypt")
+    assert passwords.new_setting(old_libcrypt, "sha512").startswith("$6$")

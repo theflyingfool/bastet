@@ -263,14 +263,20 @@ def run_host(
                     continue
             group = [item]
             key = item.resource.group_key()
-            if key is not None:
-                while (i < len(sequence) and sequence[i].status == "would-change"
-                       and sequence[i].resource.group_key() == key):
-                    group.append(sequence[i])
-                    i += 1
-                commands = type(item.resource).fix_group([(g.resource, g.changes, g.current) for g in group])
-            else:
-                commands = item.resource.fix(item.changes, item.current)
+            try:
+                if key is not None:
+                    while (i < len(sequence) and sequence[i].status == "would-change"
+                           and sequence[i].resource.group_key() == key):
+                        group.append(sequence[i])
+                        i += 1
+                    commands = type(item.resource).fix_group([(g.resource, g.changes, g.current) for g in group])
+                else:
+                    commands = item.resource.fix(item.changes, item.current)
+            except Unsupported as e:  # this resource can't be made on this machine; the rest of the run goes on
+                for g in group:
+                    g.status, g.error = "skipped", str(e)
+                    _item_event(host, g, "apply")
+                continue
             ok, error = _exec(runner, commands, any(g.resource.root for g in group), fix_timeout,
                               host=host, phase="apply", hidden=any(g.resource.secret for g in group))
             if not ok:

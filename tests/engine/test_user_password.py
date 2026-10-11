@@ -1,8 +1,9 @@
 import pytest
 
+from bastet.core.errors import BastetError
 from bastet.core.shell import ProbeResult
 from bastet.engine import passwords
-from bastet.engine.model import FieldChange
+from bastet.engine.model import FieldChange, Unsupported
 from bastet.engine.users import User
 
 PLAIN = "not-a-real-password"
@@ -68,3 +69,32 @@ def test_a_missing_account_still_reads_the_scheme():
     cur = u.current(results)
     assert cur["scheme"] == "yescrypt"
     assert any("$y$" in c for c in u.fix(u.compare(cur), cur))
+
+
+def test_the_plain_text_and_the_hash_stay_out_of_repr():
+    u = User(name="alice", password=PLAIN)
+    h = User(name="alice", password_hash="$6$salt$examplehash")
+    assert PLAIN not in repr(u) and "examplehash" not in repr(h)
+
+
+def test_a_libcrypt_failure_skips_only_that_user(monkeypatch):
+    def broken(*args, **kwargs):
+        raise BastetError("hashing a plain-text password needs libcrypt")
+
+    u = User(name="alice", password=PLAIN)
+    cur = u.current(state("$6$salt$hash"))
+    monkeypatch.setattr(passwords, "matches", broken)
+    with pytest.raises(Unsupported, match="needs libcrypt"):
+        u.compare(cur)
+    monkeypatch.setattr(passwords, "hash", broken)
+    with pytest.raises(Unsupported, match="needs libcrypt"):
+        u.fix([FieldChange("password", "(hidden)", "(new)")], {"exists": False})
+
+
+def test_on_create_does_not_verify_the_password_of_an_existing_account(monkeypatch):
+    def forbidden(*args, **kwargs):
+        raise AssertionError("verified a password nobody will use")
+
+    monkeypatch.setattr(passwords, "matches", forbidden)
+    u = User(name="alice", password=PLAIN, update_password="on_create")
+    assert u.compare(u.current(state("$6$salt$hash"))) == []

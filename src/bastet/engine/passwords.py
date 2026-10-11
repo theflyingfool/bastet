@@ -2,6 +2,7 @@
 
 import ctypes
 import ctypes.util
+import functools
 import os
 import re
 import secrets
@@ -28,6 +29,7 @@ def _load():
     return lib
 
 
+@functools.lru_cache(maxsize=1)  # loaded once per process; a failure is not cached, so the next call tries again
 def _library():
     try:
         return _load()
@@ -36,7 +38,7 @@ def _library():
 
 
 def _crypt(lib, password: str, setting: str) -> str | None:
-    data = ctypes.create_string_buffer(1 << 17)  # one per call: crypt_r is thread-safe with its own data
+    data = ctypes.create_string_buffer(1 << 18)  # 256 KiB covers glibc's and libxcrypt's crypt_data; one per call: crypt_r is thread-safe with its own data
     out = lib.crypt_r(password.encode("utf-8"), setting.encode("utf-8"), data)
     text = out.decode("utf-8") if out else None
     return None if text is None or text.startswith("*") else text
@@ -50,7 +52,8 @@ def new_setting(lib, scheme: str) -> str:
         if made and not made.startswith(b"*"):
             return made.decode()
     if scheme != "sha512":
-        raise BastetError(_MISSING)
+        raise BastetError(f"this machine's libcrypt can't make {scheme} hashes; install libxcrypt here, "
+                          "or give password_hash instead")
     return prefix + "".join(secrets.choice(_ALPHABET) for _ in range(16))
 
 
