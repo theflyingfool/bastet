@@ -20,7 +20,7 @@ def test_current_user():
     c = User(name="alice").current(user_state())
     assert c == {"exists": True, "uid": "1000", "group": "alice", "groups": ("media", "wheel"), "comment": "Alice",
                  "home": "/home/alice", "shell": "/bin/bash", "password": HASH, "locked": False, "expires": "never",
-                 "min_days": "0", "max_days": "99999", "warn_days": "7", "inactive_days": "(absent)"}
+                 "scheme": "sha512", "min_days": "0", "max_days": "99999", "warn_days": "7", "inactive_days": "(absent)"}
     locked = User(name="alice").current(user_state(shadow=f"alice:!{HASH}:19000:0:99999:7::20089:"))
     assert locked["locked"] is True and locked["password"] == HASH and locked["expires"] == "2025-01-01"
 

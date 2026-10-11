@@ -652,7 +652,7 @@ groups:
 | users.<name>.shell | string |  |  |
 | users.<name>.system | bool |  |  |
 | users.<name>.password_hash | string |  | crypt hash, e.g. from mkpasswd -m sha-512 |
-| users.<name>.password | string |  | Plain-text password; Bastet hashes it (SHA-512) with openssl on the machine running Bastet. Set it with a secret: reference, never write it in the note |
+| users.<name>.password | string |  | Plain-text password; Bastet hashes it in the host's own scheme (yescrypt where the host defaults to it, otherwise SHA-512) on the machine running Bastet. Set it with a secret: reference, never write it in the note |
 | users.<name>.update_password | string |  |  (one of always, on_create) |
 | users.<name>.locked | bool |  |  |
 | users.<name>.expires | string |  | YYYY-MM-DD or never |

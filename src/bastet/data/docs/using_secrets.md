@@ -16,8 +16,9 @@ memory when it runs.
 Bastet's own key, and a recovery key whose private half is shown once and kept offline, never
 written to disk.
 
-Passwords: the secret holds the plain text; Bastet hashes it (SHA-512) with `openssl` on the machine
-running Bastet, so that machine needs `openssl` and the managed hosts need nothing extra.
+Passwords: the secret holds the plain text; Bastet hashes it in the host's own scheme (yescrypt or SHA-512)
+on the machine running Bastet. That machine needs libcrypt (libxcrypt), normally always present on Linux;
+the managed hosts need nothing extra.
 
 ## Recovering a value by hand
 

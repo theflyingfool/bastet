@@ -90,14 +90,16 @@ class User(Resource):
             Read("groups", f"printf '%s|%s' \"$(id -gn {n} 2>/dev/null)\" \"$(id -Gn {n} 2>/dev/null)\""),
             Read("shadow", f"getent shadow {n} || true", root=True),
             Read("tools", "command -v useradd || true", root=True),
+            Read("login_defs", "grep -E '^[[:space:]]*ENCRYPT_METHOD' /etc/login.defs 2>/dev/null || true"),
         )
 
     def current(self, results):
         if not results["tools"].output.strip():
             raise Unsupported("no useradd on this host (on Alpine, install the shadow package)")
+        scheme = passwords.scheme_for(results["login_defs"].output) if "login_defs" in results else "sha512"
         pw = results["passwd"].output.strip()
         if not pw:
-            return {"exists": False}
+            return {"exists": False, "scheme": scheme}
         fields = pw.split(":")
         if len(fields) < 7:
             raise ReadError(f"unexpected passwd entry for {self.name}")
@@ -109,7 +111,7 @@ class User(Resource):
         ageing = {"min_days": shadow[3], "max_days": shadow[4], "warn_days": shadow[5], "inactive_days": shadow[6]}
         return {"exists": True, "uid": fields[2], "group": primary, "groups": groups, "comment": fields[4],
                 "home": fields[5], "shell": fields[6], "password": hashed.lstrip("!"), "locked": hashed.startswith("!"),
-                "expires": expires, **{k: v or ABSENT for k, v in ageing.items()}}
+                "expires": expires, "scheme": scheme, **{k: v or ABSENT for k, v in ageing.items()}}
 
     def compare(self, current):
         if not current.get("exists"):
@@ -134,8 +136,8 @@ class User(Resource):
                 changes.append(FieldChange(k, have, v))
         return changes
 
-    def _password_cmd(self) -> str:
-        hashed = self.password_hash if self.password is None else passwords.hash(self.password, passwords.new_salt())
+    def _password_cmd(self, scheme: str = "sha512") -> str:
+        hashed = self.password_hash if self.password is None else passwords.hash(self.password, scheme)
         return f"printf '%s:%s\\n' {_q(self.name)} {_q(str(hashed))} | chpasswd -e"
 
     def fix(self, changes, current):
@@ -188,7 +190,7 @@ class User(Resource):
         if ageing:
             cmds.append(" ".join(["chage"] + [f"{flag} {self._ageing()[k]}" for flag, k in ageing] + [n]))
         if "password" in fields and (self.password_hash is not None or self.password is not None):
-            cmds.append(self._password_cmd())
+            cmds.append(self._password_cmd(current.get("scheme", "sha512")))
         if "locked" in fields:
             cmds.append(f"usermod {'-L' if self.locked else '-U'} {n}")
         elif "password" in fields and (self.locked is True or (self.locked is None and current.get("locked") is True)):
