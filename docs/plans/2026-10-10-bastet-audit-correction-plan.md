@@ -158,6 +158,6 @@ All six are answered.
 - Open design question (owner's view, not decided): repositories may belong to the package manager's own role rather than
   the cross-distro `packages` block, since a repository is manager-specific data and the manager roles are already aimed
   per distro. That would give `pacman.conf` a single owning role and move the `repositories` option from the `packages`
-  role to the manager roles (the `Repository` resource stays a block). Needs its own design: option shape, key handling
+  role to the manager roles. Needs its own design: option shape, key handling
   for third-party repositories, migration of existing host notes. Decide with the `packages` role conversion or after
   increment 2 (overlap detection).
