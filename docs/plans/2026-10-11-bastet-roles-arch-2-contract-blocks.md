@@ -78,7 +78,7 @@ commands:                          # existing
 | Modify `src/bastet/roles/contract.py` | New frontmatter keys; `RoleDef` fields; `when:` through `expr`; `files` entry kinds in `_file_entry` |
 | Modify `src/bastet/roles/declarative.py` | `build()` calls `entries.build_entries` and filters every entry through `when:` |
 | Tests (all new): `tests/roles/test_role_expressions.py`, `test_role_package_entries.py`, `test_role_systemd_entries.py`, `test_role_users_entries.py`, `test_role_files_entries.py`, `test_role_contract_end_to_end.py` | One file per task |
-| Create `src/bastet/engine/sha512crypt.py`; tests `tests/engine/test_sha512crypt.py`, `tests/engine/test_user_password.py`; modify `src/bastet/engine/users.py` | Task 3b: plain-text passwords |
+| Create `src/bastet/engine/passwords.py`; tests `tests/engine/test_passwords.py`, `tests/engine/test_user_password.py`; modify `src/bastet/engine/users.py` | Task 3b: plain-text passwords |
 | Create `tests/roles/test_unaccounted_users.py`; modify `src/bastet/engine/users.py`, `src/bastet/roles/builtin.py`, `src/bastet/data/roles/users/role.yml` | Task 6: the unaccounted-users report |
 | Modify `src/bastet/data/roles/files/role.yml`, `docs/specs/2026-10-10-bastet-roles-architecture-design.md`, `docs/ROADMAP.md` | Docs (Task 7) |
 
@@ -738,60 +738,90 @@ git commit -m "roles: systemd: entries (unit, time, hostname, locale, dropin)"
 ### Task 3b: Plain-text passwords in the users block
 
 **Files:**
-- Create: `src/bastet/engine/sha512crypt.py`
+- Create: `src/bastet/engine/passwords.py`
 - Modify: `src/bastet/engine/users.py` (`User`), `src/bastet/data/roles/users/role.yml` (`users.<name>.password`); `src/bastet/roles/builtin.py` needs nothing if `_kw` already passes fields through (confirm)
-- Test: `tests/engine/test_sha512crypt.py`, `tests/engine/test_user_password.py` (look at the existing `tests/engine` files for the pattern; basenames must stay unique across `tests/`)
+- Test: `tests/engine/test_passwords.py`, `tests/engine/test_user_password.py` (look at the existing `tests/engine` files for the pattern; basenames must stay unique across `tests/`)
 
-**Why:** a secret note holds the password in plain text when unlocked; Bastet makes the hash. Python 3.13+ has no `crypt` module and the project has no hashing dependency, so SHA-512 crypt is implemented here (about 50 lines of `hashlib`).
+**Why:** a secret note holds the password in plain text when unlocked; Bastet makes the hash on the machine running it and sends only the hash to the host (`chpasswd -e` takes any standard crypt hash). The hashing is done by `openssl passwd -6` on the controller, so no hashing code lives in Bastet. Requirement to document: the machine running Bastet needs `openssl`; the managed hosts need nothing extra. Bastet always writes SHA-512 (`$6$`) hashes, whatever a host's own default is (Debian's newer default is yescrypt): an existing yescrypt hash reads as one change and is replaced.
 
 **Interfaces:**
-- Produces:
-  - `sha512crypt.hash(password: str, salt: str, rounds: int = 5000) -> str` — returns `$6$<salt>$<86 chars>` (`$6$rounds=N$<salt>$…` only when `rounds != 5000`); the salt is cut to 16 characters.
-  - `sha512crypt.new_salt() -> str` — 16 random characters from `./0-9A-Za-z` (`secrets.choice`).
-  - `sha512crypt.matches(password: str, stored: str) -> bool` — re-hashes `password` with `stored`'s own salt and rounds; false for anything that is not a `$6$` hash (empty, `!`, `*`, other schemes).
+- Produces (`engine/passwords.py`):
+  - `hash(password: str, salt: str) -> str` — runs `openssl passwd -6 -salt <salt> -stdin` with the password on stdin (never on a command line) and returns `$6$<salt>$<86 chars>`; the salt is cut to 16 characters. A password containing a line break raises `BastetError("a password can't contain a line break")`. Without `openssl` on the PATH (`shutil.which`) it raises `BastetError("hashing a plain-text password needs openssl on the machine running Bastet; install it, or give password_hash instead")`. An `openssl` failure raises `BastetError` with its first output line.
+  - `new_salt() -> str` — 16 random characters from `./0-9A-Za-z` (`secrets.choice`).
+  - `matches(password: str, stored: str) -> bool` — for a stored `$6$<salt>$<tail>` hash (exactly four `$`-separated parts) re-hashes `password` with its salt and compares with `secrets.compare_digest`; false for anything else (empty, `!`, `*`, other schemes, `$6$rounds=…`, which is replaced once by a default-rounds hash).
   - `User.password: str | None = None` (plain text, new field). `password` together with `password_hash` raises `ValueError("give password or password_hash, not both")` in `__post_init__`.
-- Behaviour: `compare()` treats the account as correct when `sha512crypt.matches(self.password, current["password"])` (the hash `current()` reads from `/etc/shadow`); otherwise it reports `FieldChange("password", "(hidden)", "(new)")`, as for `password_hash` today. `update_password: on_create` leaves an existing account's password alone. `fix()` sets it with the existing `_password_cmd` using a fresh `sha512crypt.hash(self.password, sha512crypt.new_salt())`, so the plain text never reaches a command line, shell history or log.
+- Behaviour: `compare()` treats the account as correct when `passwords.matches(self.password, current["password"])` (the hash `current()` reads from `/etc/shadow`); otherwise it reports `FieldChange("password", "(hidden)", "(new)")`, as for `password_hash` today. `update_password: on_create` leaves an existing account's password alone. `fix()` sets it with the existing `_password_cmd` using a fresh `passwords.hash(self.password, passwords.new_salt())`, so the plain text never reaches the host.
 
 - [ ] **Step 1: Write the failing tests**
 
-`tests/engine/test_sha512crypt.py`:
+`tests/engine/test_passwords.py` (tests that need the binary are skipped when it is missing; the missing-binary test does not need it):
 
 ```python
+import shutil
+
 import pytest
 
-from bastet.engine import sha512crypt
+from bastet.core.errors import BastetError
+from bastet.engine import passwords
+
+needs_openssl = pytest.mark.skipif(shutil.which("openssl") is None, reason="openssl not installed")
 
 
+@needs_openssl
 def test_known_vector_from_the_sha_crypt_specification():
-    assert sha512crypt.hash("Hello world!", "saltstring") == (
+    assert passwords.hash("Hello world!", "saltstring") == (
         "$6$saltstring$svn8UoSVapNtMuq1ukKS4tPQd8iKwSMHWjl/O817G3uBnIFNjnQJuesI68u4OTLiBFdcbYEdFCoEOfaS35inz1")
 
 
-def test_rounds_are_written_when_not_the_default():
-    assert sha512crypt.hash("Hello world!", "saltstring", rounds=10000).startswith("$6$rounds=10000$saltstring$")
-
-
+@needs_openssl
 def test_a_long_salt_is_cut_to_16_characters():
-    assert sha512crypt.hash("x", "a" * 40).startswith("$6$" + "a" * 16 + "$")
+    assert passwords.hash("x", "a" * 40).startswith("$6$" + "a" * 16 + "$")
 
 
-def test_matches_uses_the_stored_salt_and_rounds():
-    stored = sha512crypt.hash("correct horse", sha512crypt.new_salt())
-    assert sha512crypt.matches("correct horse", stored) and not sha512crypt.matches("wrong", stored)
-    assert sha512crypt.matches("pw", sha512crypt.hash("pw", "abc", rounds=6000))
+@needs_openssl
+def test_matches_uses_the_stored_salt():
+    stored = passwords.hash("correct horse", passwords.new_salt())
+    assert passwords.matches("correct horse", stored) and not passwords.matches("wrong", stored)
 
 
-@pytest.mark.parametrize("stored", ["", "!", "*", "x", "$1$abc$def", "$6$", "$6$salt"])
-def test_matches_is_false_for_anything_that_is_not_a_sha512_hash(stored):
-    assert sha512crypt.matches("pw", stored) is False
+@pytest.mark.parametrize("stored", ["", "!", "*", "x", "$1$abc$def", "$6$", "$6$salt", "$6$rounds=6000$abc$def", "$y$j9T$salt$hash"])
+def test_matches_is_false_for_anything_that_is_not_a_plain_sha512_hash(stored):
+    assert passwords.matches("pw", stored) is False
 
 
 def test_new_salt_is_16_valid_characters_and_varies():
-    a, b = sha512crypt.new_salt(), sha512crypt.new_salt()
+    a, b = passwords.new_salt(), passwords.new_salt()
     assert len(a) == 16 and a != b and set(a) <= set("./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")
+
+
+def test_a_password_with_a_line_break_is_refused():
+    with pytest.raises(BastetError, match="can't contain a line break"):
+        passwords.hash("a\nb", "salt")
+
+
+def test_without_openssl_the_error_says_what_to_install(monkeypatch):
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    with pytest.raises(BastetError, match="needs openssl on the machine running Bastet"):
+        passwords.hash("pw", "salt")
+
+
+@needs_openssl
+def test_the_password_goes_to_openssl_on_stdin_never_the_command_line(monkeypatch):
+    import subprocess
+
+    seen = {}
+    real = subprocess.run
+
+    def spy(cmd, **kw):
+        seen["cmd"], seen["input"] = cmd, kw.get("input")
+        return real(cmd, **kw)
+
+    monkeypatch.setattr(subprocess, "run", spy)
+    passwords.hash("s3cret-value", "abc")
+    assert "s3cret-value" not in " ".join(seen["cmd"]) and "s3cret-value" in seen["input"]
 ```
 
-`tests/engine/test_user_password.py`: copy the construction pattern of the existing `User` tests under `tests/engine/` and assert:
+`tests/engine/test_user_password.py`: copy the construction pattern of the existing `User` tests under `tests/engine/` and assert (use the `needs_openssl` mark for tests that hash):
 1. `User(name="root", password="a", password_hash="$6$s$h")` raises `ValueError` matching `password or password_hash, not both`.
 2. `compare` gives no password change when the current hash was made from the same plain text with any salt, and `FieldChange("password", "(hidden)", "(new)")` when it was made from other text or the current hash is `""`, `!` or `*`.
 3. With `update_password="on_create"` an existing account with a different hash gives no change.
@@ -800,84 +830,50 @@ def test_new_salt_is_16_valid_characters_and_varies():
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `uv run pytest tests/engine/test_sha512crypt.py tests/engine/test_user_password.py -q`
+Run: `uv run pytest tests/engine/test_passwords.py tests/engine/test_user_password.py -q`
 Expected: FAIL (module missing).
 
-- [ ] **Step 3: Implement `src/bastet/engine/sha512crypt.py`** (Drepper's "Unix crypt using SHA-256 and SHA-512", the SHA-512 variant):
+- [ ] **Step 3: Implement `src/bastet/engine/passwords.py`**
 
 ```python
-"""SHA-512 crypt ($6$), implemented here because Python 3.13 dropped `crypt` and Bastet takes no hashing dependency."""
+"""Password hashes for the users block: SHA-512 crypt made by `openssl passwd` on the machine running Bastet."""
 
-import hashlib
 import secrets
+import shutil
+import subprocess
+
+from bastet.core.errors import BastetError
 
 _ALPHABET = "./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
-_ORDER = ((0, 21, 42), (22, 43, 1), (44, 2, 23), (3, 24, 45), (25, 46, 4), (47, 5, 26), (6, 27, 48), (28, 49, 7),
-          (50, 8, 29), (9, 30, 51), (31, 52, 10), (53, 11, 32), (12, 33, 54), (34, 55, 13), (56, 14, 35), (15, 36, 57),
-          (37, 58, 16), (59, 17, 38), (18, 39, 60), (40, 61, 19), (62, 20, 41))
 
 
 def new_salt() -> str:
     return "".join(secrets.choice(_ALPHABET) for _ in range(16))
 
 
-def _b64(a: int, b: int, c: int, n: int) -> str:
-    value, out = (a << 16) | (b << 8) | c, ""
-    for _ in range(n):
-        out += _ALPHABET[value & 0x3F]
-        value >>= 6
+def hash(password: str, salt: str) -> str:
+    if "\n" in password or "\r" in password:
+        raise BastetError("a password can't contain a line break")
+    if shutil.which("openssl") is None:
+        raise BastetError("hashing a plain-text password needs openssl on the machine running Bastet; "
+                          "install it, or give password_hash instead")
+    done = subprocess.run(["openssl", "passwd", "-6", "-salt", salt[:16], "-stdin"], input=password + "\n",
+                          capture_output=True, text=True, check=False)
+    out = done.stdout.strip()
+    if done.returncode != 0 or not out.startswith("$6$"):
+        first = (done.stderr.strip().splitlines() or ["no output"])[0]
+        raise BastetError(f"openssl could not hash the password: {first}")
     return out
-
-
-def hash(password: str, salt: str, rounds: int = 5000) -> str:
-    pw, salt = password.encode(), salt[:16]
-    s = salt.encode()
-    b = hashlib.sha512(pw + s + pw).digest()
-    a = hashlib.sha512(pw + s)
-    n = len(pw)
-    while n > 64:
-        a.update(b)
-        n -= 64
-    a.update(b[:n])
-    n = len(pw)
-    while n:
-        a.update(b if n & 1 else pw)
-        n >>= 1
-    c = a.digest()
-    dp = hashlib.sha512(pw * len(pw)).digest()
-    p = (dp * (len(pw) // 64 + 1))[:len(pw)]
-    ds = hashlib.sha512(s * (16 + c[0])).digest()
-    sp = (ds * (len(s) // 64 + 1))[:len(s)]
-    for i in range(rounds):
-        h = hashlib.sha512()
-        h.update(p if i & 1 else c)
-        if i % 3:
-            h.update(sp)
-        if i % 7:
-            h.update(p)
-        h.update(c if i & 1 else p)
-        c = h.digest()
-    out = "".join(_b64(c[x], c[y], c[z], 4) for x, y, z in _ORDER) + _b64(0, 0, c[63], 2)
-    prefix = f"$6$rounds={rounds}$" if rounds != 5000 else "$6$"
-    return f"{prefix}{salt}${out}"
 
 
 def matches(password: str, stored: str) -> bool:
     parts = stored.split("$")
-    if len(parts) == 5 and parts[1] == "6" and parts[2].startswith("rounds=") and parts[2][7:].isdigit():
-        rounds, salt, tail = int(parts[2][7:]), parts[3], parts[4]
-    elif len(parts) == 4 and parts[1] == "6":
-        rounds, salt, tail = 5000, parts[2], parts[3]
-    else:
+    if len(parts) != 4 or parts[1] != "6" or not parts[2] or not parts[3] or parts[2].startswith("rounds="):
         return False
-    if not salt or not tail:
-        return False
-    return secrets.compare_digest(hash(password, salt, rounds), stored)
+    return secrets.compare_digest(hash(password, parts[2]), stored)
 ```
 
-If the known-vector test fails, the fault is in the byte permutation or in the order of the `a` updates; compare against the specification's steps, not by trial and error. (Note: the first digest `a` is the *running* hash `hashlib.sha512(pw + s)` updated in place, and `c[0]` is the first byte of its final digest.)
-
-Then `User`: add `password: str | None = None`; the both-given check in `__post_init__`; in `current()`/`compare()` use `sha512crypt.matches`; in `fix()` build the command with a fresh hash (`password_hash` keeps its current path). `users/role.yml`: add `password: {type: string, secret: true, description: "Plain-text password; Bastet hashes it (sha512 crypt). Set it with a secret: reference, never write it in the note"}` beside `password_hash`, and one example.
+Then `User`: add `password: str | None = None`; the both-given check in `__post_init__`; in `current()`/`compare()` use `passwords.matches`; in `fix()` build the command with a fresh hash (`password_hash` keeps its current path). `users/role.yml`: add `password: {type: string, secret: true, description: "Plain-text password; Bastet hashes it (SHA-512) with openssl on the machine running Bastet. Set it with a secret: reference, never write it in the note"}` beside `password_hash`, and one example. Add one line to `src/bastet/data/docs/using_secrets.md` (or the users role page text): "Passwords: the secret holds the plain text; hashing needs `openssl` on the machine running Bastet."
 
 - [ ] **Step 4: Run to verify pass**
 
@@ -888,10 +884,10 @@ Expected: all pass.
 
 ```bash
 git add src/bastet tests/engine
-git commit -m "users: plain-text passwords from secrets, hashed by Bastet (sha512 crypt, no new dependency)"
+git commit -m "users: plain-text passwords from secrets, hashed on the controller with openssl passwd"
 ```
 
-**Review Focus for this task:** a `*`, `!` or empty shadow hash (locked or no password) never counts as a match; the plain text never appears in a command line, report, diff or run record; the same plain text with a different salt on the host is not a change.
+**Review Focus for this task:** a `*`, `!` or empty shadow hash (locked or no password) never counts as a match; the plain text never appears in a command line (openssl's or the host's), report, diff or run record; the same plain text with a different salt on the host is not a change; a missing `openssl` is a clear error, not a traceback.
 
 ---
 
