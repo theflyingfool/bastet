@@ -116,6 +116,8 @@ Generic mechanisms every role is assembled from (roles spec §8). Roles never im
 In the order we currently expect to build them. The finished ones use the old `role.yml` format and Python builders;
 the ones that can be are converted one at a time to straight Markdown (roles architecture spec §5): ssh, base, harden and a new proxmox role. `users`, `files`, `packages` and `systemd` are the building blocks' own roles and stay Python. pacman and apt are done.
 
+Rows marked ⏸ (the Proxmox and ZFS infrastructure roles) are set aside until a Proxmox system is up again; they are not removed.
+
 | | # | Role | What it does | Notes |
 |---|---|---|---|---|
 | ☑ | — | systemd | Time, NTP, hostname, locale | Python: the systemd block's own role. Time moves to the `time` role later |
@@ -129,10 +131,10 @@ the ones that can be are converted one at a time to straight Markdown (roles arc
 | ☑ | — | files | Files you want on a host | Python: the files block's own role |
 | ☑ | — | ssh | Every sshd option, with the lockout guard | |
 | ☑ | — | harden | fail2ban, arch-audit / debsecan, lynis | |
-| ☐ | 1 | Proxmox node setup | Bridges (VLAN-aware, applied with a rollback timer), storage, API user and token; shuts guests down cleanly before a reboot and starts them again after (reboot hooks) | Later: IOMMU, clustering, maybe backups |
-| ☐ | 2 | zfs | Report first, then datasets, scrubs and snapshots (sanoid or timers, undecided), NFS exports, pools gated on blank disks | |
-| ☐ | 3 | Proxmox guests | The node creates LXCs/VMs described by their host notes; first contact and the bastet user; never recreates | Roles spec §11 |
-| ☐ | 4 | qemu_guest_agent | Guest agent in VMs | Pointless until guests are created |
+| ⏸ | 1 | Proxmox node setup | Bridges (VLAN-aware, applied with a rollback timer), storage, API user and token; shuts guests down cleanly before a reboot and starts them again after (reboot hooks) | Later: IOMMU, clustering, maybe backups |
+| ⏸ | 2 | zfs | Report first, then datasets, scrubs and snapshots (sanoid or timers, undecided), NFS exports, pools gated on blank disks | |
+| ⏸ | 3 | Proxmox guests | The node creates LXCs/VMs described by their host notes; first contact and the bastet user; never recreates | Roles spec §11 |
+| ⏸ | 4 | qemu_guest_agent | Guest agent in VMs | Pointless until guests are created |
 | ☐ | 5 | firewall | nftables, built from the ports other roles contribute | |
 | ☐ | 6 | podman | Container runtime (Quadlet), rootless where possible | The default runtime |
 | ☐ | 7 | mounts | NFS shares and data disks as `.mount` units | Friendly menu over the systemd block |
