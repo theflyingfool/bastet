@@ -105,7 +105,7 @@ microcode: never
 
 ## files
 
-Files, directories, links, and blocks or lines inside other files.
+Files, directories, links, and blocks or lines inside other files. Planned settings edits, added when a role needs them: env (KEY=value files), sshd, sysctl (key = value).
 
 ### Examples
 

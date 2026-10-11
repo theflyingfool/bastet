@@ -59,6 +59,7 @@ files:
 - **`as: entries`** is an option form for lists of objects, with `format: deb822` or `format: ini_section`, a `path` (may contain `{name}`), a `marker` (ini_section) and `before`/`after`. The `apt` role declares repositories as one `.sources` file each (deb822); the `pacman` role as `bastet repo <name>` blocks in `pacman.conf` (ini_section). Both are written before packages are installed. The builder knows these two generic formats, not apt or pacman.
 - **`commands:`** entries in a role file (`name`, `run`, `unless`, and optional `when`, `before`, `after`) become Command resources. The apt role's `modernize_sources` option (true or false, default false) runs `apt modernize-sources -y`.
 - **The `proxmox` role is deleted**, along with the `Repository` resource, `StraySources` and the packages role's `repositories` option. The `proxmox` host type stays and applies no baseline roles for now. A new Proxmox role will be designed later.
+- **Block entries:** a Markdown role file can carry `packages:`, `systemd:` and `users:` entries, and `files:` entries in the forms `content`, `template`, `directory`, `link`, `line` and `block` (next to `edit: ini` and `render`). `when:` works on every entry. `{{ }}` values are filled over the role's options and the host and lab facts (`host`, `lab`). Blocks never call each other; roles call blocks. Plain-text passwords from secrets are hashed on the controller in the host's own scheme. The `users` role reports accounts no role manages (unaccounted users), tracked across all roles. Cross-host variables in the template context are deferred.
 - **A `time` role is planned**, as data that calls the `systemd` block. The contract needs entries that call the blocks first.
 - **Quick fixes:** the `runs_on` cycle warning no longer crashes, dpkg options are quoted as one argument, and `bastet doctor <folder>` lints Markdown roles.
 
@@ -122,5 +123,5 @@ Role calls role (`uses:`), hard `needs`, cross-host `needs`/`provides`, `contrib
 
 ## 8. Open questions, to settle during the first slice
 - Which format checkers and `edit:` formats the first slice needs beyond `ini` (ssh will need `sshd` with `Match` blocks).
-- How rich the expression language in `when:` and `validate:` is allowed to be (a small Jinja subset over option values and facts is the starting point).
+- ~~How rich the expression language in `when:` and `validate:` is allowed to be.~~ Settled: sandboxed Jinja2 expressions over option values and the host and lab facts.
 - Whether restart order ever needs more than systemd's own dependencies.

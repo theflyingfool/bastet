@@ -43,7 +43,32 @@ before packages are installed. Repositories belong to the package manager's own 
 its own; the `packages` role has none.
 
 A role file can also list `commands:`. Each entry has a `name`, a `run` command and an `unless` check (the command
-runs only when the check fails), and optionally `when` (the name of a true/false option) and `before` or `after`.
+runs only when the check fails), and optionally `when` (a condition, see below) and `before` or `after`.
 The apt role's `modernize_sources` option uses one to run `apt modernize-sources -y`.
+
+### Calling the building blocks
+
+A role file can also list `packages:`, `users:` and `systemd:` entries, which call the blocks of the same names; a role
+that needs several lists several. Blocks never call each other, and the engine runs the entries in block order
+(packages, users, files, systemd), whatever order the role lists them in. Every entry takes `when:`, a condition
+written as a Jinja2 expression over the options and the host and lab facts (`host`, `lab`), and values may contain
+`{{ }}` over the same names.
+
+```yaml
+options:
+  domain: {type: string, required: true}
+packages: [example-app]
+users:
+  - {kind: user, name: web, system: true}
+files:
+  - path: /etc/example-app/app.conf
+    content: "{{ domain }} {\n}\n"
+    reload: [example-app.service]
+systemd:
+  - {kind: unit, name: example-app.service, enabled: true, state: up}
+```
+
+`files:` entries also come as `template`, `directory`, `link`, `line` and `block`. A password given to a `users:`
+entry from a secret is hashed on the controller in the host's own scheme.
 
 `bastet doctor <folder>` lints a Markdown role.
