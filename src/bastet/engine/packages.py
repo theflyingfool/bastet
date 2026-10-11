@@ -322,7 +322,7 @@ class Updates(Resource):
         if self.policy == "security" and manager in ("pacman", "apk"):
             raise Unsupported(f"{manager} has no separate security updates; use updates: auto or manual")
         if manager == "pacman" and results["pending"].missing:
-            raise Unsupported("checking for updates on Arch needs checkupdates (install pacman-contrib)")
+            raise Unsupported("checking for updates on Arch needs checkupdates; install pacman-contrib if you'd like an update count")
         if self.policy == "security" and manager == "zypper" and self.exclude:
             raise Unsupported("zypper's security patches can't exclude packages; drop updates_exclude or use auto")
         _check_rc(manager, results["pending"].output)

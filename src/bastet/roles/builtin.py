@@ -133,14 +133,18 @@ def _packages(v: dict, host: HostInfo) -> list[Batch]:
         extras = [Updates(policy="security", **common), Updates(policy="manual", rest=True, **common)]
     else:
         extras = [Updates(policy=policy, apply_updates=host.apply_updates, **common)]
+    needs_contrib = (policy in ("auto", "security") and host.os_id in ARCH_LIKE
+                     and "pacman-contrib" not in names)  # the pending-update check needs checkupdates
     if not host.container:
         extras.append(Reboot(policy=v.get("reboot") or "ask", timeout=v.get("reboot_timeout") or 600))
     if v.get("report_unaccounted", True):
-        tracked = tuple(p["name"] for p in installs) + tuple(str(t) for t in host.data.get("bastet_tools") or ())
+        tracked = tuple(p["name"] for p in installs) + (("pacman-contrib",) if needs_contrib else ()) + tuple(str(t) for t in host.data.get("bastet_tools") or ())
         extras.append(Unaccounted(tracked=tracked, allowed=tuple(dict.fromkeys((*(v.get("allowed") or ()), *baseline_for(host))))))
     aur_user, helper = v.get("aur_user") or "bastet-aur", v.get("aur_helper") or "yay-bin"
     wants_aur = any(p.get("aur") for p in installs)
     packages = [Package(**_kw({**base, **p, **({"aur_user": aur_user} if p.get("aur") else {})})) for p in installs]
+    if needs_contrib:
+        packages.append(Package(name="pacman-contrib"))
     if wants_aur:
         extras = [replace(r, tracked=(*r.tracked, helper)) if isinstance(r, Unaccounted) else r for r in extras]
     out = [Batch("packages (AUR setup)", _aur_bootstrap(aur_user, helper))] if wants_aur else []
