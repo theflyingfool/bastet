@@ -31,7 +31,17 @@ ROLE_NOTE_KEYS = {"bastet", "name", "version", "api", "description", "os", "prov
                   "systemd", "users"}
 FILE_EDITS = ("ini",)
 FILE_RENDERS = ("apt",)
-FILE_KEYS = {"path", "edit", "render", "mode", "owner", "group", "validate", "before", "after", "backup"}
+FILE_FORMS = ("edit", "render", "content", "template", "directory", "link", "line", "block")
+EDIT_RENDER_KEYS = {"path", "edit", "render", "mode", "owner", "group", "validate", "before", "after", "backup", "when", "restart", "reload"}
+FILE_KEYS = EDIT_RENDER_KEYS | {"content", "template", "directory", "link", "line", "match", "unique", "block", "marker", "comment"}
+FORM_KEYS = {
+    "content": {"mode", "owner", "group", "validate", "restart", "reload", "backup"},
+    "template": {"mode", "owner", "group", "validate", "restart", "reload", "backup"},
+    "directory": {"mode", "owner", "group"},
+    "link": set(),
+    "line": {"match", "unique", "validate", "restart", "reload"},
+    "block": {"marker", "comment", "validate", "restart", "reload"},
+}
 COMMAND_KEYS = {"name", "run", "unless", "when", "before", "after"}
 GENERATE_KINDS = ("password", "token")
 SECRET_SOURCES = ("generated", "chosen", "issued")
@@ -167,7 +177,7 @@ def _text_list(path: Path, key: str, value: object) -> tuple[str, ...]:
     return tuple(value)
 
 
-def _file_entry(path: Path, entry: object) -> dict:
+def _file_entry(path: Path, entry: object, options: dict[str, Option], index: int = 0) -> dict:
     if not isinstance(entry, dict):
         raise BastetError("each files entry must be a map", file=path, key="files")
     unknown = sorted(str(k) for k in set(entry) - FILE_KEYS)
@@ -175,8 +185,14 @@ def _file_entry(path: Path, entry: object) -> dict:
         raise BastetError(f"files entry: unknown key {', '.join(unknown)}", file=path, key=unknown[0])
     if not isinstance(entry.get("path"), str) or not entry["path"]:
         raise BastetError("files entry needs a path", file=path, key="path")
-    if ("edit" in entry) == ("render" in entry):
-        raise BastetError("files entry needs exactly one of edit or render", file=path, key="files")
+    forms = [f for f in FILE_FORMS if f in entry]
+    if len(forms) != 1:
+        raise BastetError("files entry needs exactly one of edit, render, content, template, directory, link, line or block",
+                          file=path, key="files")
+    form = forms[0]
+    allowed = EDIT_RENDER_KEYS if form in ("edit", "render") else FORM_KEYS[form] | {"path", form, "when", "before", "after"}
+    for key in sorted(set(entry) - allowed):
+        raise BastetError(f"files entry: {key} doesn't apply to {form}", file=path, key=key)
     for kind, allowed in (("edit", FILE_EDITS), ("render", FILE_RENDERS)):
         if kind in entry and entry[kind] not in allowed:
             raise BastetError(f"files entry: {kind} must be one of {', '.join(allowed)}", file=path, key=kind)
@@ -187,6 +203,20 @@ def _file_entry(path: Path, entry: object) -> dict:
                           file=path, key="files")
     if "before" in entry and "after" in entry:
         raise BastetError("files entry: use before or after, not both", file=path, key="files")
+    if form == "directory" and entry["directory"] is not True:
+        raise BastetError("files entry: directory must be true", file=path, key="directory")
+    if form == "block" and not entry.get("marker"):
+        raise BastetError("files entry: block needs a marker", file=path, key="marker")
+    if form in ("content", "template", "link", "line", "block") and not isinstance(entry[form], str):
+        raise BastetError(f"files entry: {form} must be text", file=path, key=form)
+    if form == "template" and (entry["template"] in ("", ".", "..") or Path(entry["template"]).name != entry["template"]):
+        raise BastetError("files entry: template must be a file in the role's own folder", file=path, key="template")
+    for key in ("restart", "reload"):
+        if key in entry and not (isinstance(entry[key], list) and all(isinstance(u, str) for u in entry[key])):
+            raise BastetError(f"files entry: {key} must be a list of unit names", file=path, key=key)
+    # edit/render keep their long-standing before/after (any name); only the new forms need a block slot
+    checked = {k: v for k, v in entry.items() if k not in ("before", "after")} if form in ("edit", "render") else entry
+    role_entries.check_common(checked, set(options), f"files[{index}]", path, "files")
     return dict(entry)
 
 
@@ -245,7 +275,7 @@ def parse_role(path: Path) -> RoleDef:
         files = data.get("files") or []
         if not isinstance(files, list):
             raise BastetError("files must be a list", file=path, key="files")
-        entries = [_file_entry(path, e) for e in files]
+        entries = [_file_entry(path, e, options, i) for i, e in enumerate(files)]
         commands = data.get("commands") or []
         if not isinstance(commands, list):
             raise BastetError("commands must be a list", file=path, key="commands")

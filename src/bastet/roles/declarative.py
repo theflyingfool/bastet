@@ -178,17 +178,20 @@ def build(role: RoleDef, values: dict, host, secret_options: frozenset = frozens
     secret = bool(secret_options)
     _check_os(role, host)
     resources: list[Resource] = []
-    for entry in role.entries:
+    ctx = expr.context(role.options, values, host)
+    for i, entry in enumerate(role.entries):
+        if not expr.truthy(entry.get("when"), ctx):
+            continue
         if entry.get("backup"):
             path = entry["path"]
             resources.append(Command(
                 name=f"back up {path}", run=f"cp -p {path} {path}.bastet-orig", run_before="repositories",
                 unless=f"test -e '{path}.bastet-orig' || ! test -f '{path}' || grep -q -e 'Bastet Managed' -e 'Managed by Bastet' '{path}'"))
-        if "edit" in entry:
-            made = EDITORS[entry["edit"]](role, values, entry)
+        if "edit" in entry or "render" in entry:
+            made = EDITORS[entry["edit"]](role, values, entry) if "edit" in entry else RENDERERS[entry["render"]](role, values, entry)
+            resources += [replace(_placed(r, role, entry, secret), **entries.triggers(entry)) for r in made]
         else:
-            made = RENDERERS[entry["render"]](role, values, entry)
-        resources += [_placed(r, role, entry, secret) for r in made]
+            resources += entries.build_files(role, ctx, entry, i, secret_options)
     resources += _entries(role, values, secret)
     resources += entries.build_entries(role, values, host, secret_options)
     resources += _commands(role, values, host)
