@@ -51,7 +51,7 @@
 | `src/bastet/cli/run.py` | `_node_of_map` stops shadowing `out` |
 | `src/bastet/engine/packages.py` | dpkg options quoted as one argument (two places) |
 | `src/bastet/cli/doctor.py` | `_check_role_dir` accepts a Markdown role folder |
-| `src/bastet/roles/contract.py`, `declarative.py`, `engine/packages.py`, `builtin.py`, the `apt` and `pacman` role files | `as: repositories` with `format`; the manager roles declare repositories and the files action (`File`, `Block`) writes them; `packages` refuses repositories on apt and pacman hosts |
+| `src/bastet/roles/contract.py`, `declarative.py`, `engine/packages.py`, `builtin.py`, the `apt` and `pacman` role files | `as: entries` with generic `deb822` and `ini_section` formats; the manager roles declare repositories as data and the files action (`File`, `Block`) writes them; `packages` refuses repositories on apt and pacman hosts |
 
 ---
 
@@ -390,26 +390,26 @@ def _check_role_dir(path: Path) -> None:
 
 ---
 
-### Task 4: Repositories move to the manager roles (pacman, apt)
+### Task 4: Repositories move to the manager roles (pacman, apt), as data
+
+**Principle (owner):** only the building blocks have real code. A role is data that the blocks act on. The generic builder therefore knows generic file formats only (`deb822`, `ini_section`), never "apt" or "pacman"; the apt and pacman roles describe their repository files in their own role files.
 
 **Files:**
-- Modify: `src/bastet/roles/contract.py` (`OPTION_AS`, `OPTION_KEYS`, option checks), `src/bastet/roles/declarative.py`, `src/bastet/engine/packages.py` (`Repository`), `src/bastet/data/roles/pacman/pacman role.md`, `src/bastet/data/roles/apt/apt role.md`, `src/bastet/roles/builtin.py` (`_packages`), `src/bastet/data/roles/packages/role.yml` (description of `repositories`), the user docs that mention `packages` repositories (find them with `grep -rn "repositories" src/bastet/data/docs docs/*.md`), `docs/roles.md` (regenerate), and the existing tests that put repositories on the `packages` role of an apt or Arch host or test the pacman branch of `Repository`
-- Test: `tests/roles/test_repositories_option.py` (new)
-
-**Decision (owner):** a repository is the package manager's own setting, so the `pacman` and `apt` roles own their repositories. A role only declares them; the files action writes them (an apt repository is a `.sources` file, a pacman repository is a marked block in `pacman.conf`). The `Repository` resource is not used for apt or pacman by the roles. It stays for the `packages` role's other managers (dnf, zypper, apk) and for the proxmox role's apt repositories.
+- Modify: `src/bastet/roles/contract.py` (`OPTION_AS`, `OPTION_KEYS`, `Option`, option checks), `src/bastet/roles/declarative.py`, `src/bastet/data/roles/pacman/pacman role.md`, `src/bastet/data/roles/apt/apt role.md`, `src/bastet/engine/packages.py` (remove the pacman branch of `Repository`), `src/bastet/roles/builtin.py` (`_packages`), `src/bastet/data/roles/packages/role.yml` (description of `repositories`), the user docs that mention `packages` repositories (find them with `grep -rn "repositories" src/bastet/data/docs docs/*.md`), `docs/roles.md` (regenerate), and the existing tests named below
+- Test: `tests/roles/test_repository_entries.py` (new)
 
 **Behaviour:**
-- Contract: `as` accepts a fourth value, `repositories`, allowed only on an option of type `list` whose items are objects (`{where}: as: repositories needs a list of objects`). An option with `as: repositories` also needs a new key `format`, one of `deb822` or `pacman` (`{where}: as: repositories needs format: deb822 or pacman`); `format` on any other option is an error. Add `format` to `OPTION_KEYS` and to `Option`.
-- Text helpers: in `engine/packages.py` move the text building out of `Repository._deb822` and `Repository._pacman` into two module-level functions, `deb822_source(*, types, uris, suites, components, architectures, enabled, trusted, key, signed_by, options) -> str` and `pacman_section(*, name, uris, enabled, trusted, options) -> str`, with exactly the same output as today. `Repository` calls them, so the proxmox role and the `packages` role's other managers see no change. Remove the now unused pacman branch of `Repository` (`parts`, `_check`) and its tests (the pacman cases in `tests/engine/test_repositories.py`); the apt, rpm and apk behaviour stays.
-- Builder: for every option with `as: repositories` and a value, `build` appends, per item, after the file entries, with `run_before="packages"` so it runs after the role's settings and before any install:
-  - `format: deb822` → `File(path=f"/etc/apt/sources.list.d/{name}.sources", content=deb822_source(...), mode="0644")`; item fields `name` (required), `uris` (required), `suites`, `components`, `types` (default `("deb",)`), `architectures`, `key`, `signed_by`, `enabled`, `trusted`, `options`; giving both `key` and `signed_by` is an error.
-  - `format: pacman` → `Block(path="/etc/pacman.conf", block=pacman_section(...), marker=f"bastet repo {name}")` (the same marker the old resource used, so blocks already written are recognised); item fields `name` (required), `uris`, `enabled`, `trusted`, `options` (extra fields in the repository's own format, such as `SigLevel` or `Include`).
-  - The repository name must match the existing `REPO_NAME` pattern in `engine/packages.py` (import it); otherwise `BastetError(f"{role.name}.{option}: {name!r} isn't a usable repository name")`. A line break in any field is refused by the same check as other values.
-- `apt role.md` gains a `repositories` option (`as: repositories`, `format: deb822`) and `pacman role.md` one (`as: repositories`, `format: pacman`), each with a description saying the repository is written in the host's own format, and one example.
-- The `packages` role keeps `repositories` for the managers that have no role yet (dnf, zypper, apk). On an Arch-based or Debian-based host, `_packages` raises `BastetError("packages.repositories: set repositories in the pacman role on Arch-based hosts and in the apt role on Debian-based hosts")` when the option is non-empty. The proxmox role's own repositories are untouched.
-- Existing host notes that give `repositories:` to the `packages` role on Arch or Debian hosts must move that block to the matching manager role; the error says so.
+- Contract. A new option kind `as: entries` (allowed only on an option of type `list` whose items are objects; otherwise `{where}: as: entries needs a list of objects`) turns every list item into a file entry. It needs `format` (`deb822` or `ini_section`), `path` (a path that may contain `{name}`), and may have `marker` (ini_section only; may contain `{name}`; default `"{name}"`) and `before`/`after` (same meaning as on a file entry). `format`, `path`, `marker`, `before`, `after` on an option that is not `as: entries` is an error (`{where}: format only applies to as: entries`, and so on). `Option` gains `format`, `path`, `marker`, `before`, `after` (add to `OPTION_KEYS`). Fields of an item may use `key` (the field's name in the file) and a new `as` value `lines` (one `Key = v` line per list element) or `text` (a multi-line value) next to `list`; `as` accepts `flag, value, list, lines, text, entries`.
+- Builder, generic. For each item (apply each field's `default` when the item leaves it out; validate the item's `name` against `^[A-Za-z0-9][A-Za-z0-9._+-]*$`, otherwise `BastetError(f"{role.name}.{option}: {name!r} isn't a usable name")`; refuse line breaks in every value except fields declared `as: text`):
+  - `deb822` → `File(path=path.format(name=name), content=..., mode="0644")`. The content has one `Key: value` line per field that has a `key` and a value, in contract order. A list is joined with spaces; a bool is `yes` or `no`; an empty list or unset field is left out; a `text` value with line breaks is written as `Key:` followed by each line indented by one space, with blank lines as ` .`.
+  - `ini_section` → `Block(path=path, block=..., marker=marker.format(name=name))`. The block is `[name]` followed by one `Key = value` line per field with a `key`: `lines` gives one line per element, a list joins with spaces, anything else is `Key = value`. If the item has a field named `enabled` set to false, every line of the block, including the header, is prefixed with `#`.
+  - Each resulting resource gets `run_before`/`run_after` from the option's `before`/`after`. The builder contains no apt or pacman names.
+- The roles. `apt role.md` gets a `repositories` option: `as: entries`, `format: deb822`, `path: /etc/apt/sources.list.d/{name}.sources`, `before: packages`, items with fields `name` (required), `types` (list, `key: Types`, default `[deb]`), `uris` (list, required, `key: URIs`), `suites` (list, `key: Suites`), `components` (list, `key: Components`), `architectures` (list, `key: Architectures`), `enabled` (bool, `key: Enabled`), `trusted` (bool, `key: Trusted`), `signed_by` (string, `as: text`, `key: Signed-By`; a path, or the armored key text). `pacman role.md` gets one: `as: entries`, `format: ini_section`, `path: /etc/pacman.conf`, `marker: "bastet repo {name}"` (the marker the old resource used, so blocks already written are recognised), `before: packages`, items with `name` (required), `servers` (list, `as: lines`, `key: Server`), `include` (string, `key: Include`), `sig_level` (string, `key: SigLevel`), `usage` (string, `key: Usage`), `enabled` (bool). Descriptions say the repository is written in the host's own format; add one example each.
+- `Repository` loses its pacman branch (`parts`, `_check`, `_pacman`); the apt, rpm and apk behaviour and the proxmox role's repositories are untouched. The pacman cases of `tests/engine/test_repositories.py` are removed with it (keep every other test in that file).
+- The `packages` role keeps `repositories` for the managers that have no role yet (dnf, zypper, apk). On an Arch-based or Debian-based host, `_packages` raises `BastetError("packages.repositories: set repositories in the pacman role on Arch-based hosts and in the apt role on Debian-based hosts")` when the option is non-empty.
+- Existing host notes that give `repositories:` to the `packages` role on Arch or Debian hosts must move that block to the matching manager role; the error says so. The old `packages` fields `key`, `options` and `trusted` for pacman and apt are not carried over (`options` become explicit fields; pacman's `trusted: true` is `sig_level: Never`).
 
-- [ ] **Step 1: Write the failing tests.** Create `tests/roles/test_repositories_option.py` (use the same temporary-role helpers as `tests/roles/test_ini_settings.py`; hosts are built as in `tests/roles/test_pacman_role.py` and `test_apt_role.py`):
+- [ ] **Step 1: Write the failing tests.** Create `tests/roles/test_repository_entries.py` (use the temporary-role helpers from `tests/roles/test_ini_settings.py`; hosts are built as in `tests/roles/test_pacman_role.py` and `test_apt_role.py`):
 
 ```python
 import pytest
@@ -418,47 +418,61 @@ from bastet.core.errors import BastetError
 from bastet.engine.files import Block, File
 
 # helpers: built(role_name, values, host) -> resources of every batch from batches_for with that role applied;
-# debian_host(), arch_host(), fedora_host() -> HostInfo; bad_role(tmp_path, option_dict) -> writes a one-option Markdown role
+# debian_host(), arch_host(), fedora_host() -> HostInfo; bad_role(tmp_path, option_dict) -> writes a one-option
+# Markdown role the way the other role tests do
 
 
-def test_apt_repository_is_a_sources_file_run_before_packages():
+def apt_file(out, name):
+    [file] = [r for r in out if isinstance(r, File) and r.path == f"/etc/apt/sources.list.d/{name}.sources"]
+    return file
+
+
+def test_apt_repository_is_a_sources_file_before_packages():
     out = built("apt", {"repositories": [{"name": "backports", "uris": ["http://deb.example.net/debian"],
                                           "suites": ["trixie-backports"], "components": ["main"]}]}, debian_host())
-    [file] = [r for r in out if isinstance(r, File) and r.path.endswith("backports.sources")]
-    assert file.path == "/etc/apt/sources.list.d/backports.sources" and file.mode == "0644"
-    assert file.content == ("Types: deb\nURIs: http://deb.example.net/debian\nSuites: trixie-backports\n"
-                            "Components: main\n")
-    assert file.run_before == "packages"
+    file = apt_file(out, "backports")
+    assert file.mode == "0644" and file.run_before == "packages"
+    assert file.content == ("Types: deb\nURIs: http://deb.example.net/debian\nSuites: trixie-backports\nComponents: main\n")
 
 
-def test_apt_key_goes_into_signed_by_and_key_with_signed_by_is_refused():
+def test_apt_flags_and_multiline_keys_are_written_in_deb822_style():
+    key = "-----BEGIN PGP PUBLIC KEY BLOCK-----\n\nAAAA\n-----END PGP PUBLIC KEY BLOCK-----"
     out = built("apt", {"repositories": [{"name": "k", "uris": ["http://x.example.net/"], "suites": ["s"],
-                                          "key": "-----BEGIN PGP PUBLIC KEY BLOCK-----\nAAAA\n-----END PGP PUBLIC KEY BLOCK-----"}]}, debian_host())
-    assert "Signed-By:\n -----BEGIN PGP PUBLIC KEY BLOCK-----" in [r for r in out if isinstance(r, File) and r.path.endswith("k.sources")][0].content
-    with pytest.raises(BastetError, match="key or signed_by, not both"):
-        built("apt", {"repositories": [{"name": "k", "uris": ["http://x/"], "suites": ["s"], "key": "K", "signed_by": "/x"}]}, debian_host())
+                                          "enabled": False, "trusted": True, "signed_by": key}]}, debian_host())
+    assert apt_file(out, "k").content == (
+        "Types: deb\nURIs: http://x.example.net/\nSuites: s\nEnabled: no\nTrusted: yes\n"
+        "Signed-By:\n -----BEGIN PGP PUBLIC KEY BLOCK-----\n .\n AAAA\n -----END PGP PUBLIC KEY BLOCK-----\n")
+    path_form = built("apt", {"repositories": [{"name": "p", "uris": ["http://x/"], "suites": ["s"], "signed_by": "/usr/share/keyrings/x.gpg"}]}, debian_host())
+    assert "Signed-By: /usr/share/keyrings/x.gpg\n" in apt_file(path_form, "p").content
 
 
-def test_pacman_repository_is_a_marked_block_run_before_packages():
-    out = built("pacman", {"repositories": [{"name": "custom", "uris": ["https://example.net/$repo/os/$arch"],
-                                             "options": {"SigLevel": "Optional"}}]}, arch_host())
+def test_pacman_repository_is_a_marked_block_before_packages():
+    out = built("pacman", {"repositories": [{"name": "custom", "servers": ["https://example.net/$repo/os/$arch"], "sig_level": "Optional"}]}, arch_host())
     [block] = [r for r in out if isinstance(r, Block)]
-    assert block.path == "/etc/pacman.conf" and block.marker == "bastet repo custom"
+    assert block.path == "/etc/pacman.conf" and block.marker == "bastet repo custom" and block.run_before == "packages"
     assert block.block == "[custom]\nServer = https://example.net/$repo/os/$arch\nSigLevel = Optional"
-    assert block.run_before == "packages"
+
+
+def test_pacman_repository_with_several_servers_and_an_include():
+    out = built("pacman", {"repositories": [{"name": "r", "servers": ["https://a/", "https://b/"], "include": "/etc/pacman.d/mirrorlist"}]}, arch_host())
+    [block] = [r for r in out if isinstance(r, Block)]
+    assert block.block == "[r]\nServer = https://a/\nServer = https://b/\nInclude = /etc/pacman.d/mirrorlist"
 
 
 def test_a_disabled_pacman_repository_is_commented_out():
-    out = built("pacman", {"repositories": [{"name": "off", "uris": ["https://x.example.net/"], "enabled": False}]}, arch_host())
+    out = built("pacman", {"repositories": [{"name": "off", "servers": ["https://x.example.net/"], "enabled": False}]}, arch_host())
     [block] = [r for r in out if isinstance(r, Block)]
     assert block.block == "#[off]\n#Server = https://x.example.net/"
 
 
-@pytest.mark.parametrize("role_name, host", [("apt", "debian"), ("pacman", "arch")])
-def test_bad_repository_names_are_refused(role_name, host):
-    h = debian_host() if host == "debian" else arch_host()
-    with pytest.raises(BastetError, match="isn't a usable repository name"):
-        built(role_name, {"repositories": [{"name": "a b", "uris": ["http://x/"]}]}, h)
+@pytest.mark.parametrize("role_name, host_kind", [("apt", "debian"), ("pacman", "arch")])
+def test_bad_names_and_line_breaks_are_refused(role_name, host_kind):
+    host = debian_host() if host_kind == "debian" else arch_host()
+    with pytest.raises(BastetError, match="isn't a usable name"):
+        built(role_name, {"repositories": [{"name": "a b", "uris": ["http://x/"], "servers": ["http://x/"]}]}, host)
+    field = "suites" if role_name == "apt" else "servers"
+    with pytest.raises(BastetError, match="can't contain a line break"):
+        built(role_name, {"repositories": [{"name": "ok", "uris": ["http://x/"], field: ["a\nUsage = All"]}]}, host)
 
 
 def test_no_repositories_means_no_extra_resources():
@@ -478,21 +492,26 @@ def test_the_packages_role_still_takes_repositories_for_other_managers():
     assert any(isinstance(r, Repository) for r in out)
 
 
+_ITEMS = {"type": "object", "fields": {"name": {"type": "string"}}}
+
+
 @pytest.mark.parametrize("option, message", [
-    ({"type": "string", "as": "repositories", "format": "pacman", "key": "X"}, "as: repositories needs a list of objects"),
-    ({"type": "list", "items": {"type": "object", "fields": {"name": {"type": "string"}}}, "as": "repositories"}, "needs format: deb822 or pacman"),
-    ({"type": "list", "items": {"type": "object", "fields": {"name": {"type": "string"}}}, "as": "repositories", "format": "zzz"}, "needs format: deb822 or pacman"),
-    ({"type": "string", "format": "pacman"}, "format only applies"),
+    ({"type": "string", "as": "entries", "format": "ini_section", "path": "/x", "key": "X"}, "as: entries needs a list of objects"),
+    ({"type": "list", "items": _ITEMS, "as": "entries", "path": "/x"}, "needs format"),
+    ({"type": "list", "items": _ITEMS, "as": "entries", "format": "zzz", "path": "/x"}, "needs format"),
+    ({"type": "list", "items": _ITEMS, "as": "entries", "format": "deb822"}, "needs a path"),
+    ({"type": "string", "format": "deb822"}, "format only applies to as: entries"),
+    ({"type": "list", "items": _ITEMS, "as": "entries", "format": "deb822", "path": "/x/{name}", "marker": "m"}, "marker only applies to ini_section"),
 ])
-def test_repositories_option_contract(tmp_path, option, message):
+def test_entries_option_contract(tmp_path, option, message):
     with pytest.raises(BastetError, match=message):
         bad_role(tmp_path, option)
 ```
 
-- [ ] **Step 2: Run to see them fail.** `uv run pytest tests/roles/test_repositories_option.py -q`.
-- [ ] **Step 3: Implement** as described under Behaviour. Existing tests to update (say which in your report): the pacman cases of `tests/engine/test_repositories.py` are removed with the pacman branch (keep every apt, rpm and apk test); tests that gave `repositories` to the `packages` role on a Debian or Arch host (look in `tests/roles/test_builtin.py` and `tests/roles/test_system_roles.py`) move to the `apt` or `pacman` role, or switch to a Fedora-like host if the case is really about the `packages` role itself. The text-helper move must leave the proxmox role's repositories byte-for-byte unchanged (its tests must pass untouched).
+- [ ] **Step 2: Run to see them fail.** `uv run pytest tests/roles/test_repository_entries.py -q`.
+- [ ] **Step 3: Implement** as described under Behaviour. Existing tests to update (say which in your report): the pacman cases of `tests/engine/test_repositories.py` go with the pacman branch; tests that gave `repositories` to the `packages` role on a Debian or Arch host (look in `tests/roles/test_builtin.py` and `tests/roles/test_system_roles.py`) move to the `apt` or `pacman` role, or switch to a Fedora-like host if the case is really about the `packages` role itself; `tests/roles/test_role_contract.py` and the role-listing tests may need the new option kinds. The proxmox role's repositories must be unchanged (its tests pass untouched).
 - [ ] **Step 4: Contract test (written, not run).** In `tests/contract/test_contract.py`, if a test builds repositories through the `packages` role on the Debian or Arch container, switch it to the `apt` or `pacman` role.
-- [ ] **Step 5: Run** `uv run pytest tests/roles tests/engine tests/core tests/cli/test_add_role.py tests/test_cli.py -q`, regenerate `docs/roles.md` with `scripts/gen_roles_doc.py`, run `scripts/privacy-check`. **Step 6: Commit** (`roles: apt and pacman declare their repositories; the files action writes them`).
+- [ ] **Step 5: Run** `uv run pytest tests/roles tests/engine tests/core tests/cli/test_add_role.py tests/test_cli.py -q`, regenerate `docs/roles.md` with `scripts/gen_roles_doc.py`, run `scripts/privacy-check`. **Step 6: Commit** (`roles: apt and pacman declare their repositories as data; generic deb822 and ini_section entries`).
 
 ---
 
