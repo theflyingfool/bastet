@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import shlex
 from dataclasses import replace
 
 from bastet.core.errors import BastetError
@@ -71,6 +72,10 @@ def _ini(role: RoleDef, values: dict, entry: dict) -> list[Resource]:
             lines.append(text)
     return [Settings(path=entry["path"], section=section, keys=tuple(keys), lines=tuple(lines), validate=entry.get("validate"))
             for section, (keys, lines) in sections.items() if keys]
+
+
+def _sq(text: str) -> str:
+    return "'" + text.replace("'", "'\\''") + "'"
 
 
 def _quote(value: object) -> str:
@@ -182,16 +187,18 @@ def build(role: RoleDef, values: dict, host, secret_options: frozenset = frozens
     for i, entry in enumerate(role.entries):
         if not expr.truthy(entry.get("when"), ctx):
             continue
+        r = entries.resolved_files_entry(role, entry, i, ctx)
         if entry.get("backup"):
-            path = entry["path"]
+            path = r["path"]
             resources.append(Command(
-                name=f"back up {path}", run=f"cp -p {path} {path}.bastet-orig", run_before="repositories",
-                unless=f"test -e '{path}.bastet-orig' || ! test -f '{path}' || grep -q -e 'Bastet Managed' -e 'Managed by Bastet' '{path}'"))
+                name=f"back up {path}", run=f"cp -p {shlex.quote(path)} {shlex.quote(path + '.bastet-orig')}", run_before="repositories",
+                unless=f"test -e {_sq(path + '.bastet-orig')} || ! test -f {_sq(path)} || "
+                       f"grep -q -e 'Bastet Managed' -e 'Managed by Bastet' {_sq(path)}"))
         if "edit" in entry or "render" in entry:
-            made = EDITORS[entry["edit"]](role, values, entry) if "edit" in entry else RENDERERS[entry["render"]](role, values, entry)
-            resources += [replace(_placed(r, role, entry, secret), **entries.triggers(entry)) for r in made]
+            made = EDITORS[entry["edit"]](role, values, r) if "edit" in entry else RENDERERS[entry["render"]](role, values, r)
+            resources += [replace(_placed(x, role, entry, secret), **entries.triggers(r)) for x in made]
         else:
-            resources += entries.build_files(role, ctx, entry, i, secret_options)
+            resources += entries.build_files(role, ctx, entry, i, secret_options, r)
     resources += _entries(role, values, secret)
     resources += entries.build_entries(role, values, host, secret_options)
     resources += _commands(role, values, host)

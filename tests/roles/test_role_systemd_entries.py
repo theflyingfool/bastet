@@ -50,8 +50,8 @@ def test_hostname_uses_the_hosts_name_and_skips_containers(tmp_path):
     r = role(tmp_path, [{"kind": "hostname"}])
     [h] = built(r)
     assert isinstance(h, Hostname) and h.name == "vps1"
-    [h] = built(r, data={"hostname": "vps1.example.net"})
-    assert h.name == "vps1.example.net"
+    [h] = built(r, data={"hostname": "vps1.example.com"})
+    assert h.name == "vps1.example.com"
     assert built(r, type="lxc") == []
 
 
@@ -87,3 +87,28 @@ def test_when_and_ordering(tmp_path):
 def test_systemd_entry_errors(tmp_path, entry, message):
     with pytest.raises(BastetError, match=message):
         role(tmp_path, [entry])
+
+
+def test_a_required_field_that_resolves_to_nothing_is_a_clear_error(tmp_path):
+    opts = {"app": {"type": "string"}}
+    with pytest.raises(BastetError, match="systemd\\[0\\]: unit: name resolved to nothing"):
+        built(role(tmp_path, [{"kind": "unit", "name": "{{ app }}"}], options=opts))
+    with pytest.raises(BastetError, match="systemd\\[0\\]: dropin: content resolved to nothing"):
+        built(role(tmp_path, [{"kind": "dropin", "unit": "u.service", "name": "n", "content": "{{ app }}"}], options=opts))
+
+
+def test_a_unit_state_or_enabled_is_checked_after_resolving(tmp_path):
+    opts = {"s": {"type": "string"}, "e": {"type": "string"}}
+    with pytest.raises(BastetError, match="state resolved to 'bogus'"):
+        built(role(tmp_path, [{"kind": "unit", "name": "a.service", "state": "{{ s }}"}], options=opts), {"s": "bogus"})
+    with pytest.raises(BastetError, match="enabled resolved to 'yes please'"):
+        built(role(tmp_path, [{"kind": "unit", "name": "a.service", "enabled": "{{ e }}"}], options=opts), {"e": "yes please"})
+    [u] = built(role(tmp_path, [{"kind": "unit", "name": "a.service", "state": "{{ s }}"}], options=opts), {"s": "up"})
+    assert u.state == "up"
+
+
+def test_a_dropin_restart_that_resolves_to_nothing_means_the_default(tmp_path):
+    r = role(tmp_path, [{"kind": "dropin", "unit": "u.service", "name": "n", "content": "x", "restart": "{{ again }}"}],
+             options={"again": {"type": "bool"}})
+    assert [t.label for t in built(r, {})[0].on_change] == ["daemon-reload", "restart u.service"]
+    assert [t.label for t in built(r, {"again": False})[0].on_change] == ["daemon-reload"]

@@ -31,21 +31,100 @@ def built(r, values=None, secrets=frozenset()):
 
 def test_content_becomes_a_file_with_triggers(tmp_path):
     [f] = built(role(tmp_path, [{"path": "/etc/x.conf", "content": "host {{ domain }}\n", "mode": "0644",
-                                 "reload": ["example-app.service"]}]), {"domain": "example.net"})
-    assert isinstance(f, File) and f.content == "host example.net\n" and f.mode == "0644"
+                                 "reload": ["example-app.service"]}]), {"domain": "example.com"})
+    assert isinstance(f, File) and f.content == "host example.com\n" and f.mode == "0644"
     assert [t.label for t in f.on_change] == ["reload example-app.service"]
 
 
 def test_template_from_the_roles_folder(tmp_path):
     r = role(tmp_path, [{"path": "/etc/site", "template": "site.j2"}], template="{{ domain }}.{{ host.name }}\n")
-    [f] = built(r, {"domain": "example.net"})
-    assert f.content == "example.net.vps1\n"
+    [f] = built(r, {"domain": "example.com"})
+    assert f.content == "example.com.vps1\n"
 
 
-def test_a_template_that_fails_names_itself(tmp_path):
-    r = role(tmp_path, [{"path": "/etc/site", "template": "site.j2"}], template="{{ nope }}\n")
+def test_a_template_that_fails_at_build_names_itself(tmp_path):
+    r = role(tmp_path, [{"path": "/etc/site", "template": "site.j2"}], template="{{ domain }}\n")
     with pytest.raises(BastetError, match="site.j2"):
         built(r)
+
+
+def test_a_template_using_an_unknown_name_is_refused_when_the_role_is_read(tmp_path):
+    with pytest.raises(BastetError, match=r"files\[0\].template \(site.j2\).*nope"):
+        role(tmp_path, [{"path": "/etc/site", "template": "site.j2"}], template="{{ nope }}\n")
+
+
+def test_a_template_file_that_does_not_exist_is_refused_when_the_role_is_read(tmp_path):
+    with pytest.raises(BastetError, match="site.j2.*can.t read the template"):
+        role(tmp_path, [{"path": "/etc/site", "template": "site.j2"}])
+
+
+def test_role_templates_are_sandboxed(tmp_path):
+    r = role(tmp_path, [{"path": "/etc/site", "template": "site.j2"}], template="{{ ''.__class__ }}\n")
+    with pytest.raises(BastetError, match="site.j2"):
+        built(r)
+
+
+def test_a_template_never_writes_an_unset_option_as_none(tmp_path):
+    r = role(tmp_path, [{"path": "/etc/site", "template": "site.j2"}], template="zone={{ domain }}\n")
+    with pytest.raises(BastetError, match="site.j2.*unset"):
+        built(r)
+    r = role(tmp_path, [{"path": "/etc/site", "template": "site.j2"}], template="{% if domain %}zone={{ domain }}{% endif %}\n")
+    assert built(r)[0].content == "\n"
+
+
+def test_a_template_naming_a_secret_option_makes_its_file_secret(tmp_path):
+    r = role(tmp_path, [{"path": "/etc/site", "template": "site.j2"}, {"path": "/etc/b", "content": "plain"}],
+             options={"token": {"type": "string"}}, template="t={{ token }}\n")
+    site, b = built(r, {"token": "t"}, frozenset({"token"}))
+    assert site.secret and not b.secret
+
+
+def test_every_field_of_the_new_forms_resolves_expressions(tmp_path):
+    opts = {"app": {"type": "string"}, "m": {"type": "string"}, "who": {"type": "string"}, "unit": {"type": "string"}}
+    r = role(tmp_path, [
+        {"path": "/etc/{{ app }}.conf", "content": "x", "mode": "{{ m }}", "owner": "{{ who }}", "group": "{{ who }}",
+         "validate": "{{ app }} -t %s", "restart": ["{{ unit }}"], "reload": ["{{ app }}.service"]},
+        {"path": "/etc/{{ app }}/d", "directory": True, "mode": "{{ m }}", "owner": "{{ who }}"},
+        {"path": "/srv/{{ app }}", "link": "/opt/{{ app }}"},
+        {"path": "/etc/{{ app }}.default", "line": "A=1", "match": "^{{ app }}=", "validate": "{{ app }} -t %s"},
+        {"path": "/etc/{{ app }}.x", "block": "k", "marker": "bastet {{ app }}", "comment": "{{ m }}"},
+    ], options=opts)
+    f, d, link, line, block = built(r, {"app": "demo", "m": "0640", "who": "svc", "unit": "demo.service"})
+    assert (f.path, f.mode, f.owner, f.group, f.validate) == ("/etc/demo.conf", "0640", "svc", "svc", "demo -t %s")
+    assert [t.label for t in f.on_change] == ["restart demo.service", "reload demo.service"]
+    assert (d.path, d.mode, d.owner) == ("/etc/demo/d", "0640", "svc")
+    assert (link.path, link.target) == ("/srv/demo", "/opt/demo")
+    assert (line.path, line.match, line.validate) == ("/etc/demo.default", "^demo=", "demo -t %s")
+    assert (block.path, block.marker, block.comment) == ("/etc/demo.x", "bastet demo", "0640")
+
+
+def test_optional_fields_that_resolve_to_nothing_are_dropped(tmp_path):
+    r = role(tmp_path, [{"path": "/etc/x", "content": "x", "mode": "{{ domain }}", "owner": "{{ domain }}"}])
+    [f] = built(r)
+    assert f.mode is None and f.owner is None
+
+
+def test_a_path_that_resolves_to_nothing_is_an_error(tmp_path):
+    with pytest.raises(BastetError, match="files\\[0\\]: path resolved to nothing"):
+        built(role(tmp_path, [{"path": "{{ domain }}", "content": "x"}]))
+
+
+def test_edit_and_backup_resolve_the_path_and_quote_it(tmp_path):
+    r = role(tmp_path, [{"path": "/etc/{{ domain }}.conf", "edit": "ini", "backup": True, "validate": "{{ domain }} -t %s"}],
+             options={"domain": {"type": "string"}, "n": {"type": "int", "key": "N", "section": "options"}})
+    backup, settings = built(r, {"domain": "my app", "n": 1})
+    assert backup.run == "cp -p '/etc/my app.conf' '/etc/my app.conf.bastet-orig'"
+    assert "'/etc/my app.conf.bastet-orig'" in backup.unless
+    assert settings.path == "/etc/my app.conf" and settings.validate == "my app -t %s"
+
+
+@pytest.mark.parametrize("path", ["/etc/sudoers.d/bastet", "/home/bastet/.ssh/authorized_keys", "/var/lib/bastet/.ssh/authorized_keys"])
+def test_files_entries_cannot_touch_the_bastet_accounts_access(tmp_path, path):
+    with pytest.raises(BastetError, match="bastet account is managed by Bastet itself"):
+        role(tmp_path, [{"path": path, "content": "x"}])
+    r = role(tmp_path, [{"path": "{{ domain }}", "content": "x"}])
+    with pytest.raises(BastetError, match="bastet account is managed by Bastet itself"):
+        built(r, {"domain": path})
 
 
 def test_directory_link_line_block(tmp_path):

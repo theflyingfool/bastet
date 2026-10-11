@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import posixpath
+import re
 from dataclasses import replace
 from pathlib import Path
 
@@ -44,6 +46,8 @@ USERS_KINDS = {
 }
 USERS_REQUIRED = {"user": ("name",), "group": ("name",), "key": ("user", "key"), "sudoer": ("name",)}
 BASTET_USER = "bastet"
+BASTET_SUDOERS = "/etc/sudoers.d/bastet"
+UNIT_STATES = ("up", "down")
 
 
 def _fail(msg: str, path: Path, key: str) -> BastetError:
@@ -174,40 +178,72 @@ def _packages(role, ctx: dict, secrets: frozenset) -> list[Resource]:
         if name is None:
             raise BastetError(f"{role.name}: packages[{i}]: name resolved to nothing")
         fields = {k: v for k, v in fields.items() if v is not None}
-        for n in name if isinstance(name, list) else [name]:
+        names = name if isinstance(name, list) else [name]
+        if any(n is None for n in names):
+            raise BastetError(f"{role.name}: packages[{i}]: a name in the list resolved to nothing (an unset option?)")
+        for n in names:
             out.append(placed(Package(name=str(n), **fields), role, entry, secrets))
     return out
 
 
+def _need(role, kind: str, where: str, f: dict, required: tuple[str, ...]) -> None:
+    for field in required:
+        if f.get(field) in (None, ""):
+            raise BastetError(f"{role.name}: {where}: {kind}: {field} resolved to nothing")
+
+
+def refuse_bastet_path(path: str, where: str) -> None:
+    """Files that carry Bastet's own access (its sudoers rule and its authorized_keys) are not a role's to write."""
+    clean = posixpath.normpath(path) if path.startswith("/") else path
+    if clean == BASTET_SUDOERS or re.search(r"(^|/|~)bastet/\.ssh/authorized_keys$", clean):
+        raise BastetError(f"{where}: {path} would lock Bastet out of this host; the bastet account is managed by Bastet itself")
+
+
+def _guard_bastet(role, where: str, kind: str, f: dict) -> None:
+    named = (f.get("user"),) if kind == "key" else (f.get("name"), f.get("user"))
+    if BASTET_USER in named:
+        raise BastetError(f"{role.name}: {where}: the bastet account is managed by Bastet itself")
+
+
 def _users(role, ctx: dict, secrets: frozenset) -> list[Resource]:
     out: list[Resource] = []
-    for entry in role.users:
+    for i, entry in enumerate(role.users):
         if not expr.truthy(entry.get("when"), ctx):
             continue
-        kind = entry["kind"]
+        kind, where = entry["kind"], f"users[{i}]"
         resolved = {k: expr.resolve(v, ctx) for k, v in entry.items() if k not in COMMON_KEYS | {"kind"}}
         f = {k: tuple(v) if isinstance(v, list) else v for k, v in resolved.items() if v is not None}
-        if kind == "user":
-            made = User(**f)
-        elif kind == "group":
-            made = Group(**f)
-        elif kind == "key":
-            made = AuthorizedKey(**f)
-        else:
-            made = sudoer(f.pop("name"), **f)
+        _need(role, kind, where, f, USERS_REQUIRED[kind])
+        _guard_bastet(role, where, kind, f)
+        try:
+            if kind == "user":
+                made = User(**f)
+            elif kind == "group":
+                made = Group(**f)
+            elif kind == "key":
+                made = AuthorizedKey(**f)
+            else:
+                made = sudoer(f.pop("name"), **f)
+        except (TypeError, ValueError) as exc:
+            raise BastetError(f"{role.name}: {where}: {exc}") from None
         out.append(placed(made, role, entry, secrets))
     return out
 
 
 def _systemd(role, ctx: dict, host, secrets: frozenset) -> list[Resource]:
     out: list[Resource] = []
-    for entry in role.systemd:
+    for i, entry in enumerate(role.systemd):
         if not expr.truthy(entry.get("when"), ctx):
             continue
         kind = entry["kind"]
         f = {k: expr.resolve(v, ctx) for k, v in entry.items() if k not in COMMON_KEYS | {"kind"}}
+        _need(role, kind, f"systemd[{i}]", f, SYSTEMD_REQUIRED.get(kind, ()))
         if kind == "unit":
-            made = [Unit(name=f["name"], enabled=f.get("enabled"), state=f.get("state"))]
+            if f.get("state") not in (None, *UNIT_STATES):
+                raise BastetError(f"{role.name}: systemd[{i}]: state resolved to {f['state']!r}; it must be up or down")
+            if f.get("enabled") not in (None, True, False):
+                raise BastetError(f"{role.name}: systemd[{i}]: enabled resolved to {f['enabled']!r}; it must be true or false")
+            made = [Unit(name=str(f["name"]), enabled=f.get("enabled"), state=f.get("state"))]
         elif kind == "time":
             if host.container:  # a container can't set the clock or NTP; only the timezone applies
                 f = {k: v for k, v in f.items() if k not in ("ntp", "rtc_local")}
@@ -217,48 +253,62 @@ def _systemd(role, ctx: dict, host, secrets: frozenset) -> list[Resource]:
         elif kind == "locale":
             made = [Locale(**f)] if any(v is not None for v in f.values()) else []
         else:
-            made = [drop_in(f["unit"], f["name"], f["content"], restart_unit=f.get("restart", True))]
+            restart_unit = True if f.get("restart") is None else bool(f["restart"])  # unset means the default
+            made = [drop_in(str(f["unit"]), str(f["name"]), str(f["content"]), restart_unit=restart_unit)]
         out += [placed(r, role, entry, secrets) for r in made]
     return out
 
 
 def triggers(entry: dict) -> dict:
-    """The `restart`/`reload` unit lists of an entry as `on_change` triggers."""
-    units = [restart(u) for u in entry.get("restart") or []] + [reload(u) for u in entry.get("reload") or []]
+    """The `restart`/`reload` unit lists of a resolved entry as `on_change` triggers."""
+    units = [restart(u) for u in entry.get("restart") or [] if u] + [reload(u) for u in entry.get("reload") or [] if u]
     return {"on_change": tuple(units)} if units else {}
 
 
-def _text(role, entry: dict, i: int, key: str, ctx: dict) -> str:
-    value = expr.resolve(entry[key], ctx)
-    if value is None:
+UNRESOLVED_KEYS = COMMON_KEYS | {"edit", "render", "backup", "template", "unique", "directory"}
+
+
+def resolved_files_entry(role, entry: dict, i: int, ctx: dict) -> dict:
+    """The fields of a `files` entry with their `{{ }}` filled in; optional ones that come out unset are dropped."""
+    r = {k: expr.resolve(v, ctx) for k, v in entry.items() if k not in UNRESOLVED_KEYS}
+    if r.get("path") in (None, ""):
+        raise BastetError(f"{role.name}: files[{i}]: path resolved to nothing")
+    r["path"] = str(r["path"])
+    refuse_bastet_path(r["path"], f"{role.name}: files[{i}]")
+    return {k: v for k, v in r.items() if v is not None}
+
+
+def _text(role, r: dict, i: int, key: str) -> str:
+    if r.get(key) is None:
         raise BastetError(f"{role.name}: files[{i}]: {key} resolved to nothing")
-    return str(value)
+    return str(r[key])
 
 
-def build_files(role, ctx: dict, entry: dict, i: int, secrets: frozenset = frozenset()) -> list[Resource]:
+def build_files(role, ctx: dict, entry: dict, i: int, secrets: frozenset = frozenset(), r: dict | None = None) -> list[Resource]:
     """One resource from a `files` entry that is not `edit` or `render`."""
-    path, used = entry["path"], entry
+    r = resolved_files_entry(role, entry, i, ctx) if r is None else r
+    path, used = r["path"], entry
     if "directory" in entry:
-        made = Directory(path=path, owner=entry.get("owner"), group=entry.get("group"), mode=entry.get("mode"))
+        made = Directory(path=path, owner=r.get("owner"), group=r.get("group"), mode=r.get("mode"))
     elif "link" in entry:
-        made = Symlink(path=path, target=_text(role, entry, i, "link", ctx))
+        made = Symlink(path=path, target=_text(role, r, i, "link"))
     elif "line" in entry:
-        made = Line(path=path, line=_text(role, entry, i, "line", ctx), match=entry.get("match"), unique=bool(entry.get("unique")),
-                    validate=entry.get("validate"), **triggers(entry))
+        made = Line(path=path, line=_text(role, r, i, "line"), match=r.get("match"), unique=bool(entry.get("unique")),
+                    validate=r.get("validate"), **triggers(r))
     elif "block" in entry:
-        made = Block(path=path, block=_text(role, entry, i, "block", ctx), marker=entry["marker"], comment=entry.get("comment", "#"),
-                     validate=entry.get("validate"), **triggers(entry))
+        made = Block(path=path, block=_text(role, r, i, "block"), marker=_text(role, r, i, "marker"), comment=r.get("comment", "#"),
+                     validate=r.get("validate"), **triggers(r))
     else:
         if "template" in entry:
-            content = render_template(role.path.parent, entry["template"], ctx)
+            content = render_template(role.path.parent, entry["template"], ctx, sandbox=True)
             try:  # a template that mentions a secret option makes its file secret
                 used = {**entry, "template text": (role.path.parent / entry["template"]).read_text(encoding="utf-8")}
             except OSError:
                 pass
         else:
-            content = _text(role, entry, i, "content", ctx)
-        made = File(path=path, content=content, owner=entry.get("owner"), group=entry.get("group"), mode=entry.get("mode"),
-                    validate=entry.get("validate"), **triggers(entry))
+            content = _text(role, r, i, "content")
+        made = File(path=path, content=content, owner=r.get("owner"), group=r.get("group"), mode=r.get("mode"),
+                    validate=r.get("validate"), **triggers(r))
     return [placed(made, role, used, secrets)]
 
 

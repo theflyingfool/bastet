@@ -85,3 +85,13 @@ def test_edit_resources_stay_marked_secret_when_any_option_is_secret(tmp_path):
 def test_package_entry_errors(tmp_path, entry, message):
     with pytest.raises(BastetError, match=message):
         role(tmp_path, [entry])
+
+
+def test_an_unset_option_inside_a_name_or_a_list_never_becomes_the_package_none(tmp_path):
+    r = role(tmp_path, [{"name": "{{ app }}-tools"}], options={"app": {"type": "string"}})
+    with pytest.raises(BastetError, match="unset"):
+        built(r, {})
+    r = role(tmp_path, [{"name": "{{ [app, 'git'] }}"}], options={"app": {"type": "string"}})
+    with pytest.raises(BastetError, match="packages\\[0\\].*resolved to nothing"):
+        built(r, {})
+    assert [p.name for p in built(r, {"app": "vim"})] == ["vim", "git"]

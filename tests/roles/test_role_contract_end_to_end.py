@@ -33,7 +33,7 @@ def run_order(role, values):
 
 def test_a_role_of_block_entries_runs_in_block_order(tmp_path):
     path, role = demo(tmp_path)
-    assert run_order(role, {"domain": "example.net"}) == ["Package", "User", "File", "Unit"]
+    assert run_order(role, {"domain": "example.com"}) == ["Package", "User", "File", "Unit"]
     _check_role_dir(path.parent)  # the lint `bastet doctor <folder>` runs; raises on a bad role
 
 
@@ -41,7 +41,7 @@ def test_an_ini_edit_and_a_command_in_the_same_role_still_build(tmp_path):
     files = [{"path": "/etc/example-app/app.conf", "content": "x\n"}, {"path": "/etc/example-app/more.conf", "edit": "ini"}]
     commands = [{"name": "init db", "run": "example-app migrate", "unless": "test -e /var/lib/example-app/done"}]
     path, role = demo(tmp_path, files=files, commands=commands)
-    order = run_order(role, {"domain": "example.net", "workers": 4})
+    order = run_order(role, {"domain": "example.com", "workers": 4})
     assert order[:2] == ["Package", "User"]
     assert "Settings" in order and "File" in order and "Unit" in order and len(order) == 6
     _check_role_dir(path.parent)

@@ -177,6 +177,18 @@ def _text_list(path: Path, key: str, value: object) -> tuple[str, ...]:
     return tuple(value)
 
 
+def _check_template(role_file: Path, name: str, allowed: set[str], where: str) -> None:
+    """A role template must exist beside the role file and only name options and facts."""
+    try:
+        text = (role_file.parent / name).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise BastetError(f"{where}: can't read the template: {exc.strerror or exc}", file=role_file, key="template") from None
+    try:
+        expr.check_text(text, allowed, where)
+    except BastetError as exc:
+        raise BastetError(exc.message, file=role_file, key="template") from None
+
+
 def _file_entry(path: Path, entry: object, options: dict[str, Option], index: int = 0) -> dict:
     if not isinstance(entry, dict):
         raise BastetError("each files entry must be a map", file=path, key="files")
@@ -214,6 +226,13 @@ def _file_entry(path: Path, entry: object, options: dict[str, Option], index: in
     for key in ("restart", "reload"):
         if key in entry and not (isinstance(entry[key], list) and all(isinstance(u, str) for u in entry[key])):
             raise BastetError(f"files entry: {key} must be a list of unit names", file=path, key=key)
+    where = f"files[{index}]"
+    try:
+        role_entries.refuse_bastet_path(entry["path"], where)
+    except BastetError as exc:
+        raise BastetError(exc.message, file=path, key="path") from None
+    if form == "template":
+        _check_template(path, entry["template"], set(options), f"{where}.template ({entry['template']})")
     # edit/render keep their long-standing before/after (any name); only the new forms need a block slot
     checked = {k: v for k, v in entry.items() if k not in ("before", "after")} if form in ("edit", "render") else entry
     role_entries.check_common(checked, set(options), f"files[{index}]", path, "files")

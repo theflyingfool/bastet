@@ -78,3 +78,26 @@ def test_when_skips_an_entry(tmp_path):
 def test_users_entry_errors(tmp_path, entry, message):
     with pytest.raises(BastetError, match=message):
         role(tmp_path, [entry])
+
+
+def test_a_bastet_name_that_comes_from_an_option_is_refused(tmp_path):
+    opts = {"who": {"type": "string"}}
+    for entry in ({"kind": "user", "name": "{{ who }}", "shell": "/usr/bin/nologin"},
+                  {"kind": "key", "user": "{{ who }}", "key": "ssh-ed25519 AAAAexample"},
+                  {"kind": "sudoer", "name": "{{ who }}", "nopasswd": True}):
+        with pytest.raises(BastetError, match="bastet account is managed by Bastet itself"):
+            built(role(tmp_path, [entry], options=opts), {"who": "bastet"})
+    assert built(role(tmp_path, [{"kind": "user", "name": "{{ who }}"}], options=opts), {"who": "svc"})
+
+
+def test_a_required_field_that_resolves_to_nothing_is_a_clear_error(tmp_path):
+    opts = {"who": {"type": "string"}}
+    with pytest.raises(BastetError, match="users\\[0\\]: user: name resolved to nothing"):
+        built(role(tmp_path, [{"kind": "user", "name": "{{ who }}"}], options=opts), {})
+    with pytest.raises(BastetError, match="users\\[0\\]: key: key resolved to nothing"):
+        built(role(tmp_path, [{"kind": "key", "user": "svc", "key": "{{ who }}"}], options=opts), {})
+
+
+def test_a_bad_resolved_name_is_a_bastet_error_not_a_traceback(tmp_path):
+    with pytest.raises(BastetError, match="users\\[0\\]"):
+        built(role(tmp_path, [{"kind": "user", "name": "{{ who }}"}], options={"who": {"type": "string"}}), {"who": "bad name"})
