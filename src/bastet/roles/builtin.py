@@ -18,6 +18,7 @@ from bastet.engine.systemd import Hostname, Locale, TimeSettings, Unit, drop_in,
 from bastet.engine.templates import render_template
 from bastet.engine.users import AuthorizedKey, Group, User, sudoer
 from bastet.roles import declarative, system
+from bastet.roles.baselines import baseline_for
 from bastet.roles.resolve import Applied
 
 ORDER = ("pacman", "packages", "base", "users", "files", "ssh", "harden", "systemd")  # repositories and pacman.conf before installs
@@ -136,7 +137,7 @@ def _packages(v: dict, host: HostInfo) -> list[Batch]:
         extras.append(Reboot(policy=v.get("reboot") or "ask", timeout=v.get("reboot_timeout") or 600))
     if v.get("report_unaccounted", True):
         tracked = tuple(p["name"] for p in installs) + tuple(str(t) for t in host.data.get("bastet_tools") or ())
-        extras.append(Unaccounted(tracked=tracked, allowed=tuple(v.get("allowed") or ())))
+        extras.append(Unaccounted(tracked=tracked, allowed=tuple(dict.fromkeys((*(v.get("allowed") or ()), *baseline_for(host))))))
     aur_user, helper = v.get("aur_user") or "bastet-aur", v.get("aur_helper") or "yay-bin"
     wants_aur = any(p.get("aur") for p in installs)
     packages = [Package(**_kw({**base, **p, **({"aur_user": aur_user} if p.get("aur") else {})})) for p in installs]

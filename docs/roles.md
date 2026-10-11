@@ -323,8 +323,8 @@ remove:
 | reboot | string | ask | After apply, when the host needs a reboot (new kernel, /run/reboot-required): never = only report it; ask = ask (never under -y); auto = reboot and wait for the host. Bastet never reboots the machine it runs on. (one of never, ask, auto) |
 | reboot_timeout | int | 600 | Seconds to wait for the host to come back after a reboot |
 | updates_exclude | list of string |  | Never upgrade these (pacman --ignore, dnf --exclude, …) |
-| allowed | list of string |  | Packages that are fine without a role (not reported as unaccounted) |
-| report_unaccounted | bool | true | Report packages installed outside Bastet (explicitly installed, not in the system set, no role, not allowed) |
+| allowed | list of string |  | Packages that are fine without a role (not reported as unaccounted); a host with a provider (Linode on Arch) also gets that provider's stock-image packages allowed automatically |
+| report_unaccounted | bool | true | Report packages installed outside Bastet (explicitly installed, not in the system set, no role, not allowed or in the provider's stock image) |
 
 ## pacman
 

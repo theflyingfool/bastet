@@ -103,7 +103,7 @@ Generic mechanisms every role is assembled from (roles spec §8). Roles never im
 | ◐ | systemd | Units, drop-ins, hostname, locale, time | Timers, `.mount` units, sysctl.d, modules-load.d, tmpfiles.d, hardening drop-ins from `access` |
 | ☐ | JSON state | APIs and JSON-speaking CLIs: read, find, compare a subset, create/update/delete; on the host or the controller | Everything |
 | ◐ | commands | A command with a check; role files can declare `commands:` entries (`name`, `run`, `unless`, optional `when`, `before`/`after`) | Phase hooks (`changed` / `always` / `check:`) later |
-| ◐ | reports | Read-only information: lynis, listening ports, service exposure, vulnerable and unaccounted packages | Report options any role can offer, the per-host reports note |
+| ◐ | reports | Read-only information: lynis, listening ports, service exposure, vulnerable and unaccounted packages | Report options any role can offer, the per-host reports note. Done: a provider's stock-image packages (Linode Arch) are allowed in the unaccounted report from shipped baselines |
 | ☐ | power control | On, off and status through IPMI, Redfish or Wake-on-LAN | Everything |
 
 **Execution (not blocks):**
