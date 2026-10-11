@@ -118,6 +118,7 @@ def test_the_original_pacman_conf_is_backed_up_first():
 
 def test_the_backup_precedes_the_settings_in_run_order():
     from types import SimpleNamespace
+
     from bastet.engine.slots import apply_order
     [batch] = batches_for([ap({})], arch())
     ordered = [i.resource for i in apply_order([(batch.name, [SimpleNamespace(resource=r) for r in batch.resources])])]

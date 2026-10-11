@@ -1,12 +1,12 @@
 from pathlib import Path
 
 import pytest
+from conftest import git
 
 import bastet.cli.run as run_mod
 from bastet.cli.app import app
 from bastet.core.remote import LocalRunner
 from bastet.core.secrets.redact import ACTIVE
-from conftest import git
 
 
 def test_tracebacks_never_show_locals():
@@ -15,6 +15,7 @@ def test_tracebacks_never_show_locals():
 
 def test_top_level_errors_are_masked(capsys):
     import typer
+
     from bastet.cli.common import handles_errors
     from bastet.core.errors import BastetError
 

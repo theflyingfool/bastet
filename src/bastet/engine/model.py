@@ -112,7 +112,7 @@ class Resource(ABC):
         return None
 
     @classmethod
-    def fix_group(cls, members: list[tuple["Resource", list[FieldChange], dict[str, object]]]) -> list[str]:
+    def fix_group(cls, members: list[tuple[Resource, list[FieldChange], dict[str, object]]]) -> list[str]:
         raise NotImplementedError
 
     def report_only(self) -> bool:

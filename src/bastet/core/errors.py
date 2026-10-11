@@ -1,5 +1,5 @@
-from pathlib import Path
 from difflib import get_close_matches
+from pathlib import Path
 
 
 def did_you_mean(word: str, candidates: list[str]) -> str:

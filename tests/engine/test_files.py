@@ -1,7 +1,7 @@
-import pytest
-
 import os
 import stat
+
+import pytest
 
 from bastet.core.remote import LocalRunner
 from bastet.engine.files import Block, Directory, File, Line, Symlink

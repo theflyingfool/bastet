@@ -1,10 +1,11 @@
+from unifi_fixtures import AP, GATEWAY, GUEST_MAC, HOST_MAC, SWITCH
+
 from bastet.core.cabling import merge_links, port_rows, propose_links
 from bastet.core.factsnote import render_facts, render_hardware_facts
 from bastet.core.hosttypes import load_host_types
 from bastet.core.inventory import load_inventory
 from bastet.core.links import make_link
 from bastet.core.unifi import parse_mca
-from unifi_fixtures import AP, GATEWAY, GUEST_MAC, HOST_MAC, SWITCH
 
 TYPES = load_host_types()
 
@@ -89,6 +90,7 @@ def test_bridge_sharing_the_nic_mac_links_the_nic(tmp_path):
 
 def test_port_with_several_known_hosts_is_not_linked(tmp_path):
     import json
+
     from unifi_fixtures import SWITCH
     lab(tmp_path)
     (tmp_path / "hosts" / "nas.md").write_text("---\nbastet: host\ntype: server\nip: 10.10.0.20\n---\n")

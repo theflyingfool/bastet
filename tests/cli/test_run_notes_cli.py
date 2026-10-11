@@ -2,16 +2,14 @@ import os
 from pathlib import Path
 
 import pytest
+from conftest import git
 
 import bastet.cli.run as run_mod
 from bastet.cli.app import app
-from bastet.core.config import data_dir
 from bastet.core.remote import LocalRunner
 from bastet.core.secrets import crypto
 from bastet.core.secrets.notes import SecretNote, SecretPath
 from bastet.core.secrets.redact import ACTIVE
-from bastet.events.jsonl import runs_dir
-from conftest import git
 
 
 class AsRootLocally(LocalRunner):

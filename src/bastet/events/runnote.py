@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from bastet.core.inventory import RUN_NOTES_DIR
@@ -150,7 +150,7 @@ def _host_section(host: str, events: list[dict], detail: int) -> list[str]:
 def render_run_note(events: list[dict], detail: int, status: str | None = None) -> str:
     detail = max(1, min(detail, MAX_DETAIL))
     s = summarize(events, status)
-    when = _when(s.started) if s.started else datetime.now(timezone.utc)
+    when = _when(s.started) if s.started else datetime.now(UTC)
     frontmatter = {
         "bastet": "run", "generated": True, "run": s.run_id, "command": s.command, "mode": s.mode, "started": s.started,
         "hosts": [f"[[{h}]]" for h in s.hosts], "changed": s.changed, "failed": s.failed, "status": s.status,
@@ -158,7 +158,7 @@ def render_run_note(events: list[dict], detail: int, status: str | None = None) 
     }
     plural = "host" if len(s.hosts) == 1 else "hosts"
     lines = [
-        f"# {s.mode} {when.astimezone(timezone.utc).strftime('%Y-%m-%d %H:%M')} UTC", "",
+        f"# {s.mode} {when.astimezone(UTC).strftime('%Y-%m-%d %H:%M')} UTC", "",
         f"`{s.command}` · by {s.user or 'unknown'} · {len(s.hosts)} {plural} · {s.changed} changed · "
         f"{s.failed} failed · took {s.duration:.1f}s · {s.status}",
     ]

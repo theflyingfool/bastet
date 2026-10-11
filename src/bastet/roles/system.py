@@ -8,12 +8,12 @@ import re
 from bastet.core.errors import BastetError
 from bastet.core.osinfo import ARCH_LIKE
 from bastet.engine.command import Command
-from bastet.engine.files import File, Line, Symlink
+from bastet.engine.files import File, Symlink
+from bastet.engine.model import Trigger
 from bastet.engine.packages import Package
 from bastet.engine.run import Batch
-from bastet.engine.model import Trigger
 from bastet.engine.security import AppArmorStatus, ListeningPorts, LynisReport, ServiceExposure, VulnerablePackages
-from bastet.engine.systemd import Unit, drop_in, reload, restart
+from bastet.engine.systemd import Unit, drop_in, restart
 from bastet.engine.users import sudoer
 
 MICROCODE = {("arch", "intel"): "intel-ucode", ("arch", "amd"): "amd-ucode",

@@ -2,16 +2,15 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from gather_fixtures import LAPTOP, VPS, stdout_for
 
-from bastet.core.shell import parse_sections
 from bastet.core.facts import extract
 from bastet.core.factsnote import facts_path
-from bastet.core.frontmatter import parse_document
 from bastet.core.gatherplan import plan_facts
 from bastet.core.gitrepo import GitRepo
 from bastet.core.hosttypes import load_host_types
 from bastet.core.inventory import load_inventory
-from gather_fixtures import LAPTOP, VPS, stdout_for
+from bastet.core.shell import parse_sections
 
 TYPES = load_host_types()
 

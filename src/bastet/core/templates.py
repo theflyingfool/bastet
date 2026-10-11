@@ -5,8 +5,8 @@ built-in Templates plugin ("Templates: Insert template" command). Bastet owns th
 and rewrites them on refresh to keep them in sync with current types and categories.
 """
 
-from bastet.core.hosttypes import HostType
 from bastet.core.hardware import HARDWARE_CATEGORIES, HARDWARE_YOURS
+from bastet.core.hosttypes import HostType
 from bastet.core.yamlstyle import dump_frontmatter
 
 
@@ -91,7 +91,7 @@ def _explain_host_fields(type_def: HostType) -> str:
         lines.append(f"- `{field}`\n")
 
     if type_def.minimal:
-        lines.append(f"\n### Required fields\n")
+        lines.append("\n### Required fields\n")
         lines.append(f"This host type requires: {', '.join(type_def.minimal)}\n")
 
     return "".join(lines) + "\n"
@@ -117,7 +117,7 @@ def _hardware_template(category: str) -> str:
 def _explain_hardware_fields(category: str) -> str:
     """Explain the fields in a hardware template."""
     lines = [
-        f"# <hardware name>\n",
+        "# <hardware name>\n",
         f"Category: {category}\n",
         "Docs: [[Hardware]]\n",
         "\n## About this template\n",

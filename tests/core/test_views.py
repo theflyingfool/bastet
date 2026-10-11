@@ -1,5 +1,10 @@
 from bastet.core.views import (
-    HARDWARE_BASE_PATH, ROLES_BASE_PATH, SECRETS_BASE_PATH, VIEWS, ensure_views, has_hardware_section,
+    HARDWARE_BASE_PATH,
+    ROLES_BASE_PATH,
+    SECRETS_BASE_PATH,
+    VIEWS,
+    ensure_views,
+    has_hardware_section,
     insert_after_title,
 )
 

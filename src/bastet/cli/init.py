@@ -7,7 +7,7 @@ from pathlib import Path
 
 import typer
 
-from bastet.cli.common import Context, handles_errors, load_context, push_or_warn, refresh_only, next_hint
+from bastet.cli.common import Context, handles_errors, load_context, next_hint, push_or_warn, refresh_only
 from bastet.core import hostkeys
 from bastet.core.changes import Change, render_diff, write_changes
 from bastet.core.config import config_path, data_dir, inventory_dir, load_config
@@ -16,8 +16,15 @@ from bastet.core.factsnote import facts_change
 from bastet.core.frontmatter import set_keys
 from bastet.core.hostview import host_data
 from bastet.core.initialize import (
-    InitOptions, ProcResult, existing_recipients, generate_recovery_key, initialize, local_user_setup,
-    real_runner, sshd_inactive_unit, sshd_ready,
+    InitOptions,
+    ProcResult,
+    existing_recipients,
+    generate_recovery_key,
+    initialize,
+    local_user_setup,
+    real_runner,
+    sshd_inactive_unit,
+    sshd_ready,
 )
 from bastet.ui import out
 

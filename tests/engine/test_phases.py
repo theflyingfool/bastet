@@ -1,13 +1,13 @@
 from typing import ClassVar
 
 import pytest
+from engine_fakes import Broken, Flag
 
 from bastet.core.errors import BastetError
 from bastet.core.remote import LocalRunner
 from bastet.engine.model import Trigger
 from bastet.engine.run import Batch, run_host
 from bastet.engine.slots import SLOTS, apply_order, rank
-from engine_fakes import Broken, Flag
 
 
 class Pkg(Flag):
@@ -59,8 +59,12 @@ def test_an_unknown_block_name_is_an_error_at_plan_time_even_in_check(tmp_path):
 
 
 def test_every_resource_class_has_a_known_slot():
-    import bastet.engine.command, bastet.engine.files, bastet.engine.packages, bastet.engine.security  # noqa: F401
-    import bastet.engine.systemd, bastet.engine.users  # noqa: F401
+    import bastet.engine.command
+    import bastet.engine.files
+    import bastet.engine.packages
+    import bastet.engine.security  # noqa: F401
+    import bastet.engine.systemd
+    import bastet.engine.users  # noqa: F401
     from bastet.engine.model import Resource
 
     def walk(cls):

@@ -1,5 +1,6 @@
-import pytest
 from pathlib import Path
+
+import pytest
 
 from bastet.core.hosttypes import load_host_types
 from bastet.core.inventory import load_inventory

@@ -1,4 +1,3 @@
-from pathlib import Path
 
 from bastet.core.changes import Change, render_diff, write_changes
 

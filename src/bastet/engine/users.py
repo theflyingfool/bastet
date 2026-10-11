@@ -416,7 +416,6 @@ class AuthorizedKey(Resource):
 
     def fix(self, changes, current):
         data = base64.b64encode(self.wanted(current["content"]).encode("utf-8")).decode("ascii")
-        n = _q(self.user)
         return [
             self._where(),
             'test -n "$h" || { echo "user $n does not exist" >&2; exit 1; }',

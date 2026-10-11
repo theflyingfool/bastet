@@ -1,10 +1,10 @@
 import pytest
+from engine_fakes import Append, Broken, DeniedRunner, ExplodingRunner, Flag, NoSystemd, Stubborn, UnreadableReportOnly
 
 from bastet.core.errors import Unreachable
 from bastet.core.remote import LocalRunner
 from bastet.engine.model import Trigger, Unsupported
 from bastet.engine.run import Batch, ConflictError, run_host
-from engine_fakes import Append, Broken, DeniedRunner, ExplodingRunner, Flag, NoSystemd, Stubborn, UnreadableReportOnly
 
 
 def statuses(run):
@@ -137,10 +137,11 @@ def test_same_file_edits_see_each_other(tmp_path):
     assert run_host(LocalRunner(), "h", batches, apply=True).count("compliant") == 2
 
 
+from engine_fakes import SilentRunner, Unreadable  # noqa: E402
+
 from bastet.engine.command import Command  # noqa: E402
 from bastet.engine.run import collect_items  # noqa: E402
 from bastet.engine.systemd import TimeSettings  # noqa: E402
-from engine_fakes import SilentRunner, Unreadable  # noqa: E402
 
 
 def test_stdin_reading_check_cannot_swallow_later_reads(tmp_path):

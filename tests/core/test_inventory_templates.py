@@ -1,14 +1,11 @@
 """Templates for hosts, hardware, and other inventory items."""
 
-import json
 from pathlib import Path
 
-import pytest
-
 from bastet.core.frontmatter import parse_document
+from bastet.core.hosttypes import load_host_types
 from bastet.core.inventory import load_inventory
 from bastet.core.templates import templates_for_inventory
-from bastet.core.hosttypes import load_host_types
 
 
 def test_templates_include_every_host_type():

@@ -1,7 +1,8 @@
+from engine_fakes import Flag
+
 from bastet.engine.model import ABSENT, FieldChange, Trigger
 from bastet.engine.report import change_text, host_block, render_host, render_runs
 from bastet.engine.run import HostRun, Item, TriggerRun
-from engine_fakes import Flag
 
 
 def item(path, status, changes=(), error=None, diff=None, origins=("lab",), secret=False):

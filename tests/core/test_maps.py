@@ -52,7 +52,7 @@ def test_empty_maps(tmp_path):
 
 
 def test_networks_map_mixed_ip_versions(tmp_path):
-    inv = lab(tmp_path)
+    lab(tmp_path)
     (tmp_path / "hosts" / "v6.md").write_text("---\nbastet: host\ntype: server\nip: 2001:db8::5\n---\n# v6\n")
     (tmp_path / "hosts" / "pub.md").write_text("---\nbastet: host\ntype: server\nip: 203.0.113.10\n---\n# pub\n")
     text = networks_map(load_inventory(tmp_path, TYPES))

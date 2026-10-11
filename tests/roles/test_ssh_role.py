@@ -92,8 +92,9 @@ def test_role_yml_matches_the_table():
 
 
 def test_option_names_unique_and_snake_case():
-    from bastet.roles.system import SSHD_KEYWORDS
     import re
+
+    from bastet.roles.system import SSHD_KEYWORDS
     assert all(re.fullmatch(r"[a-z][a-z0-9_]*", k) for k in SSHD_KEYWORDS)
     assert len({kw for kw, _ in SSHD_KEYWORDS.values()}) == len(SSHD_KEYWORDS)
     assert set(ROLES["ssh"].options) == set(SSHD_KEYWORDS) | {"match"}

@@ -17,7 +17,6 @@ from rich.text import Text
 from bastet.core.secrets.redact import ACTIVE
 from bastet.ui.blocks import Block
 
-
 _ANSI = re.compile(r"\033\[[;?0-9]*[a-zA-Z]")
 
 

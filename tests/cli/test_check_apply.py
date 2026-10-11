@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 
 import pytest
+from conftest import STATIC_PRIVATE_KEY, STATIC_PUBLIC_KEY, git
 
 import bastet.cli.run as run_mod
 from bastet.cli.app import app
@@ -9,7 +10,6 @@ from bastet.core.errors import Unreachable
 from bastet.core.remote import LocalRunner
 from bastet.core.secrets import crypto
 from bastet.core.secrets.notes import SecretNote, SecretPath
-from conftest import STATIC_PRIVATE_KEY, STATIC_PUBLIC_KEY, git
 
 
 class AsRootLocally(LocalRunner):

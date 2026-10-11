@@ -1,6 +1,7 @@
-from bastet.core.shell import parse_sections
-from bastet.core.facts import extract, propose_type
 from gather_fixtures import LAPTOP, VPS, stdout_for
+
+from bastet.core.facts import extract, propose_type
+from bastet.core.shell import parse_sections
 
 
 def ex(outputs):

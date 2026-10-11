@@ -1,10 +1,10 @@
 import json
 
 import pytest
+from unifi_fixtures import AP, AP_MAC, GATEWAY, GW_MAC, SWITCH
 
 from bastet.core.errors import BastetError
 from bastet.core.unifi import device_facts, machine_item, parse_mca, redact
-from unifi_fixtures import AP, AP_MAC, GATEWAY, GW_MAC, SWITCH
 
 
 def test_parse_gateway():

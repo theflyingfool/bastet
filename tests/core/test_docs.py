@@ -80,7 +80,7 @@ def test_contextual_link_in_facts_notes(tmp_path):
 
 def test_homelab_docs_line_from_init_and_doctor_fix_offer(tmp_path):
     # init adds the line on a new lab
-    r = initialize(
+    initialize(
         tmp_path / "cfg" / "bastet.yml",
         InitOptions(inventory=tmp_path / "Homelab", remote=None, key=None, bootstrap_user="alice", lab_name="Homelab"),
         keys_dir=tmp_path / "cfg" / "ssh",

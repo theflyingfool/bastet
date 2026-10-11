@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from bastet.core.secrets.redact import ACTIVE
 
@@ -55,7 +55,7 @@ class Event:
                 "host": self.host, "data": self.data}
 
     @classmethod
-    def from_dict(cls, d: dict) -> "Event":
+    def from_dict(cls, d: dict) -> Event:
         return cls(d["kind"], d["run_id"], d["t"], float(d.get("elapsed", 0.0)), d.get("host"), dict(d.get("data") or {}))
 
     def to_json(self) -> str:
@@ -68,7 +68,7 @@ def make_event(kind: str, run_id: str, started: float, host: str | None, data: d
     missing = [k for k in KINDS[kind] if k not in data]
     if missing:
         raise ValueError(f"{kind} is missing {', '.join(missing)}")
-    now = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    now = datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
     return Event(kind, run_id, now, time.monotonic() - started, host, dict(data))
 
 

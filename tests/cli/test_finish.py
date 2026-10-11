@@ -1,10 +1,11 @@
 """One commit per command, folding in regenerated notes; a consistent push-failure line; refresh
 skip reasons printed as plain lines. See docs/plans/2026-10-07-bastet-simplify-ux.md Task 5."""
 
+from conftest import git
+
 import bastet.cli.common as common_mod
 from bastet.cli.app import app
 from bastet.core.secrets.notes import SecretPath
-from conftest import git
 
 
 def _count(root) -> int:

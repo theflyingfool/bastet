@@ -101,6 +101,7 @@ def test_unset_secret_option_reads_its_own_note():
 
 def test_unset_secret_option_without_a_note_is_missing():
     import pytest
+
     from bastet.roles.contract import Option
     with pytest.raises(MissingSecret, match="bastet secret set git1 gitea admin_password"):
         resolve_refs({"admin_password": None}, host="git1", role="gitea",

@@ -1,11 +1,11 @@
-import json
+
+from engine_fakes import Broken, Flag, NoSystemd
 
 from bastet.core.remote import LocalRunner
 from bastet.core.secrets.redact import ACTIVE
 from bastet.engine.model import Trigger
 from bastet.engine.run import Batch, run_host
 from bastet.events import ListSink, recording
-from engine_fakes import Broken, Flag, NoSystemd
 
 
 def record(fn):

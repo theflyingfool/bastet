@@ -1,9 +1,10 @@
 import json
 
-from bastet.core.shell import parse_sections
+from gather_fixtures import LAPTOP, SERVER, stdout_for
+
 from bastet.core.facts import extract
 from bastet.core.hardware import file_name, observe_hardware
-from gather_fixtures import LAPTOP, SERVER, stdout_for
+from bastet.core.shell import parse_sections
 
 
 def view(outputs, host="pve1"):

@@ -114,7 +114,7 @@ def run_parallel(
     go = {h: threading.Event() for h in hosts}  # the main thread has decided run-or-skip
     outcomes: dict[str, Outcome[T]] = {}
     permission: dict[str, bool] = {}
-    events: "queue.Queue[tuple[str, str]]" = queue.Queue()  # ("ready" | "done", host)
+    events: queue.Queue[tuple[str, str]] = queue.Queue()  # ("ready" | "done", host)
 
     def finish(outcome: Outcome[T]) -> None:
         outcomes[outcome.host] = outcome

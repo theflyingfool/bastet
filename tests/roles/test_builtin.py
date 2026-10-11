@@ -4,11 +4,10 @@ import pytest
 
 from bastet.core.errors import BastetError
 from bastet.core.shell import ProbeResult
-from bastet.engine.files import Block, Directory, File, Line, Symlink
+from bastet.engine.files import Block, File, Line
 from bastet.engine.model import Unsupported
 from bastet.engine.packages import Package
-from bastet.engine.systemd import Hostname, Locale, TimeSettings, Unit
-from bastet.engine.users import AuthorizedKey, Group, User
+from bastet.engine.systemd import Hostname, Unit
 from bastet.roles.builtin import HostInfo, batches_for
 from bastet.roles.contract import check_values, load_roles, with_defaults
 from bastet.roles.resolve import Applied

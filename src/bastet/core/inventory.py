@@ -5,7 +5,12 @@ from pathlib import Path
 
 from bastet.core.errors import BastetError
 from bastet.core.factsnote import (
-    FACTS_DIR, HARDWARE_MIRROR_KEYS, META_KEYS, NOTE_KEYS, facts_path, hardware_facts_path,
+    FACTS_DIR,
+    HARDWARE_MIRROR_KEYS,
+    META_KEYS,
+    NOTE_KEYS,
+    facts_path,
+    hardware_facts_path,
 )
 from bastet.core.frontmatter import Document, parse_document
 from bastet.core.hosttypes import HostType

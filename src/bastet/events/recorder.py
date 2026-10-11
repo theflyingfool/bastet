@@ -8,7 +8,7 @@ import threading
 import time
 import uuid
 from collections.abc import Iterator
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
@@ -77,7 +77,7 @@ class MemorySink:
 
 
 def new_run_id() -> str:
-    return datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6]
+    return datetime.now(UTC).strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6]
 
 
 class Recorder:
@@ -188,7 +188,7 @@ def flush() -> None:
         recorder.flush()
 
 
-def note_change(root: Path, detail: int) -> "Change | None":
+def note_change(root: Path, detail: int) -> Change | None:
     """The run note for the active run at `detail`, as a change to write; None when nothing is recording one."""
     recorder = _active
     sink = next((s for s in recorder.sinks if isinstance(s, MemorySink)), None) if recorder else None

@@ -1,12 +1,12 @@
 from types import SimpleNamespace
 
 import pytest
+from conftest import git
 
 from bastet.cli.app import app
 from bastet.cli.complete import complete_secret_words
 from bastet.core.secrets import crypto
 from bastet.core.secrets.notes import SecretNote, SecretPath
-from conftest import git
 
 SENTINEL = "SENTINEL-4242"
 

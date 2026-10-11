@@ -2,8 +2,15 @@ from pathlib import Path
 
 from bastet.core.changes import Change
 from bastet.core.factsnote import (
-    FACTS_DIR, SECURITY_MARKER, facts_change, facts_path, hardware_facts_change, hardware_facts_path,
-    render_facts, render_hardware_facts, split_security,
+    FACTS_DIR,
+    SECURITY_MARKER,
+    facts_change,
+    facts_path,
+    hardware_facts_change,
+    hardware_facts_path,
+    render_facts,
+    render_hardware_facts,
+    split_security,
 )
 from bastet.core.frontmatter import parse_document
 

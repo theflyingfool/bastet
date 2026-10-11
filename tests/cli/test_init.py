@@ -1,6 +1,5 @@
 import base64
 import re
-from pathlib import Path
 
 import pytest
 
@@ -8,7 +7,7 @@ import bastet.cli.init as init_mod
 from bastet.cli.app import app
 from bastet.core.config import load_config
 from bastet.core.hostkeys import parse_keyscan
-from bastet.core.initialize import ProcResult, SUDOERS_LINE
+from bastet.core.initialize import ProcResult
 
 RECOVERY_RE = re.compile(r"AGE-SECRET-KEY-1[A-Z0-9]+")
 FAKE_HOST_KEYS = parse_keyscan(f"h ssh-ed25519 {base64.b64encode(b'local-host-key').decode()}\n")

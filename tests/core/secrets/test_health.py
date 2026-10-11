@@ -67,7 +67,6 @@ def test_role(tmp_path, monkeypatch):
         "    secret: true\n"
     )
     merged = {**load_roles(), **load_roles(roles_dir)}
-    import bastet.core.secrets.health as health_mod
     import bastet.roles.contract as contract_mod
 
     monkeypatch.setattr(contract_mod, "load_roles", lambda directory=None: merged if directory is None else load_roles(directory))
@@ -92,7 +91,7 @@ def _seal(root: Path, sp: SecretPath, value: str, recipients: list[str], **kw) -
 def _add_role_file(root: Path, host: str, role: str, **values) -> None:
     folder = root / "_roles" / "hosts" / host
     folder.mkdir(parents=True, exist_ok=True)
-    lines = [f'bastet: role', f"role: {role}", f'applies_to: "[[{host}]]"']
+    lines = ['bastet: role', f"role: {role}", f'applies_to: "[[{host}]]"']
     for k, v in values.items():
         lines.append(f"{k}: {v}")
     (folder / f"{role}.md").write_text("---\n" + "\n".join(lines) + "\n---\n")
@@ -110,8 +109,6 @@ def test_missing_secret_generatable_is_not_blocking(root, keys, test_role):
     git(root, "add", ".")
     git(root, "commit", "-q", "-m", "role")
     ctx = make_ctx(root, keys)
-    found = {f.kind: f for f in health.findings(ctx) if f.sp and f.sp.text in
-             ("git1/svc/admin_password", "git1/svc/api_key")}
     missing = [f for f in health.findings(ctx) if f.kind == "missing"]
     by_path = {f.sp.text: f for f in missing}
     assert by_path["git1/svc/admin_password"].severity == "info"

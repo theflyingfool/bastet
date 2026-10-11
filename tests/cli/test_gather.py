@@ -5,6 +5,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from gather_fixtures import LAPTOP, stdout_for
 
 import bastet.cli.gather as gather_mod
 from bastet.cli.app import app
@@ -12,7 +13,6 @@ from bastet.core.errors import Unreachable
 from bastet.core.factsnote import facts_path
 from bastet.core.hostkeys import parse_keyscan
 from bastet.core.remote import CommandResult
-from gather_fixtures import LAPTOP, stdout_for
 
 KEYS = parse_keyscan(f"h ssh-ed25519 {base64.b64encode(b'fake-host-key').decode()}\n")
 

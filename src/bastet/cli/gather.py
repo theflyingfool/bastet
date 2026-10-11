@@ -1,7 +1,7 @@
 import datetime as dt
 import getpass
-import json
 import ipaddress
+import json
 import shlex
 import tempfile
 from dataclasses import dataclass
@@ -10,7 +10,6 @@ from pathlib import Path
 import typer
 
 from bastet import events
-from bastet.ui import out
 from bastet.cli.common import (
     Context,
     finish,
@@ -22,33 +21,40 @@ from bastet.cli.common import (
     ssh_ports,
     write_with_confirmation,
 )
-from bastet.core.guests import guest_drift
-from bastet.core.hostview import host_data
-from bastet.core.links import link_target
-from bastet.core.render import lab_embed_changes
-from bastet.core.scaffold import new_host
-from bastet.core.selectors import select_hosts
-from bastet.core.tools import install_script, needed_tools
 from bastet.core import hostkeys
 from bastet.core.bootstrap import setup_command
 from bastet.core.cabling import merge_links, propose_links
-from bastet.core.networks import compare_networks, lab_networks
 from bastet.core.collect import Snapshot, collect, save_snapshot
 from bastet.core.config import data_dir
 from bastet.core.errors import AuthFailed, BastetError, Unreachable
 from bastet.core.facts import Extracted, extract
 from bastet.core.factsnote import facts_change, hardware_facts_change
 from bastet.core.frontmatter import Document
-from bastet.core.unifi import device_facts, machine_item, parse_mca, redact
 from bastet.core.gatherplan import Note, plan_facts
+from bastet.core.guests import guest_drift
 from bastet.core.hardware import (
-    HardwareView, RunState, hw_baseline, missing_hardware, observe_hardware, plan_hardware, set_hw_facts,
+    HardwareView,
+    RunState,
+    hw_baseline,
+    missing_hardware,
+    observe_hardware,
+    plan_hardware,
+    set_hw_facts,
 )
+from bastet.core.hostview import host_data
 from bastet.core.inventory import Inventory
+from bastet.core.links import link_target
+from bastet.core.networks import compare_networks, lab_networks
 from bastet.core.parallel import HostLog, Outcome, run_parallel
 from bastet.core.remote import SshRunner, SshTarget, run_interactive
+from bastet.core.render import lab_embed_changes
+from bastet.core.scaffold import new_host
 from bastet.core.secrets.redact import ACTIVE
+from bastet.core.selectors import select_hosts
 from bastet.core.shell import ProbeResult
+from bastet.core.tools import install_script, needed_tools
+from bastet.core.unifi import device_facts, machine_item, parse_mca, redact
+from bastet.ui import out
 
 LOCAL_ADDRESS = "127.0.0.1"
 

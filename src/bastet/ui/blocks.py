@@ -16,11 +16,11 @@ class Block:
     def __init__(self, lines: Iterable[Line] = ()) -> None:
         self.lines: list[Line] = list(lines)
 
-    def add(self, text: str = "", style: str | None = None) -> "Block":
+    def add(self, text: str = "", style: str | None = None) -> Block:
         self.lines.append(Line(text, style))
         return self
 
-    def extend(self, lines: Iterable[Line]) -> "Block":
+    def extend(self, lines: Iterable[Line]) -> Block:
         self.lines.extend(lines)
         return self
 

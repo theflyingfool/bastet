@@ -1,4 +1,5 @@
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -10,9 +11,6 @@ import bastet.cli.run as run_mod
 import bastet.cli.secret as secret_mod
 import bastet.roles.builtin as builtin_mod
 from bastet.roles.contract import load_roles
-
-
-import shutil
 
 STATIC_PRIVATE_KEY = (
     "-----BEGIN OPENSSH PRIVATE KEY-----\n"

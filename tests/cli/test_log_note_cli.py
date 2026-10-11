@@ -4,12 +4,13 @@ import re
 import time
 from pathlib import Path
 
+from conftest import git
+
 from bastet.cli.app import app
 from bastet.core.config import data_dir
 from bastet.core.secrets.redact import ACTIVE
 from bastet.events.jsonl import runs_dir
 from bastet.events.model import make_event
-from conftest import git
 
 RUN_ID = "20261010-121800-22d326"
 

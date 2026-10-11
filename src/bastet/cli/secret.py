@@ -13,7 +13,6 @@ from dataclasses import dataclass, field
 import typer
 from rich.progress import Progress
 
-from bastet.ui import out
 from bastet.cli.common import Context, finish, handles_errors, load_context, print_problems, pull_or_warn, push_or_warn
 from bastet.cli.complete import complete_secret_words
 from bastet.core.changes import Change, write_changes
@@ -24,6 +23,7 @@ from bastet.core.secrets.crypto import SecretError
 from bastet.core.secrets.notes import SecretNote, SecretPath, all_notes_safe
 from bastet.roles.contract import Option, load_roles
 from bastet.roles.resolve import resolve
+from bastet.ui import out
 
 secret_app = typer.Typer(invoke_without_command=True, help="The secret inventory, set and show (never values here).")
 

@@ -1,8 +1,7 @@
 import subprocess
-from pathlib import Path
 
-import pytest
 import pyrage
+import pytest
 
 from bastet.core.secrets import crypto
 from bastet.core.secrets.crypto import PathMismatch, SecretError

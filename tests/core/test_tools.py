@@ -1,7 +1,8 @@
-from bastet.core.shell import ProbeResult, parse_sections
-from bastet.core.hosttypes import load_host_types
-from bastet.core.tools import install_script, needed_tools
 from gather_fixtures import LAPTOP, RACK, SERVER, VPS, stdout_for
+
+from bastet.core.hosttypes import load_host_types
+from bastet.core.shell import parse_sections
+from bastet.core.tools import install_script, needed_tools
 
 TYPES = load_host_types()
 
@@ -47,7 +48,6 @@ def test_install_scripts():
 
 
 def test_bmc_detected_by_bmc_graphics_or_ipmi_device():
-    import json
     from gather_fixtures import RACK
     no_smbios = RACK["dmidecode"].split("Handle 0x0031")[0]
     assert needed_tools(results(dict(RACK, dmidecode=no_smbios)), TYPES["proxmox"]) == ["ipmitool"]

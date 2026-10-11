@@ -13,48 +13,47 @@ import typer
 import bastet.cli.gather as gather_mod
 import bastet.cli.secret as secret_mod
 from bastet import events
-from bastet.ui import out
 from bastet.cli.common import (
-    confirm_upstream_secrets,
     Context,
+    confirm_upstream_secrets,
     finish,
     guard_prompts,
     handles_errors,
     load_context,
     print_problems,
-    recorded_run,
     push_or_warn,
+    recorded_run,
     resolve_jobs,
-    scan_first,
     ssh_ports,
 )
 from bastet.cli.complete import complete_hosts
-from bastet.core.secrets import health as secret_health
 from bastet.cli.gather import _resolve_address, _scan_pinned, scan_keys, ssh_runner
+from bastet.cli.reboot import RebootPlan, perform_reboot, reboot_decision
 from bastet.core import hostkeys
+from bastet.core.changes import Change, write_changes
 from bastet.core.errors import BastetError
+from bastet.core.factsnote import facts_path, split_security
 from bastet.core.frontmatter import Document, new_document, parse_document
 from bastet.core.hostview import host_data
 from bastet.core.inventory import load_inventory
 from bastet.core.links import link_target
 from bastet.core.parallel import HostFailed, HostLog, Outcome, break_cycles, run_parallel, stopping
 from bastet.core.remote import SshTarget, close_master, control_path
-from bastet.core.selectors import select_hosts
-from bastet.cli.reboot import RebootPlan, perform_reboot, reboot_decision
-from bastet.engine.packages import Reboot
-from bastet.core.changes import Change, write_changes
+from bastet.core.secrets import health as secret_health
 from bastet.core.secrets.redact import ACTIVE
-from bastet.core.factsnote import facts_path, split_security
+from bastet.core.secrets.refs import MissingSecret, resolve_refs
 from bastet.core.security_note import security_items, security_section
+from bastet.core.selectors import select_hosts
+from bastet.engine.packages import Reboot
 from bastet.engine.report import host_block
+from bastet.engine.run import Batch, run_host
 from bastet.engine.script import exec_script, new_mark
 from bastet.engine.security import LYNIS_AUDIT, LynisReport
-from bastet.engine.run import Batch, run_host
-from bastet.core.secrets.refs import MissingSecret, resolve_refs
 from bastet.roles.builtin import HostInfo, batches_for
 from bastet.roles.contract import RoleDef, load_roles
 from bastet.roles.pages import options_in_body
 from bastet.roles.resolve import Applied, resolve
+from bastet.ui import out
 
 
 def host_info(ctx: Context, doc: Document, updates: bool = False) -> HostInfo:

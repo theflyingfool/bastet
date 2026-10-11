@@ -4,6 +4,7 @@ import threading
 from pathlib import Path
 
 import pytest
+from gather_fixtures import LAPTOP, RACK, stdout_for
 
 import bastet.cli.gather as gather_mod
 from bastet.cli.app import app
@@ -11,7 +12,6 @@ from bastet.core.errors import AuthFailed
 from bastet.core.hostkeys import parse_keyscan
 from bastet.core.parallel import in_worker
 from bastet.core.remote import CommandResult
-from gather_fixtures import LAPTOP, RACK, stdout_for
 
 KEYS = parse_keyscan("h ssh-ed25519 aGVsbG8=\n")
 HOST_KEY = f"ssh-ed25519 {KEYS[0].fingerprint}"

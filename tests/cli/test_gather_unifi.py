@@ -2,14 +2,14 @@ import base64
 from pathlib import Path
 
 import pytest
+from conftest import git
+from unifi_fixtures import AP, GATEWAY, HOST_MAC, SWITCH
 
 import bastet.cli.gather as gather_mod
 from bastet.cli.app import app
 from bastet.core.factsnote import facts_path, render_facts
 from bastet.core.hostkeys import parse_keyscan, record
 from bastet.core.remote import CommandResult
-from conftest import git
-from unifi_fixtures import AP, GATEWAY, HOST_MAC, SWITCH
 
 KEYS = parse_keyscan(f"h ssh-ed25519 {base64.b64encode(b'fake-unifi-key').decode()}\n")
 REC = record(KEYS[0])

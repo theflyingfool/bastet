@@ -7,8 +7,15 @@ import pytest
 from bastet.core.config import load_config
 from bastet.core.errors import BastetError
 from bastet.core.initialize import (
-    InitOptions, ProcResult, SUDOERS_LINE, existing_recipients, generate_recovery_key, initialize,
-    local_user_setup, sshd_inactive_unit, sshd_ready,
+    SUDOERS_LINE,
+    InitOptions,
+    ProcResult,
+    existing_recipients,
+    generate_recovery_key,
+    initialize,
+    local_user_setup,
+    sshd_inactive_unit,
+    sshd_ready,
 )
 
 

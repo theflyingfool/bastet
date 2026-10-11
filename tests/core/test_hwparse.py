@@ -1,11 +1,23 @@
 import json
 
-from bastet.core.hwparse import (
-    base_device, clean, machine_from_dmi, memory_size, parse_disk_ids, parse_dmidecode, parse_ipmi_lan,
-    parse_lspci, parse_net_sysfs, parse_pve_guests, parse_smart, parse_zpool, slots_in_use, speed_label, strip_ids,
-)
 from gather_fixtures import LAPTOP, SERVER
 
+from bastet.core.hwparse import (
+    base_device,
+    machine_from_dmi,
+    memory_size,
+    parse_disk_ids,
+    parse_dmidecode,
+    parse_ipmi_lan,
+    parse_lspci,
+    parse_net_sysfs,
+    parse_pve_guests,
+    parse_smart,
+    parse_zpool,
+    slots_in_use,
+    speed_label,
+    strip_ids,
+)
 
 
 def test_dmidecode_server_machine():
@@ -131,6 +143,7 @@ def test_guest_conf_manual_and_second_nic_static():
 
 def test_templates_and_failed_neighbours_dropped():
     import json
+
     from bastet.core.hwparse import parse_neigh
     guests = parse_pve_guests(json.dumps([{"vmid": 9000, "name": "tpl", "type": "qemu", "node": "n", "template": 1},
                                           {"vmid": 101, "name": "a", "type": "lxc", "node": "n"}]))
@@ -147,7 +160,14 @@ def test_board_subsystem_prefers_most_used_matching_id():
 
 
 from bastet.core.hwparse import (  # noqa: E402
-    cpus_from_dmi, parse_ethtool, parse_firmware_info, parse_fru, parse_links, parse_mc_info, parse_usb, psus_from_dmi,
+    cpus_from_dmi,
+    parse_ethtool,
+    parse_firmware_info,
+    parse_fru,
+    parse_links,
+    parse_mc_info,
+    parse_usb,
+    psus_from_dmi,
 )
 
 

@@ -10,13 +10,19 @@ from pathlib import Path
 
 from bastet.core.changes import Change
 from bastet.core.errors import BastetError
+from bastet.core.factsnote import (
+    FACTS_DIR,
+    SECURITY_MARKER,
+    facts_path,
+    hardware_facts_path,
+    render_facts,
+    render_hardware_facts,
+    split_security,
+)
 from bastet.core.frontmatter import Document, parse_document
 from bastet.core.gitrepo import BASTET_NAME, GitRepo
 from bastet.core.hardware import MACHINE_CATEGORIES
 from bastet.core.hosttypes import HostType
-from bastet.core.factsnote import (
-    FACTS_DIR, SECURITY_MARKER, facts_path, hardware_facts_path, render_facts, render_hardware_facts, split_security,
-)
 from bastet.core.hostview import hardware_data, host_data, missing_warning
 from bastet.core.hwparse import short_cpu
 from bastet.core.inventory import Inventory, markdown_files

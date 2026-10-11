@@ -184,10 +184,11 @@ def test_reveal_prints_a_secret_unmasked_while_echo_masks_it():
     assert o.getvalue() == "\n".join([ACTIVE.mask("hunter2-value"), "hunter2-value", ""])
 
 
+from engine_fakes import Flag  # noqa: E402
+
 from bastet.engine.model import FieldChange  # noqa: E402
 from bastet.engine.report import host_block  # noqa: E402
 from bastet.engine.run import HostRun, Item  # noqa: E402
-from engine_fakes import Flag  # noqa: E402
 
 
 def _run():

@@ -155,7 +155,7 @@ def resolve(inv: Inventory, host: Document, types: dict[str, HostType], roles: d
 
             def clash(path, opt, a, b, level=level):
                 shown = "(secret)" if opt.secret else f"{a!r} vs {b!r}"
-                raise ConflictError(f"{name}: {' and '.join(s.label for s in level)} set {path} differently ({shown})")
+                raise ConflictError(f"{name}: {' and '.join(s.label for s in level)} set {path} differently ({shown})")  # noqa: B023 (only called within this loop pass)
 
             combined: dict = {}
             for s in level:

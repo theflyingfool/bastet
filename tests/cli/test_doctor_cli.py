@@ -1,8 +1,8 @@
-import subprocess
 from pathlib import Path
 
-from bastet.cli.app import app
 from conftest import git
+
+from bastet.cli.app import app
 
 
 def _count(root: Path) -> int:

@@ -5,7 +5,7 @@ import pytest
 
 from bastet.core.config import data_dir
 from bastet.core.secrets.redact import ACTIVE
-from bastet.events.model import KINDS, Event, level_of, make_event, mask_event, mask_value
+from bastet.events.model import KINDS, level_of, make_event, mask_event, mask_value
 
 
 def ev(kind="note", host=None, **data):

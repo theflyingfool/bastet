@@ -27,3 +27,27 @@ packages = ["src/bastet"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 140
+target-version = "py312"
+extend-exclude = ["refs", ".superpowers"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "UP", "B"]
+ignore = [
+    "B008",  # typer declares options as call defaults
+    "B905",  # zip() without strict=
+    "UP046", "UP047",  # PEP 695 generics: a style change, not a fix
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = [
+    "E741",  # short names like l in comprehensions
+    "E402",  # imports after sys.path setup
+    "B017",  # pytest.raises(Exception) where the type is not the point
+    "B023",  # closures over loop variables that run in the loop
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["bastet"]

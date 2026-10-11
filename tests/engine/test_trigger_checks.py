@@ -1,8 +1,9 @@
+from engine_fakes import Flag
+
 from bastet.core.remote import LocalRunner
 from bastet.engine.model import Trigger
 from bastet.engine.run import Batch, run_host
 from bastet.engine.systemd import reload, restart
-from engine_fakes import Flag
 
 
 def _run(tmp_path, *triggers):

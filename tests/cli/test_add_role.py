@@ -1,6 +1,6 @@
-from bastet.cli.app import app
-from bastet.core.secrets.notes import SecretNote, SecretPath
 from conftest import git
+
+from bastet.cli.app import app
 
 
 def test_add_role_to_host_writes_file_and_section(runner, inventory):

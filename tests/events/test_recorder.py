@@ -3,9 +3,9 @@ import time
 
 import pytest
 
+import bastet.events.recorder as recorder_mod
 from bastet import events
 from bastet.core.secrets.redact import ACTIVE
-import bastet.events.recorder as recorder_mod
 from bastet.events.recorder import ListSink, MemorySink, Recorder, new_run_id, recording
 
 
@@ -15,7 +15,7 @@ def kinds(sink):
 
 def test_run_started_first_run_finished_last_and_order_kept():
     sink = ListSink()
-    with recording("run -c", [sink]) as rec:
+    with recording("run -c", [sink]):
         events.emit("note", None, message="one")
         events.emit("note", None, message="two")
     assert kinds(sink) == ["run_started", "note", "note", "run_finished"]

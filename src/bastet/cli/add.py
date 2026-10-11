@@ -1,23 +1,20 @@
 import socket
-
 from pathlib import Path
 
 import typer
 
 import bastet.cli.secret as secret_mod
-from bastet.cli.common import finish, handles_errors, load_context, push_or_warn, write_with_confirmation, next_hint
+from bastet.cli.common import finish, handles_errors, load_context, next_hint, push_or_warn, write_with_confirmation
 from bastet.cli.complete import complete_roles
-from bastet.core.render import lab_embed_changes
 from bastet.core.changes import Change
-from bastet.core.errors import BastetError
+from bastet.core.errors import BastetError, did_you_mean
 from bastet.core.frontmatter import new_document
 from bastet.core.inventory import load_inventory
 from bastet.core.links import make_link
+from bastet.core.render import lab_embed_changes
+from bastet.core.scaffold import new_host, suggested_ip
 from bastet.core.views import ROLES_SECTION, SECRETS_SECTION, has_roles_section, has_secrets_section
 from bastet.roles.contract import load_roles
-from bastet.core.scaffold import new_host, suggested_ip
-from bastet.core.hardware import HARDWARE_CATEGORIES
-from bastet.core.errors import did_you_mean
 from bastet.ui import out
 
 add_app = typer.Typer(no_args_is_help=True, help="Add a host to the inventory. Asks for anything not given.")

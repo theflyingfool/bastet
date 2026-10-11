@@ -1,17 +1,16 @@
 import subprocess
 
 import pytest
+from gather_fixtures import SERVER, stdout_for
 
 from bastet.core.changes import write_changes
-from bastet.core.factsnote import hardware_facts_change, hardware_facts_path
-from bastet.core.shell import parse_sections
 from bastet.core.facts import extract
-from bastet.core.frontmatter import parse_document
+from bastet.core.factsnote import hardware_facts_change, hardware_facts_path
 from bastet.core.gitrepo import GitRepo
 from bastet.core.hardware import RunState, missing_hardware, observe_hardware, plan_hardware
 from bastet.core.hosttypes import load_host_types
 from bastet.core.inventory import load_inventory
-from gather_fixtures import SERVER, stdout_for
+from bastet.core.shell import parse_sections
 
 TYPES = load_host_types()
 GATHERED = "2026-10-06T10:00:00Z"

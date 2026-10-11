@@ -1,7 +1,8 @@
+from conftest import git
+
 from bastet.cli.app import app
 from bastet.core.secrets import crypto
 from bastet.core.secrets.notes import SecretNote, SecretPath
-from conftest import git
 
 
 def _seed_unused_secret(inventory, pub) -> None:

@@ -1,11 +1,11 @@
 import os
 import stat
 
+from bastet import events
 from bastet.cli.app import app
 from bastet.core.config import data_dir
 from bastet.events.jsonl import JsonlSink, runs_dir
 from bastet.events.recorder import recording
-from bastet import events
 
 
 def record(run_id, command="run -c"):

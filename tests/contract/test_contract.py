@@ -112,7 +112,9 @@ def test_arch_users_contract(arch_host):
 from pathlib import Path  # noqa: E402
 
 from bastet.roles.builtin import HostInfo, batches_for  # noqa: E402
-from bastet.roles.contract import check_values as _check, load_roles as _roles, with_defaults as _defaults  # noqa: E402
+from bastet.roles.contract import check_values as _check  # noqa: E402
+from bastet.roles.contract import load_roles as _roles
+from bastet.roles.contract import with_defaults as _defaults
 from bastet.roles.resolve import Applied  # noqa: E402
 
 
@@ -161,7 +163,8 @@ def test_arch_updates_reported(arch_host):
 def test_arch_aur_contract(arch_host):
     info = HostInfo(name="ct", type="vm", data={"os": "Arch Linux"}, root=Path("/nonexistent"), lab={})
     batches = batches_for([_applied("packages", {"install": [{"name": "yay-bin", "aur": True}], "report_unaccounted": False})], info)
-    from bastet.engine.packages import Reboot as _Reboot, Updates as _Updates
+    from bastet.engine.packages import Reboot as _Reboot
+    from bastet.engine.packages import Updates as _Updates
     for b in batches:  # the update check needs mirrors this throwaway container may not reach; not what's tested here
         b.resources = [r for r in b.resources if not isinstance(r, (_Updates, _Reboot))]
     converge(arch_host, batches)

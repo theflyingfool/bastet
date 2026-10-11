@@ -9,9 +9,33 @@ from bastet.core.facts import SKIP_DISKS, Extracted
 from bastet.core.frontmatter import Document, new_document
 from bastet.core.gatherplan import Note
 from bastet.core.hwparse import (
-    base_device, board_subsystem_id, clean, cpus_from_dmi, parse_ethtool, parse_firmware_info, parse_fru,
-    parse_mc_info, parse_usb, psus_from_dmi, short_cpu, parse_guest_conf, parse_neigh, has_bmc, machine_from_dmi, pci_id, slot_designations, parse_disk_ids, parse_dmidecode, parse_ipmi_lan, parse_lspci,
-    parse_net_sysfs, parse_pve_guests, parse_smart, parse_zpool, slots_in_use, strip_ids,
+    base_device,
+    board_subsystem_id,
+    clean,
+    cpus_from_dmi,
+    has_bmc,
+    machine_from_dmi,
+    parse_disk_ids,
+    parse_dmidecode,
+    parse_ethtool,
+    parse_firmware_info,
+    parse_fru,
+    parse_guest_conf,
+    parse_ipmi_lan,
+    parse_lspci,
+    parse_mc_info,
+    parse_neigh,
+    parse_net_sysfs,
+    parse_pve_guests,
+    parse_smart,
+    parse_usb,
+    parse_zpool,
+    pci_id,
+    psus_from_dmi,
+    short_cpu,
+    slot_designations,
+    slots_in_use,
+    strip_ids,
 )
 from bastet.core.inventory import Inventory, markdown_files
 from bastet.core.links import link_target, make_link
