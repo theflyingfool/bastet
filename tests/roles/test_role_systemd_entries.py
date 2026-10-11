@@ -39,6 +39,13 @@ def test_time_takes_option_values_and_drops_unset_ones(tmp_path):
     assert built(r, {}) == []
 
 
+def test_time_on_a_container_keeps_only_the_timezone(tmp_path):
+    r = role(tmp_path, [{"kind": "time", "timezone": "{{ tz }}", "ntp": "{{ ntp }}", "rtc_local": False}])
+    [t] = built(r, {"tz": "UTC", "ntp": True}, type="lxc")
+    assert isinstance(t, TimeSettings) and (t.timezone, t.ntp, t.rtc_local) == ("UTC", None, None)
+    assert built(r, {"ntp": True}, type="lxc") == []
+
+
 def test_hostname_uses_the_hosts_name_and_skips_containers(tmp_path):
     r = role(tmp_path, [{"kind": "hostname"}])
     [h] = built(r)

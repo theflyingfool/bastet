@@ -199,6 +199,8 @@ def _systemd(role, ctx: dict, host, secrets: frozenset) -> list[Resource]:
         if kind == "unit":
             made = [Unit(name=f["name"], enabled=f.get("enabled"), state=f.get("state"))]
         elif kind == "time":
+            if host.container:  # a container can't set the clock or NTP; only the timezone applies
+                f = {k: v for k, v in f.items() if k not in ("ntp", "rtc_local")}
             made = [TimeSettings(**f)] if any(v is not None for v in f.values()) else []
         elif kind == "hostname":
             made = [] if host.container else [Hostname(name=str(f.get("name") or host.data.get("hostname") or host.name))]
