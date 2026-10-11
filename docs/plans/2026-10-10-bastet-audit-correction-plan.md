@@ -81,14 +81,15 @@ A1 dead git methods. Not re-checked: F02, F04, F05, F06, F09, F16, UX-01 to UX-1
 Each increment ends green on the unit suite and on the contract tests where it touches hosts. Do not convert more roles
 until increments 1 to 3 are done.
 
-1. **Make the shipped roles safe (C1, C13, C14, C19).** Section-aware INI editing with explicit missing-section
-   behaviour, built on a maintained round-trip library where one fits (a short spike first, one library per file format
-   behind the `edit:` modes, judged on keeping comments and layout, bare keys, repeated keys and sections, and a small
-   dependency footprint) rather than hand-written edge cases; honour or reject `validate`/`mode`/`owner`; refuse newlines in list and value text. Fix the cycle
-   shadowing and package-option quoting. Let `doctor` lint Markdown roles. *Proof:* repeated-key and repository-section
-   fixtures survive a global edit; the golden pacman tests still pass; a real `pacman.conf` check shows the same
-   result as before. **Until this lands, do not run `bastet run` in apply mode against a real `pacman.conf`; check
-   mode is read-only.**
+1. **Make the shipped roles safe (C1, C13, C14, C19).** Detailed plan:
+   `docs/plans/2026-10-10-audit-inc-1-shared-roles-safe.md`. `edit: ini` becomes one section-scoped `Settings` resource
+   per section: a Bastet-managed block right after the section header, with the originals of every managed key commented
+   out (`#bastet: `) so off and empty values work and no repository section is ever touched (F03). The pacman role uses
+   it, with an optional one-time backup of the original. Also: contract checks (`validate` honoured, `mode`/`owner`/`group`
+   on edits and `before` with `after` refused, `edit: ini` options need a section), line breaks in any value refused,
+   cycle-warning crash and package-option quoting fixed, `doctor` lints Markdown roles. *Proof:* unit tests for the
+   resource, an Arch contract test, and the owner's `run -c` diff on a real host. **Until the owner has read that diff,
+   do not run `bastet run` in apply mode against a real `pacman.conf`.**
 2. **Safe mutation (C2, C3, C6, C10 file modes).** One safe remote-write primitive (unpredictable, exclusive, private
    temp file in the target directory; validate before replace; shared with authorized keys). Detect overlapping
    whole-file and edit intents at plan time and re-verify affected resources after any mutation. Compare the note
