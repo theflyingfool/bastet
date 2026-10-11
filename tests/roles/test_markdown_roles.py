@@ -39,12 +39,12 @@ def test_os_provides_options_examples_files(tmp_path):
     front = _fm(os=["arch"], provides=["ntp"],
                 options={"b": {"type": "string"}, "a": {"type": "int", "min": 1}},
                 examples=[{"title": "t", "yaml": "a: 1\n"}],
-                files=[{"path": "/etc/x.conf", "edit": "ini", "mode": "0644"}])
+                files=[{"path": "/etc/x.conf", "render": "apt", "mode": "0644"}])
     role = parse_role(_write(tmp_path, front))
     assert role.os == ("arch",) and role.provides == ("ntp",)
     assert list(role.options) == ["b", "a"]  # order preserved
     assert role.examples == [{"title": "t", "yaml": "a: 1\n"}]
-    assert role.entries == [{"path": "/etc/x.conf", "edit": "ini", "mode": "0644"}]
+    assert role.entries == [{"path": "/etc/x.conf", "render": "apt", "mode": "0644"}]
 
 
 @pytest.mark.parametrize("key,value,message", [
@@ -100,9 +100,10 @@ def test_files_entry_errors(tmp_path, entry, message):
 
 
 def test_files_entry_optional_keys(tmp_path):
-    entry = {"path": "/x", "render": "apt", "mode": "0600", "owner": "root", "group": "root",
-             "validate": "true", "before": "a", "after": "b"}
-    assert parse_role(_write(tmp_path, _fm(files=[entry]))).entries == [entry]
+    entries = [{"path": "/x", "render": "apt", "mode": "0600", "owner": "root", "group": "root",
+                "validate": "true", "before": "packages", "backup": True},
+               {"path": "/y", "edit": "ini", "validate": "true", "after": "files", "backup": False}]
+    assert parse_role(_write(tmp_path, _fm(files=entries))).entries == entries
 
 
 @pytest.mark.parametrize("opt", [

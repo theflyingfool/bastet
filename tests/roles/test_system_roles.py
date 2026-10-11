@@ -42,15 +42,16 @@ def test_microcode_needs_cpu_fact():
 
 
 def test_pacman_lines():
-    from bastet.engine.files import Line
+    from bastet.engine.files import Settings
     out = [r for b in batches_for([ap("pacman", {"parallel_downloads": 10, "candy": False})], host(os="Arch Linux"))
-           for r in b.resources]
-    by_line = {r.line: r for r in out if isinstance(r, Line)}
-    assert set(by_line) == {"Color", "#ILoveCandy", "ParallelDownloads = 10"}
-    text = "[options]\n#Color\n#ParallelDownloads = 5\n\n[core]\nInclude = /etc/pacman.d/mirrorlist\n"
-    for r in out:
-        text = r.wanted(text)
-    assert text == "[options]\n#ILoveCandy\nColor\nParallelDownloads = 10\n\n[core]\nInclude = /etc/pacman.d/mirrorlist\n"
+           for r in b.resources if isinstance(r, Settings)]
+    [block] = out
+    assert block.keys == ("ParallelDownloads", "Color", "ILoveCandy") and block.lines == ("ParallelDownloads = 10", "Color")
+    text = "[options]\n#Color\nILoveCandy\nParallelDownloads = 5\n\n[core]\nInclude = /etc/pacman.d/mirrorlist\n"
+    wanted = block.wanted(text)
+    head, core = wanted.split("[core]")
+    assert "ParallelDownloads = 10\nColor\n" in head and "#bastet: ParallelDownloads = 5" in head
+    assert "#bastet: ILoveCandy" in head and "Include = /etc/pacman.d/mirrorlist" in core
 
 
 def test_pacman_refuses_non_arch():
@@ -179,13 +180,13 @@ def test_notice_comes_last_and_hints_at_old_patches():
     assert isinstance(out[-1], Command) and "apt reinstall proxmox-widget-toolkit" in out[-1].run
 
 
-def test_pacman_settings_fall_back_to_options_section():
-    from bastet.engine.files import Line
-    out = [r for b in batches_for([ap("pacman", {"parallel_downloads": 4})], host(os="Arch Linux")) for r in b.resources]
+def test_pacman_settings_go_in_the_options_section():
+    from bastet.engine.files import Settings
+    out = [r for b in batches_for([ap("pacman", {"parallel_downloads": 4})], host(os="Arch Linux")) for r in b.resources
+           if isinstance(r, Settings)]
     text = "[options]\nHoldPkg = pacman\n\n[core]\nInclude = x\n"
     for r in out:
-        if isinstance(r, Line):
-            text = r.wanted(text)
+        text = r.wanted(text)
     head, core = text.split("[core]")
     assert "Color" in head and "ILoveCandy" in head and "ParallelDownloads = 4" in head and "Color" not in core
 
@@ -196,11 +197,11 @@ PACMAN_STOCK = ("[options]\n#RootDir     = /\nHoldPkg     = pacman glibc\n#Ignor
 
 
 def pacman_text(values, start=PACMAN_STOCK):
-    from bastet.engine.files import Line
+    from bastet.engine.files import Settings
     text = start
     for b in batches_for([ap("pacman", values)], host(os="Arch Linux")):
         for r in b.resources:
-            if isinstance(r, Line):
+            if isinstance(r, Settings):
                 text = r.wanted(text)
     return text
 
@@ -220,17 +221,18 @@ def test_pacman_lists_values_and_flags():
                         "sig_level": "Required DatabaseOptional TrustedOnly", "check_space": False,
                         "clean_method": ["KeepInstalled", "KeepCurrent"], "download_user": "alpm"})
     head = text.split("[core]")[0]
-    assert "\nIgnorePkg = linux linux-headers\n" in head and "#IgnorePkg" not in head
-    assert "NoExtract = usr/share/doc/*\n" in head and "CleanMethod = KeepInstalled KeepCurrent\n" in head
-    assert "\nSigLevel = Required DatabaseOptional TrustedOnly\n" in head and "\n#CheckSpace\n" in head
-    assert "DownloadUser = alpm\n" in head
+    block = head.split("### Bastet Managed ###\n")[1].split("### End Bastet Managed ###")[0]
+    assert "IgnorePkg = linux linux-headers\n" in block and "NoExtract = usr/share/doc/*\n" in block
+    assert "CleanMethod = KeepInstalled KeepCurrent\n" in block and "SigLevel = Required DatabaseOptional TrustedOnly\n" in block
+    assert "DownloadUser = alpm\n" in block and "CheckSpace" not in block  # off: no line in the block
+    assert "\n#bastet: CheckSpace\n" in head and "#bastet: SigLevel    = Required DatabaseOptional\n" in head
     assert "HoldPkg     = pacman glibc" in head  # unset options are left exactly as they are
     assert pacman_text({"ignore_pkg": ["linux"]}, start=pacman_text({"ignore_pkg": ["linux"]})) == pacman_text({"ignore_pkg": ["linux"]})
 
 
 def test_pacman_empty_list_comments_it_out():
     text = pacman_text({"hold_pkg": []})
-    assert "\n#HoldPkg =\n" in text and "HoldPkg     = pacman" not in text
+    assert "\n#bastet: HoldPkg     = pacman glibc\n" in text and "\nHoldPkg" not in text
 
 
 def test_pacman_clean_method_choices():
@@ -242,6 +244,7 @@ def test_pacman_list_replaces_every_active_line():
     start = "[options]\n#NoExtract   =\nNoExtract = usr/share/man/*\nNoExtract = usr/share/info/*\n\n[core]\nInclude = x\n"
     text = pacman_text({"no_extract": ["usr/share/doc/*"]}, start=start)
     assert text.count("\nNoExtract") == 1 and "NoExtract = usr/share/doc/*\n" in text and "#NoExtract   =" in text
+    assert "#bastet: NoExtract = usr/share/man/*\n" in text and "#bastet: NoExtract = usr/share/info/*\n" in text
 
 
 def test_proxmox_baseline_leaves_hostname_alone():
