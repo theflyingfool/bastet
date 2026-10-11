@@ -250,18 +250,18 @@ def _node_of_map(by_name: dict[str, _Ready], names: Sequence[str], inv) -> dict[
     deterministically by walking it, and reported as a warning naming the hosts in the loop.
     """
     subset = set(names)
-    out: dict[str, str] = {}
+    node_of: dict[str, str] = {}
     for name in names:
         link = link_target(by_name[name].doc.data.get("runs_on"))
         if not link:
             continue
         node_doc = inv.get(link)
         if node_doc is not None and node_doc.name in subset:
-            out[name] = node_doc.name
-    out, cycles = break_cycles(out, names)
+            node_of[name] = node_doc.name
+    node_of, cycles = break_cycles(node_of, names)
     for cycle in cycles:
         out.secho(f"runs_on loop: {' → '.join(cycle)}; ignoring it for ordering", fg="yellow")
-    return out
+    return node_of
 
 
 def _parse_choice(answer: str, n: int) -> list[int] | None:

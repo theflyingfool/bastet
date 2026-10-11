@@ -178,3 +178,9 @@ def test_pins_allow_downgrades_and_conffiles_kept():
     assert apt == ["DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=120 -o Dpkg::Options::=--force-confdef "
                    "-o Dpkg::Options::=--force-confold install -y -q --allow-downgrades -- tree=1.0"]
     assert "--oldpackage" in cmds(Package(name="tree", version="1.0", refresh=False), manager="zypper")[-1]
+
+
+def test_dpkg_options_stay_one_argument():
+    last = cmds(Package(name="tree", dpkg_options=("--x; echo hi",)))[-1]
+    assert "'Dpkg::Options::=--x; echo hi'" in last
+    assert "-o Dpkg::Options::=--force-confnew" in cmds(Package(name="tree", dpkg_options=("--force-confnew",)))[-1]

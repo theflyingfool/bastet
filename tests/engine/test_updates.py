@@ -110,3 +110,10 @@ def test_attention_items_are_reported_not_fixed(tmp_path):
 
     run = run_host(LocalRunner(), "h", [Batch("t", [Finding(path=str(tmp_path / "a"), value="1")])], apply=True)
     assert run.items[0].status == "attention" and run.ok and not (tmp_path / "a").exists()
+
+
+def test_updates_dpkg_options_stay_one_argument():
+    u, cur = upd(pending=APT, policy="auto", dpkg_options=("--x; echo hi",))
+    assert "'Dpkg::Options::=--x; echo hi'" in u.fix(u.compare(cur), cur)[-1]
+    u, cur = upd(pending=APT, policy="auto", dpkg_options=("--force-confnew",))
+    assert "-o Dpkg::Options::=--force-confnew" in u.fix(u.compare(cur), cur)[-1]

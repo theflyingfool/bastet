@@ -19,12 +19,13 @@ def _print_problem(p: Problem) -> None:
 def _check_role_dir(path: Path) -> None:
     from bastet.roles.contract import load_roles
 
-    if not (path / "role.yml").is_file():
-        raise BastetError(f"no role.yml in {path}")
-    roles = load_roles(path.parent)
-    if path.resolve().name not in roles:
-        raise BastetError(f"no role.yml in {path}")
-    out.echo(f"{path}: parses as a role definition.")
+    name = path.resolve().name
+    found = "role.yml" if (path / "role.yml").is_file() else f"{name} role.md" if (path / f"{name} role.md").is_file() else None
+    if found is None:
+        raise BastetError(f'no role definition (role.yml or "{name} role.md") in {path}')
+    if name not in load_roles(path.parent):
+        raise BastetError(f"{path}: not loaded as a role")
+    out.echo(f"{path}: parses as a role definition ({found}).")
 
 
 @handles_errors

@@ -87,7 +87,7 @@ def test_doctor_role_dir_missing_role_yml_errors(runner, tmp_path):
     role_dir.mkdir(parents=True)
     result = runner.invoke(app, ["doctor", str(role_dir)])
     assert result.exit_code != 0
-    assert "no role.yml" in result.output
+    assert "no role definition" in result.output
 
 
 def test_doctor_role_dir_invalid_yaml_errors(runner, tmp_path):
@@ -105,3 +105,21 @@ def test_doctor_fix_rejected_with_a_role_dir(runner, tmp_path):
     result = runner.invoke(app, ["doctor", str(role_dir), "--fix"])
     assert result.exit_code != 0
     assert "--fix doesn't apply" in result.output
+
+
+def test_doctor_lints_the_bundled_markdown_and_yaml_roles(runner):
+    import bastet
+
+    roles = Path(bastet.__file__).parent / "data" / "roles"
+    for name in ("pacman", "ssh"):
+        result = runner.invoke(app, ["doctor", str(roles / name)])
+        assert result.exit_code == 0, result.output
+        assert "parses as a role definition" in result.output
+
+
+def test_doctor_empty_role_folder_names_both_formats(runner, tmp_path):
+    role_dir = tmp_path / "roles" / "empty"
+    role_dir.mkdir(parents=True)
+    result = runner.invoke(app, ["doctor", str(role_dir)])
+    assert result.exit_code != 0
+    assert 'no role definition (role.yml or "empty role.md")' in result.output

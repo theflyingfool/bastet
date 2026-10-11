@@ -168,7 +168,7 @@ class Package(Resource):
         specs = " ".join(_q(p._spec(manager)) for p, _, _ in members)
         pinned = any(p.version is not None and p.state == "present" for p, _, _ in members)
         extra = "".join(f" {_q(a)}" for a in first.extra_args)
-        apt = f"DEBIAN_FRONTEND=noninteractive {APT}" + "".join(f" -o Dpkg::Options::={o}" for o in first.dpkg_options)
+        apt = f"DEBIAN_FRONTEND=noninteractive {APT}" + "".join(f" -o {shlex.quote(f'Dpkg::Options::={o}')}" for o in first.dpkg_options)
         held = " --allow-change-held-packages" if first.allow_change_held else ""
         if first.state == "absent":
             return [{
@@ -550,7 +550,7 @@ class Updates(Resource):
     def _commands(self, current):
         manager = current["manager"]
         names = " ".join(_q(n) for n in self._target(current))
-        apt = f"DEBIAN_FRONTEND=noninteractive {APT}" + "".join(f" -o Dpkg::Options::={o}" for o in self.dpkg_options)
+        apt = f"DEBIAN_FRONTEND=noninteractive {APT}" + "".join(f" -o {shlex.quote(f'Dpkg::Options::={o}')}" for o in self.dpkg_options)
         security = self.policy == "security"
         if manager == "apt-get":
             if security or self.exclude:
