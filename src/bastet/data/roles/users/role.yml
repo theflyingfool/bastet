@@ -73,7 +73,25 @@ options:
         nopasswd: {type: bool}
         setenv: {type: bool}
         defaults: {type: list, items: {type: string}}
+  allowed:
+    type: list
+    items: {type: string}
+    description: "Account names that are fine without a role; they are left out of the report of accounts no role manages"
+  report_unaccounted:
+    type: bool
+    default: true
+    description: "Report accounts on the host that no role manages or allows (never changes or removes them)"
+  report_system_accounts:
+    type: bool
+    default: true
+    description: "Include root, bastet and system accounts such as nobody and systemd-* in that report on purpose; false lists only accounts in the login.defs UID_MIN to UID_MAX range (the first real run shows how noisy this is and decides whether the default changes)"
 examples:
+  - title: Report accounts nothing manages, except a few
+    yaml: |
+      allowed:
+        - root
+        - bastet
+      report_system_accounts: false
   - title: A user with an SSH key and passwordless sudo
     yaml: |
       users:

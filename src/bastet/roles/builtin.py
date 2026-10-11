@@ -16,7 +16,7 @@ from bastet.engine.run import Batch
 from bastet.engine.security import ServiceExposure
 from bastet.engine.systemd import Hostname, Locale, TimeSettings, Unit, drop_in, reload, restart
 from bastet.engine.templates import render_template
-from bastet.engine.users import AuthorizedKey, Group, User, sudoer
+from bastet.engine.users import AuthorizedKey, Group, UnaccountedUsers, User, sudoer
 from bastet.roles import declarative, system
 from bastet.roles.baselines import baseline_for
 from bastet.roles.resolve import Applied
@@ -204,7 +204,11 @@ def _users(v: dict, host: HostInfo) -> list[Batch]:
             sudo.append(sudoer(name, user=name, **_kw(rule)))
         users.append(User(name=name, **_kw(u)))
     sudo += [sudoer(name, **_kw(s)) for name, s in (v.get("sudoers") or {}).items()]
-    return [Batch("users", [*groups, *users, *keys, *sudo])]
+    report = []
+    if v.get("report_unaccounted", True):
+        report.append(UnaccountedUsers(allowed=tuple(v.get("allowed") or ()),
+                                       system_accounts=v.get("report_system_accounts", True)))
+    return [Batch("users", [*groups, *users, *keys, *sudo, *report])]
 
 
 def _triggers(d: dict) -> dict:
@@ -271,12 +275,14 @@ def batches_for(applied: list[Applied], host: HostInfo) -> list[Batch]:
         batches += built
     # Everything Bastet installs is accounted for, whichever role installs it.
     present = sorted({r.name for b in batches for r in b.resources if isinstance(r, Package) and r.state == "present"})
+    user_names = sorted({r.name for b in batches for r in b.resources if isinstance(r, User)})
     units = tuple(dict.fromkeys(
         [r.name for b in batches for r in b.resources if isinstance(r, Unit)]
         + [r.path.split("/")[-2][:-2] for b in batches for r in b.resources
            if isinstance(r, File) and r.path.startswith("/etc/systemd/system/") and r.path.split("/")[-2].endswith(".d")]))
     for b in batches:
         b.resources = [replace(r, tracked=tuple(dict.fromkeys((*r.tracked, *present)))) if isinstance(r, Unaccounted)
+                       else replace(r, tracked=tuple(dict.fromkeys((*r.tracked, *user_names)))) if isinstance(r, UnaccountedUsers)
                        else replace(r, managed=tuple(u for u in units if u.endswith(".service"))) if isinstance(r, ServiceExposure)
                        else r
                        for r in b.resources]

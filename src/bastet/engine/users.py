@@ -264,7 +264,66 @@ class Group(Resource):
         return cmds
 
 
-SUDOERS_NAME = re.compile(r"^[A-Za-z0-9_-]+$")
+@dataclass(frozen=True, kw_only=True)
+class UnaccountedUsers(Resource):
+    """Accounts on the host that no role manages or allows. Reported, never changed."""
+
+    family: ClassVar[str] = "Users"
+    slot: ClassVar[str] = "reports"
+    tracked: tuple[str, ...] = ()
+    allowed: tuple[str, ...] = ()
+    system_accounts: bool = True
+    root: bool = False
+
+    @property
+    def identity(self) -> str:
+        return "unaccounted users"
+
+    @property
+    def label(self) -> str:
+        return "unaccounted users"
+
+    def report_only(self) -> bool:
+        return True
+
+    def desired(self):
+        return {"tracked": self.tracked, "allowed": self.allowed, "system_accounts": self.system_accounts}
+
+    def reads(self):
+        return (Read("passwd", "getent passwd"),
+                Read("defs", "grep -E '^(UID_MIN|UID_MAX)[[:space:]]' /etc/login.defs || true"))
+
+    def current(self, results):
+        limits = {"UID_MIN": 1000, "UID_MAX": 60000}
+        for line in results["defs"].output.splitlines():
+            parts = line.split()
+            if len(parts) == 2 and parts[0] in limits and parts[1].isdigit():
+                limits[parts[0]] = int(parts[1])
+        skip = set(self.tracked) | set(self.allowed)
+        found = []
+        for line in results["passwd"].output.splitlines():
+            f = line.split(":")
+            if len(f) < 7 or not f[2].isdigit() or f[0] in skip:
+                continue
+            uid = int(f[2])
+            if not self.system_accounts and not limits["UID_MIN"] <= uid <= limits["UID_MAX"]:
+                continue
+            found.append((uid, f"{f[0]} (uid {uid}, {f[6]})"))
+        return {"unaccounted": tuple(text for _, text in sorted(found, key=lambda x: x[0]))}
+
+    def compare(self, current):
+        n = len(current["unaccounted"])
+        return [FieldChange("unaccounted", f"{n} accounts", "none")] if n else []
+
+    def diff_text(self, current):
+        names = list(current["unaccounted"])
+        return "\n".join(names[:60] + ([f"… {len(names) - 60} more"] if len(names) > 60 else [])) or None
+
+    def fix(self, changes, current):
+        return []
+
+
+SUDOERS_NAME =re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 @dataclass(frozen=True, kw_only=True)

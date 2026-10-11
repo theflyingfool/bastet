@@ -611,6 +611,15 @@ Users, groups, SSH keys and sudoers rules.
 
 ### Examples
 
+**Report accounts nothing manages, except a few**
+
+```yaml
+allowed:
+  - root
+  - bastet
+report_system_accounts: false
+```
+
 **A user with an SSH key and passwordless sudo**
 
 ```yaml
@@ -689,3 +698,6 @@ groups:
 | sudoers.<name>.nopasswd | bool |  |  |
 | sudoers.<name>.setenv | bool |  |  |
 | sudoers.<name>.defaults | list of string |  |  |
+| allowed | list of string |  | Account names that are fine without a role; they are left out of the report of accounts no role manages |
+| report_unaccounted | bool | true | Report accounts on the host that no role manages or allows (never changes or removes them) |
+| report_system_accounts | bool | true | Include root, bastet and system accounts such as nobody and systemd-* in that report on purpose; false lists only accounts in the login.defs UID_MIN to UID_MAX range (the first real run shows how noisy this is and decides whether the default changes) |
