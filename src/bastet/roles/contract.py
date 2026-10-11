@@ -27,7 +27,8 @@ VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 ROLE_NOTE_RESERVED = {"uses", "needs", "contributes", "collects", "requires", "tags", "cssclasses", "types",
                       "not_types", "os_min", "data", "vars", "presets", "templates", "units", "hooks",
                       "source", "source_hash"}
-ROLE_NOTE_KEYS = {"bastet", "name", "version", "api", "description", "os", "provides", "options", "examples", "files", "commands", "packages"}
+ROLE_NOTE_KEYS = {"bastet", "name", "version", "api", "description", "os", "provides", "options", "examples", "files", "commands", "packages",
+                  "systemd"}
 FILE_EDITS = ("ini",)
 FILE_RENDERS = ("apt",)
 FILE_KEYS = {"path", "edit", "render", "mode", "owner", "group", "validate", "before", "after", "backup"}
@@ -77,6 +78,7 @@ class RoleDef:
     entries: list[dict] = field(default_factory=list)
     commands: list[dict] = field(default_factory=list)
     packages: list[dict] = field(default_factory=list)
+    systemd: list[dict] = field(default_factory=list)
     markdown: bool = False
     raw: dict = field(default_factory=dict)
 
@@ -248,12 +250,14 @@ def parse_role(path: Path) -> RoleDef:
             raise BastetError("commands must be a list", file=path, key="commands")
         commands = [_command_entry(path, e, options) for e in commands]
         packages = role_entries.parse_packages(path, data.get("packages") or [], options)
+        systemd = role_entries.parse_systemd(path, data.get("systemd") or [], options)
     except BastetError as exc:
         if exc.line is None and exc.key in doc.key_lines:
             raise BastetError(exc.message, file=path, line=doc.key_lines[exc.key], key=exc.key) from None
         raise
     return RoleDef(name, description, options, path, examples, api=data["api"], version=version, os=os_,
-                   provides=provides, entries=entries, commands=commands, packages=packages, markdown=True,
+                   provides=provides, entries=entries, commands=commands, packages=packages,
+                   systemd=systemd, markdown=True,
                    raw={k: data[k] for k in ROLE_NOTE_RESERVED if k in data})
 
 

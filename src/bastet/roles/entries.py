@@ -9,10 +9,19 @@ from bastet.core.errors import BastetError
 from bastet.engine.model import Resource
 from bastet.engine.packages import Package
 from bastet.engine.slots import SLOTS
+from bastet.engine.systemd import Hostname, Locale, TimeSettings, Unit, drop_in
 from bastet.roles import expr
 
 COMMON_KEYS = {"when", "before", "after"}
 PACKAGE_KEYS = {"name", "state", "version", "aur", "purge"} | COMMON_KEYS
+SYSTEMD_KINDS = {
+    "unit": {"name", "enabled", "state"},
+    "time": {"timezone", "ntp", "rtc_local"},
+    "hostname": {"name"},
+    "locale": {"lang", "keymap"},
+    "dropin": {"unit", "name", "content", "restart"},
+}
+SYSTEMD_REQUIRED = {"unit": ("name",), "dropin": ("unit", "name", "content")}
 
 
 def _fail(msg: str, path: Path, key: str) -> BastetError:
@@ -75,6 +84,30 @@ def parse_packages(path: Path, items: object, options: dict) -> list[dict]:
     return out
 
 
+def parse_systemd(path: Path, items: object, options: dict) -> list[dict]:
+    if not isinstance(items, list):
+        raise _fail("systemd must be a list", path, "systemd")
+    allowed, out = set(options), []
+    for i, entry in enumerate(items):
+        where = f"systemd[{i}]"
+        if not isinstance(entry, dict):
+            raise _fail(f"{where}: each entry is a map", path, "systemd")
+        kind = entry.get("kind")
+        if kind is None:
+            raise _fail(f"{where}: needs a kind", path, "systemd")
+        if kind not in SYSTEMD_KINDS:
+            raise _fail(f"{where}: kind must be one of {', '.join(SYSTEMD_KINDS)}", path, "systemd")
+        _unknown(entry, SYSTEMD_KINDS[kind] | COMMON_KEYS | {"kind"}, where, path)
+        for need in SYSTEMD_REQUIRED.get(kind, ()):
+            if entry.get(need) in (None, ""):
+                raise _fail(f"{where}: {kind}: needs {need}", path, "systemd")
+        if entry.get("state") not in (None, "up", "down") and not str(entry["state"]).startswith("{{"):
+            raise _fail(f"{where}: state must be up or down", path, "systemd")
+        check_common(entry, allowed, where, path, "systemd")
+        out.append(dict(entry))
+    return out
+
+
 def placed(resource: Resource, role, entry: dict, secret_options: frozenset = frozenset()) -> Resource:
     """Order and capabilities from the entry; secret when the entry uses a secret-valued option."""
     secret = bool(expr.names_in(entry) & secret_options)
@@ -97,6 +130,27 @@ def _packages(role, ctx: dict, secrets: frozenset) -> list[Resource]:
     return out
 
 
+def _systemd(role, ctx: dict, host, secrets: frozenset) -> list[Resource]:
+    out: list[Resource] = []
+    for entry in role.systemd:
+        if not expr.truthy(entry.get("when"), ctx):
+            continue
+        kind = entry["kind"]
+        f = {k: expr.resolve(v, ctx) for k, v in entry.items() if k not in COMMON_KEYS | {"kind"}}
+        if kind == "unit":
+            made = [Unit(name=f["name"], enabled=f.get("enabled"), state=f.get("state"))]
+        elif kind == "time":
+            made = [TimeSettings(**f)] if any(v is not None for v in f.values()) else []
+        elif kind == "hostname":
+            made = [] if host.container else [Hostname(name=str(f.get("name") or host.data.get("hostname") or host.name))]
+        elif kind == "locale":
+            made = [Locale(**f)] if any(v is not None for v in f.values()) else []
+        else:
+            made = [drop_in(f["unit"], f["name"], f["content"], restart_unit=f.get("restart", True))]
+        out += [placed(r, role, entry, secrets) for r in made]
+    return out
+
+
 def build_entries(role, values: dict, host, secret_options: frozenset = frozenset()) -> list[Resource]:
     ctx = expr.context(role.options, values, host)
-    return [*_packages(role, ctx, secret_options)]
+    return [*_packages(role, ctx, secret_options), *_systemd(role, ctx, host, secret_options)]
