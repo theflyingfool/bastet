@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax. In this repo, the `bastet-run-plan` skill supplies the Bastet-specific parts.
 
-**Goal:** the unaccounted-users report stops listing accounts that are expected: `bastet` and `root`, the accounts a role brings (`alpm` with pacman, the `systemd-*` ones with the `systemd` block), and the accounts an OS always has (Arch first). The Arch OS group also comes with the `systemd` role applied by default.
+**Goal:** the unaccounted-users report stops listing accounts that are expected: `root` and `bastet` (which become default entries of the `users` role, so every setting on them can be changed in a role note), the accounts a role brings (`alpm` with pacman, the `systemd-*` ones with the `systemd` block), and the accounts an OS always has (Arch first). The Arch OS group also comes with the `systemd` role applied by default.
 
-**Architecture:** a role definition (Markdown or `role.yml`) gets an optional `accounts:` list. A new shipped data folder `src/bastet/data/oses/` holds one file per OS family (Arch only for now) with default `roles:` and always-present `accounts:`, loaded like host types. `sources_for` adds the OS default roles as a new source ranked between the type defaults and groups. `batches_for` hands the report everything expected: `root`, `bastet`, the OS accounts, the accounts of every applied role and every `User` a role manages. The bootstrap script creates `bastet` as a system account on new hosts.
+**Architecture:** a role definition (Markdown or `role.yml`) gets an optional `accounts:` list. A new shipped data folder `src/bastet/data/oses/` holds one file per OS family (Arch only for now) with default `roles:` and always-present `accounts:`, loaded like host types. `sources_for` adds the OS default roles as a new source ranked between the type defaults and groups. `root` and `bastet` are default entries of the `users` role's `users` option, merged under whatever the owner lists (a new `merge_default` option flag), so they are ordinary managed users. `batches_for` hands the report everything expected: the OS accounts, the accounts of every applied role and every `User` a role manages (which includes `root` and `bastet`). The bootstrap script creates `bastet` as a system account on new hosts.
 
 **Tech Stack:** Python ≥3.12, pydantic, PyYAML, pytest, ruff.
 
@@ -19,12 +19,13 @@
 - Nothing deletes notes or records. Existing hosts keep their current `bastet` uid; only newly set-up hosts get the system account.
 - `ruff check src tests` must pass before each commit (config is in `pyproject.toml`).
 - `docs/roles.md` is generated; regenerate with `scripts/gen_roles_doc.py` whenever a `role.yml` or role note changes (a repo test checks it).
-- Owner decisions (2026-10-11): `alpm` belongs to the pacman role; the six `systemd-*` accounts belong to the `systemd` block role (not to the OS file); `systemd-timesync` moves to the `time` role when that role exists; the other Arch always-present accounts go on the Arch OS defaults; Debian is ignored for now; `bastet` is always accounted; `root` always exists.
+- Owner decisions (2026-10-11): `alpm` belongs to the pacman role; the six `systemd-*` accounts belong to the `systemd` block role (not to the OS file); `systemd-timesync` moves to the `time` role when that role exists; the other Arch always-present accounts go on the Arch OS defaults; Debian is ignored for now; `bastet` is always accounted; `root` always exists. `root` and `bastet` are default entries of the `users` role (not a hidden allowance), so any of their settings can be changed in a role note: `root: {}` and `bastet: {system: true}`; the `bastet` lockout guard still applies to them.
 - Commit messages end with `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>`.
 
 ## Review Focus
 
-- An account is hidden from the report only when it is `root`/`bastet`, in the OS file, declared by a role that is applied to that host, managed by a `User` entry, or in `allowed`. A role that is not applied to the host hides nothing (a Debian host never has `alpm` hidden by the pacman role's declaration).
+- Setting `users:` (for example `alice`) in a note never drops the default `root` and `bastet` entries, and setting `root: {password: …}` merges with the default `root` entry instead of replacing it; other roles' map options are unaffected because only options with `merge_default: true` merge.
+- An account is hidden from the report only when it is managed by a `User` (which includes the default `root` and `bastet`), in the OS file, declared by a role that is applied to that host, managed by a `User` entry, or in `allowed`. A role that is not applied to the host hides nothing (a Debian host never has `alpm` hidden by the pacman role's declaration).
 - An OS default role is overridable: a lab, group or host note setting the same role's options wins, and the resolved table names the origin as "OS default (arch)".
 - A host with an unknown or missing OS gets no OS defaults and no error.
 - Arch-like systems (`manjaro`, `endeavouros`, `cachyos`) get the Arch defaults.
@@ -39,13 +40,15 @@
 |---|---|
 | Create `src/bastet/core/osdefaults.py` | `OsDefaults` model, `load_os_defaults()`, `defaults_for(os_id)`; the account-name check shared with roles |
 | Create `src/bastet/data/oses/arch.yml` | Arch: default roles and always-present accounts |
-| Modify `src/bastet/roles/contract.py` | `RoleDef.accounts`; read `accounts:` in Markdown roles and `role.yml` |
+| Modify `src/bastet/roles/contract.py` | `RoleDef.accounts`; read `accounts:` in Markdown roles and `role.yml`; the `merge_default` option flag and `with_defaults` merging it |
+| Modify `src/bastet/data/roles/users/role.yml` | `users` option default `root: {}`, `bastet: {system: true}` with `merge_default: true`; `starter:` with the same two entries |
+| Modify `src/bastet/cli/add.py` | `bastet add role` writes a role's `starter:` values into the new note's frontmatter |
 | Modify `src/bastet/data/roles/systemd/role.yml`, `src/bastet/data/roles/pacman/pacman role.md` | Declare their accounts |
 | Modify `src/bastet/roles/resolve.py` | OS default roles as a source |
 | Modify `src/bastet/core/render.py` | The generated OS group note says what comes with it |
 | Modify `src/bastet/roles/builtin.py` | `batches_for` fills the report's `tracked` from everything expected |
 | Modify `src/bastet/core/bootstrap.py` | `useradd --system` |
-| Tests (all new): `tests/core/test_osdefaults.py`, `tests/roles/test_role_accounts.py`, `tests/roles/test_os_default_roles.py`, `tests/roles/test_expected_accounts.py`; edit `tests/core/test_bootstrap.py` | One file per task |
+| Tests (all new): `tests/core/test_osdefaults.py`, `tests/roles/test_role_accounts.py`, `tests/roles/test_os_default_roles.py`, `tests/roles/test_expected_accounts.py`, `tests/cli/test_add_role_starter.py`; edit `tests/core/test_bootstrap.py` | One file per task |
 | Modify `docs/ROADMAP.md`, `docs/roles.md` (generated), `src/bastet/data/docs/writing_roles.md` | Task 6 |
 
 ---
@@ -172,7 +175,7 @@ roles:
 accounts: [bin, daemon, mail, ftp, http, nobody, dbus, tss, uuidd, _talkd]
 ```
 
-(`root` and `bastet` are built in everywhere, Task 4; `alpm` comes from pacman and the `systemd-*` accounts from `systemd`.)
+(`root` and `bastet` are default entries of the `users` role, Task 4; `alpm` comes from pacman and the `systemd-*` accounts from `systemd`.)
 
 - [ ] **Step 1: Failing tests** (`tests/core/test_osdefaults.py`): the shipped Arch file loads with `systemd` in `roles` and the accounts above; `defaults_for("manjaro")`, `("endeavouros")`, `("cachyos")` give the Arch object; `defaults_for(None)`, `("debian")`, `("fedora")` give `None`; a temp folder with an unknown key, a bad account name, or invalid YAML raises `BastetError` naming the file; `load_os_defaults(tmp_path)` of an empty folder returns `{}`.
 - [ ] **Step 2: Run, see it fail.** `uv run pytest tests/core/test_osdefaults.py -q`.
@@ -205,27 +208,46 @@ accounts: [bin, daemon, mail, ftp, http, nobody, dbus, tss, uuidd, _talkd]
 
 ---
 
-### Task 4: The report knows what is expected
+### Task 4: `root` and `bastet` are default users; the report expects the rest
 
 **Files:**
-- Modify: `src/bastet/roles/builtin.py` (`batches_for`, tracking loop)
-- Test: `tests/roles/test_expected_accounts.py`; adjust `tests/roles/test_unaccounted_users.py` only where its expectations say `root`/`bastet` always show (they no longer do when the OS or role provides them — see below)
+- Modify: `src/bastet/roles/contract.py` (`OPTION_KEYS`, `Option.merge_default`, option parsing, `with_defaults`), `src/bastet/data/roles/users/role.yml`, `src/bastet/roles/builtin.py` (`batches_for`, tracking loop)
+- Test: `tests/roles/test_expected_accounts.py`, `tests/roles/test_merge_default.py`; adjust `tests/roles/test_unaccounted_users.py`, `tests/roles/test_builtin.py` and the role-page/doc tests only where a changed expectation demands it (say which)
 
 **Interfaces:**
-- Consumes: `RoleDef.accounts` (Task 1), `osdefaults.defaults_for` (Task 2), `HostInfo.os_id`, `Applied`.
-- Produces: `BASE_ACCOUNTS = ("root", "bastet")` in `builtin.py`. In `batches_for`, the tracking loop for `UnaccountedUsers` becomes `tracked = BASE_ACCOUNTS + os_accounts + role_accounts + user_names`, where `os_accounts` is `defaults_for(host.os_id).accounts` (or `()`), `role_accounts` is the union of `a.role.accounts` over the applied roles, and `user_names` is the existing set of `User` resources' names.
-- Behaviour: `root` and `bastet` never appear in the report on any host. A role's accounts are hidden only when that role is applied to the host. Everything else unchanged (`allowed`, `report_system_accounts`).
+- Produces:
+  - `Option.merge_default: bool = False` (allowed in a `role.yml` and a role note option; only meaningful for `type: map`; on any other type it is refused when the role is read, naming the option).
+  - `with_defaults(role, values)`: unchanged for every option except a map option with `merge_default: true`. For such an option the result is the default map merged under the given map: every default key is present; for a key present in both and both values are maps, the result is the default's map updated with the given map's keys (shallow, given wins); otherwise the given value wins. A missing or `None` given value gives the default.
+  - `users` option in `src/bastet/data/roles/users/role.yml`: `default: {root: {}, bastet: {system: true}}` and `merge_default: true`. The old `_users` builder in `builtin.py` needs no change: it iterates `v["users"]` and so builds `User(name="root")` and `User(name="bastet", system=True)`; neither compares any field except existence (the `system` flag is read only when an account is created), so on a normal host they change nothing. `_guard_bastet` still refuses a `locked`, no-login shell, expiry, key removal or sudo rule on `bastet`.
+  - In `batches_for`, the `UnaccountedUsers` tracking becomes `tracked = os_accounts + role_accounts + user_names`, where `os_accounts` is `defaults_for(host.os_id).accounts` (or `()`), `role_accounts` is the union of `a.role.accounts` over the applied roles, and `user_names` is the existing set of `User` resource names (which now includes `root` and `bastet` whenever the `users` role is applied). There is no built-in allowance in the code.
+- Behaviour: the report never lists `root` or `bastet` while the `users` role is applied; a role's accounts are hidden only when that role is applied; `allowed` still hides names; `report_system_accounts` unchanged.
 
-- [ ] **Step 1: Failing tests** (`tests/roles/test_expected_accounts.py`), using `batches_for` the way `tests/roles/test_unaccounted_users.py` does:
-  1. Arch host, `users` role plus `systemd` and `pacman` applied: the report's `tracked` contains `root`, `bastet`, `bin`, `nobody`, `dbus`, `alpm`, `systemd-network`, `systemd-timesync`;
-  2. Arch host with only the `users` role: `tracked` has `root`, `bastet` and the OS accounts but not `alpm` and not `systemd-network`;
-  3. Debian host with `pacman` not applied: `alpm` is not tracked;
-  4. unknown-OS host: `tracked` is `root`, `bastet` and the managed users;
-  5. running `UnaccountedUsers.current` over a passwd fixture of an Arch host (root, bastet, bin, daemon, nobody, dbus, systemd-network, alpm, alice) with `tracked` built by `batches_for` for the roles above lists only `alice`;
-  6. a user in `allowed` is still hidden and a `User` managed by a role is still tracked.
-  Update `tests/roles/test_unaccounted_users.py` where it asserts that `root (uid 0` and `bastet (uid 1000` show up with an empty `tracked`: those tests construct `UnaccountedUsers(...)` directly, so they stay valid; only the `batches_for`-level tests, if any assert them, change. Say which test changed in the report.
-- [ ] **Step 2–4:** red, implement, green (`uv run pytest tests/roles tests/engine -q && ruff check src tests`).
-- [ ] **Step 5: Commit** `users: the unaccounted report expects root, bastet, the OS's accounts and the accounts of applied roles`.
+- [ ] **Step 1: Failing tests.**
+  - `tests/roles/test_merge_default.py`: build a tiny role definition with a map option `{type: map, default: {a: {x: 1}, b: {}}, merge_default: true, items: {type: object, fields: {x: {type: int}, y: {type: int}}}}` and assert `with_defaults` gives `{a: {x: 1}, b: {}}` for no value; `{a: {x: 1}, b: {}, c: {y: 2}}` for `{c: {y: 2}}`; `{a: {x: 5, y: 3}, b: {}}` for `{a: {x: 5, y: 3}}`; `{a: {x: 1, y: 3}, b: {}}` for `{a: {y: 3}}`; the same option without the flag still replaces (given map alone); `merge_default: true` on a `type: string` option raises `BastetError` naming the option; `None` given gives the default.
+  - `tests/roles/test_expected_accounts.py`, using `batches_for` the way `tests/roles/test_unaccounted_users.py` does: (1) the shipped `users` role with defaults only builds `User` resources for `root` and `bastet` (the latter with `system=True`) and the report's `tracked` contains both; (2) with `users: {alice: {}}` given, all three users are built; (3) with `users: {root: {password: "x"}}` given, one `root` `User` is built, with the password, and `bastet` is still there; (4) with `users: {bastet: {locked: true}}` the build raises the existing lockout error; (5) an Arch host with `users`, `systemd` and `pacman` applied has `tracked` containing `bin`, `nobody`, `dbus`, `alpm`, `systemd-network`, `systemd-timesync` and the report run over an Arch passwd fixture (root, bastet, bin, daemon, nobody, dbus, systemd-network, alpm, alice) lists only `alice`; (6) the same host with only the `users` role does not hide `alpm` or `systemd-network`; (7) a Debian host with `pacman` not applied does not hide `alpm`; (8) an unknown-OS host tracks only the managed users; (9) an account in `allowed` is still hidden.
+- [ ] **Step 2: Run, see them fail.** `uv run pytest tests/roles/test_merge_default.py tests/roles/test_expected_accounts.py -q`.
+- [ ] **Step 3: Implement** the flag, the merge, the `role.yml` default and the tracking change. Regenerate `docs/roles.md` (the users role page's Default column now shows the two entries).
+- [ ] **Step 4: Run** `uv run pytest tests/roles tests/engine tests/core -q && ruff check src tests`.
+- [ ] **Step 5: Commit** `users: root and bastet are default entries of the users role; the report expects the OS's accounts and the accounts of applied roles`.
+
+---
+
+### Task 4b: `bastet add role users` writes `root` and `bastet` into the note
+
+**Files:**
+- Modify: `src/bastet/roles/contract.py` (`RoleDef.starter`, read `starter:` in a Markdown note and a `role.yml`), `src/bastet/data/roles/users/role.yml` (add `starter:`), `src/bastet/cli/add.py` (`add_role`)
+- Test: `tests/cli/test_add_role_starter.py`; existing `tests/cli/test_add_role.py` must keep passing unchanged
+
+**Interfaces:**
+- Produces: `RoleDef.starter: dict = {}`. A role definition may carry `starter:`, a map of option values that `bastet add role` writes into the frontmatter of the note it creates (it is checked with `check_values(role, starter, ...)` when the role is read, so a bad starter is refused with the file and key). The `users` role ships `starter: {users: {root: {}, bastet: {system: true}}}`.
+- `add_role` builds the frontmatter as `{"bastet": "role", "role": role, "applies_to": link, **starter}`; the body for a role with a starter says `These entries are listed so you can change them; delete any you do not need.` instead of `No values set; this role uses its defaults.`. A role without a starter is written exactly as before.
+- Why this is safe: the starter entries equal the role's defaults (`merge_default`, Task 4), and empty or identical entries merge without a clash at any level, so a lab-level and a host-level note can both carry them. Existing notes are never edited.
+
+- [ ] **Step 1: Failing tests** (`tests/cli/test_add_role_starter.py`, reusing the setup helpers of `tests/cli/test_add_role.py`): adding `users` to a host writes a note whose frontmatter has `users.root == {}` and `users.bastet == {"system": True}`; adding `pacman` writes the same minimal note as before (no extra keys); the written `users` note loads and `resolve` gives the same merged `users` value as a host with no note; a role whose `starter:` has an unknown option name is refused by `load_roles`/`parse_role` with the file named; setting `root: {password: "secret:root_password"}` by editing the written note keeps `bastet` through the merge.
+- [ ] **Step 2: Run, see them fail.**
+- [ ] **Step 3: Implement.**
+- [ ] **Step 4: Run** `uv run pytest tests/cli tests/roles -q && ruff check src tests`.
+- [ ] **Step 5: Commit** `add role: a role's starter values go into its new note (users starts with root and bastet)`.
 
 ---
 
@@ -259,7 +281,7 @@ Note for the report: `--system` accounts get a uid below `UID_MIN` and no mail s
 
 ## Self-review
 
-- **Spec coverage:** every owner decision maps to a task: `alpm` with pacman and `systemd-*` with `systemd` (Task 1), the other Arch accounts on the Arch OS file and the Arch group coming with `systemd` (Tasks 2 and 3), `root`/`bastet` always accounted (Task 4), `bastet` as a system account on new hosts (Task 5), Debian and the `time` move recorded as later work (Task 6).
+- **Spec coverage:** every owner decision maps to a task: `alpm` with pacman and `systemd-*` with `systemd` (Task 1), the other Arch accounts on the Arch OS file and the Arch group coming with `systemd` (Tasks 2 and 3), `root` and `bastet` as default entries of the `users` role (Task 4), `bastet` as a system account on new hosts (Task 5), Debian and the `time` move recorded as later work (Task 6).
 - **Placeholders:** none; each task names its code or the exact test assertions. Task 3's inventory setup points at the existing resolved-table test as the pattern.
-- **Type consistency:** `check_accounts` returns `tuple[str, ...]` everywhere; `RoleDef.accounts` and `OsDefaults.accounts` are tuples; `defaults_for(os_id)` takes the string from `core.osinfo.os_id`; `BASE_ACCOUNTS` is a tuple of names.
-- **Review Focus mapping:** applied-only role accounts (Task 4 tests 2 and 3), overridability and the origin label (Task 3 tests 1 and 2), unknown OS (Tasks 2 and 3), Arch-like OSes (Tasks 2 and 3), the `bastet` guard (Task 5), bad `accounts:` (Tasks 1 and 2).
+- **Type consistency:** `check_accounts` returns `tuple[str, ...]` everywhere; `RoleDef.accounts` and `OsDefaults.accounts` are tuples; `defaults_for(os_id)` takes the string from `core.osinfo.os_id`; `RoleDef.starter` is a plain dict of option values.
+- **Review Focus mapping:** applied-only role accounts (Task 4 tests 5 to 7), overridability and the origin label (Task 3 tests 1 and 2), unknown OS (Tasks 2 and 3), Arch-like OSes (Tasks 2 and 3), the `bastet` guard (Task 5), bad `accounts:` (Tasks 1 and 2).
