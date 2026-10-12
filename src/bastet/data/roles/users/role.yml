@@ -86,6 +86,11 @@ options:
     default: true
     description: "Include root, bastet and system accounts such as nobody and systemd-* in that report on purpose; false lists only accounts in the login.defs UID_MIN to UID_MAX range (the first real run shows how noisy this is and decides whether the default changes)"
 examples:
+  - title: Root's password from a secret (then run `bastet secret set <host> users root_password` and type the password; the secret holds plain text and Bastet hashes it for the host)
+    yaml: |
+      users:
+        root:
+          password: "secret:root_password"
   - title: Report accounts nothing manages, except a few
     yaml: |
       allowed:
