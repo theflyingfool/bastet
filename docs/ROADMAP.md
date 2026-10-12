@@ -147,7 +147,7 @@ Rows marked ⏸ (the Proxmox and ZFS infrastructure roles) are set aside until a
 
 | | # | Role | What it does | Notes |
 |---|---|---|---|---|
-| ☑ | — | systemd | Hostname, locale | Python: the systemd block's own role. The time options moved to the `time` role; `systemd-timesync` stays in this role's `accounts:` (an OS-provided account is recognised whether or not the `time` role is applied). Changed with account defaults: it leaves things alone by default (`manage_hostname` false, `rtc_local` unset), so a note that relied on the old defaults must set them |
+| ☑ | — | systemd | Hostname, locale | Python: the systemd block's own role. The time options moved to the `time` role; `systemd-timesync` stays in this role's `accounts:` (an OS-provided account is recognised whether or not the `time` role is applied). Changed with account defaults: it leaves things alone by default (`manage_hostname` false), so a note that relied on the old defaults must set them |
 | ☑ | — | packages | Installs, updates and reboot policy per host | Python: the packages block's own role. No `repositories` option; each manager's role owns them |
 | ◐ | — | base | Admin tools everywhere; CPU microcode on physical hosts | Works in the old format; to be rewritten in Markdown (VPS apps, step 3) |
 | ☑ | — | pacman | Every `[options]` setting as a managed block in `pacman.conf` (originals commented `#bastet: `, one-time backup); repositories as `bastet repo <name>` blocks | Arch. Markdown-only, no Python (the proof) |

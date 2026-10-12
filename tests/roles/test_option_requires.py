@@ -60,66 +60,66 @@ def test_a_rule_naming_itself_or_in_a_bad_shape_is_refused(tmp_path):
 
 def test_a_satisfied_rule_passes(tmp_path):
     r = role(tmp_path)
-    check_relations(r, {"ntp": True, "servers": ["a"]}, "lab")
-    check_relations(r, {}, "lab")
-    check_relations(r, {"ntp": True, "mode": "x", "pool": "p"}, "lab")
+    check_relations(r, {"ntp": True, "servers": ["a"]})
+    check_relations(r, {})
+    check_relations(r, {"ntp": True, "mode": "x", "pool": "p"})
 
 
 def test_requires_a_value(tmp_path):
     with pytest.raises(BastetError, match="demo: servers needs ntp to be true") as e:
-        check_relations(role(tmp_path), {"servers": ["a"]}, "lab", file=Path("n.md"))
+        check_relations(role(tmp_path), {"servers": ["a"]}, file=Path("n.md"))
     assert e.value.file == Path("n.md")
     with pytest.raises(BastetError, match="demo: servers needs ntp to be true"):
-        check_relations(role(tmp_path), {"servers": ["a"], "ntp": False}, "lab")
+        check_relations(role(tmp_path), {"servers": ["a"], "ntp": False})
 
 
 def test_requires_one_of_several_values(tmp_path):
     r = role(tmp_path, {"a": {"type": "string"}, "b": {"type": "string", "requires": {"a": ["x", "y"]}}})
-    check_relations(r, {"a": "y", "b": "1"}, "lab")
+    check_relations(r, {"a": "y", "b": "1"})
     with pytest.raises(BastetError, match="demo: b needs a to be one of x, y"):
-        check_relations(r, {"a": "z", "b": "1"}, "lab")
+        check_relations(r, {"a": "z", "b": "1"})
 
 
 def test_requires_names_only_that_it_is_set(tmp_path):
     r = role(tmp_path)
     with pytest.raises(BastetError, match="demo: pool needs ntp to be set"):
-        check_relations(r, {"pool": "p", "mode": "m"}, "lab")
+        check_relations(r, {"pool": "p", "mode": "m"})
     with pytest.raises(BastetError, match="demo: pool needs mode to be set"):
-        check_relations(r, {"pool": "p", "ntp": False}, "lab")
+        check_relations(r, {"pool": "p", "ntp": False})
 
 
 def test_false_zero_empty_text_and_empty_list_count_as_set(tmp_path):
     r = role(tmp_path, {"a": {"type": "any"}, "b": {"type": "any", "requires": ["a"]}})
     for v in (False, 0, "", []):
-        check_relations(r, {"a": v, "b": 1}, "lab")
+        check_relations(r, {"a": v, "b": 1})
     with pytest.raises(BastetError):
-        check_relations(r, {"a": None, "b": 1}, "lab")
+        check_relations(r, {"a": None, "b": 1})
 
 
 def test_conflicts(tmp_path):
     r = role(tmp_path, {"a": {"type": "any"}, "b": {"type": "any", "conflicts": ["a"]}})
-    check_relations(r, {"a": 1}, "lab")
-    check_relations(r, {"b": 1}, "lab")
+    check_relations(r, {"a": 1})
+    check_relations(r, {"b": 1})
     with pytest.raises(BastetError, match="demo: b can't be set together with a"):
-        check_relations(r, {"a": False, "b": 0}, "lab")
+        check_relations(r, {"a": False, "b": 0})
 
 
 def test_fields_inside_an_object_are_siblings(tmp_path):
     fields = {"x": {"type": "bool"}, "y": {"type": "int", "requires": {"x": True}}, "z": {"type": "int", "conflicts": ["y"]}}
     r = role(tmp_path, {"o": {"type": "object", "fields": fields}, "x": {"type": "bool"}})
-    check_relations(r, {"o": {"x": True, "y": 1}}, "lab")
+    check_relations(r, {"o": {"x": True, "y": 1}})
     with pytest.raises(BastetError, match=r"demo: o\.y needs o\.x to be true"):
-        check_relations(r, {"o": {"y": 1}, "x": True}, "lab")
+        check_relations(r, {"o": {"y": 1}, "x": True})
     with pytest.raises(BastetError, match=r"demo: o\.z can't be set together with o\.y"):
-        check_relations(r, {"o": {"x": True, "y": 1, "z": 2}}, "lab")
+        check_relations(r, {"o": {"x": True, "y": 1, "z": 2}})
 
 
 def test_fields_inside_list_items_are_checked_per_item(tmp_path):
     item = {"type": "object", "fields": {"x": {"type": "bool"}, "y": {"type": "int", "requires": ["x"]}}}
     r = role(tmp_path, {"l": {"type": "list", "items": item}})
-    check_relations(r, {"l": [{"x": True, "y": 1}, {"x": False}]}, "lab")
+    check_relations(r, {"l": [{"x": True, "y": 1}, {"x": False}]})
     with pytest.raises(BastetError, match=r"demo: l\[1\]\.y needs l\[1\]\.x to be set"):
-        check_relations(r, {"l": [{"y": 1, "x": 1}, {"y": 2}]}, "lab")
+        check_relations(r, {"l": [{"y": 1, "x": 1}, {"y": 2}]})
 
 
 # the check sees the merged values of all notes (before defaults), per host
@@ -164,3 +164,41 @@ def test_a_default_does_not_satisfy_a_rule(tmp_path):
     inv = inventory(tmp_path, {"_roles/lab/demo.md": LAB_SERVERS})
     with pytest.raises(BastetError, match="servers needs ntp"):
         resolve(inv, inv.get("h1"), TYPES, {"demo": demo})
+
+
+def test_requires_and_conflicts_on_items_of_a_list_or_map_are_refused(tmp_path):
+    for rule in ({"requires": ["a"]}, {"conflicts": ["a"]}):
+        refused(tmp_path, {"a": {"type": "bool"}, "l": {"type": "list", "items": {"type": "string", **rule}}},
+                "demo.l[]", "items")
+        refused(tmp_path, {"a": {"type": "bool"}, "m": {"type": "map", "items": {"type": "string", **rule}}},
+                "demo.m[]", "items")
+
+
+def test_an_object_used_as_items_cannot_carry_a_rule_but_its_fields_can(tmp_path):
+    fields = {"x": {"type": "bool"}, "y": {"type": "int", "requires": ["x"]}}
+    refused(tmp_path, {"a": {"type": "bool"}, "l": {"type": "list", "items": {"type": "object", "fields": fields,
+                                                                              "requires": ["a"]}}}, "demo.l[]")
+    role(tmp_path, {"l": {"type": "list", "items": {"type": "object", "fields": fields}}})
+
+
+def test_wanted_values_are_checked_against_the_option(tmp_path):
+    refused(tmp_path, {"ntp": {"type": "bool"}, "b": {"type": "int", "requires": {"ntp": "maybe"}}}, "demo.b", "ntp")
+    refused(tmp_path, {"m": {"type": "string", "choices": ["x", "y"]}, "b": {"type": "int", "requires": {"m": ["x", "z"]}}},
+            "demo.b", "z")
+    refused(tmp_path, {"n": {"type": "int"}, "b": {"type": "int", "requires": {"n": "many"}}}, "demo.b")
+    role(tmp_path, {"m": {"type": "string", "choices": ["x", "y"]}, "b": {"type": "int", "requires": {"m": ["x", "y"]}}})
+
+
+def test_an_empty_list_of_wanted_values_is_refused(tmp_path):
+    refused(tmp_path, {"a": {"type": "string"}, "b": {"type": "int", "requires": {"a": []}}}, "demo.b", "requires")
+
+
+def test_an_option_called_item_or_key_is_refused(tmp_path):
+    for name in ("item", "key"):
+        refused(tmp_path, {name: {"type": "string"}}, name, "each")
+
+
+def test_a_wanted_value_is_stored_the_way_the_option_reads_it(tmp_path):
+    r = role(tmp_path, {"ntp": {"type": "bool"}, "b": {"type": "int", "requires": {"ntp": "true"}}})
+    assert r.options["b"].requires == {"ntp": (True,)}
+    check_relations(r, {"ntp": True, "b": 1})

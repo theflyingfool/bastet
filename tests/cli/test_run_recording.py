@@ -243,3 +243,19 @@ def test_a_user_name_that_cannot_be_found_never_stops_a_run(runner, box, monkeyp
     result = runner.invoke(app, ["run", "-c", "box"])
     assert result.exit_code == 0, result.output
     assert records()
+
+
+def test_a_role_note_is_kept_in_the_run_record(runner, inventory, monkeypatch):
+    (inventory / "hosts" / "box.md").write_text("---\nbastet: host\ntype: computer\nconnection: local\nhostname: box\n---\n# box\n")
+    roles = inventory / "_roles" / "hosts" / "box"
+    roles.mkdir(parents=True)
+    (roles / "time.md").write_text('---\nbastet: role\nrole: time\napplies_to: "[[box]]"\nntp: false\n---\n')
+    git(inventory, "add", ".")
+    git(inventory, "commit", "-q", "-m", "box")
+    monkeypatch.setattr(run_mod, "connect", lambda ctx, doc, tmp, yes: (AsRootLocally(), None))
+    result = runner.invoke(app, ["run", "-c", "box"])
+    assert result.exit_code == 0, result.output
+    notes = [e for e in events_of(records()[0]) if e["kind"] == "note"]
+    assert [(e["host"], e["data"]["message"]) for e in notes] == [
+        ("box", "time: `ntp: false` is not applied on this system yet; nothing changed")]
+    assert result.output.count("not applied on this system yet") == 1

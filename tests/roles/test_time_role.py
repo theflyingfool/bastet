@@ -8,6 +8,7 @@ from bastet.core.hosttypes import load_host_types
 from bastet.core.inventory import load_inventory
 from bastet.engine.files import Settings
 from bastet.engine.systemd import TimeSettings, Unit
+from bastet.roles import expr
 from bastet.roles.builtin import HostInfo, batches_for
 from bastet.roles.contract import check_relations, check_values, load_roles, with_defaults
 from bastet.roles.resolve import Applied, resolve
@@ -81,7 +82,7 @@ def test_a_timesyncd_setting_needs_ntp_true(key):
     value = ["10.1.1.1"] if key.endswith("servers") else "5s"
     for ntp in ({}, {"ntp": False}):
         with pytest.raises(BastetError, match="ntp"):
-            check_relations(TIME, {key: value, **ntp}, "time")
+            check_relations(TIME, {key: value, **ntp})
 
 
 def test_debian_with_ntp_true_is_an_error():
@@ -102,17 +103,29 @@ def test_a_container_gets_the_zone_and_an_info_note_about_the_node():
         assert [n.level for n in notes] == ["info"] and "provided by its host" in notes[0].message
 
 
-def test_the_lab_wide_warning_names_the_way_out():
-    _, notes = build({"ntp": True}, origins={"ntp": "lab"})
-    assert [n.level for n in notes] == ["warning"] and "overrides" in notes[0].message
-    _, notes = build({"ntp": True}, origins={"ntp": "lab (override)"})
-    assert [n.level for n in notes] == ["warning"]
+def warning_holds(values, system, origin):
+    """Whether the lab-wide warning check holds (a Debian host also gets the error check, which stops the host first)."""
+    host = HostInfo(name="media01", type=system[0], data={"os": system[1]}, root=Path("/nonexistent"), lab={})
+    ctx = expr.context(TIME.options, values, host, {"ntp": origin})
+    check = next(c for c in TIME.checks if c["level"] == "warning")
+    return expr.truthy(check["when"], ctx), check
 
 
-def test_the_warning_is_not_shown_for_a_host_note_or_when_ntp_is_off():
-    assert build({"ntp": True}, origins={"ntp": "host media01"})[1] == []
-    assert build({"ntp": True}, origins={"ntp": "group arch-vms"})[1] == []
-    assert build({"ntp": False}, origins={"ntp": "lab"})[1] == []
+def test_the_lab_wide_warning_shows_only_on_debian_and_names_the_way_out():
+    for origin in ("lab", "lab (override)"):
+        holds, check = warning_holds({"ntp": True}, DEBIAN, origin)
+        assert holds
+    for text in ("overrides", "ntp_servers", "ntp: null"):
+        assert text in check["message"]
+
+
+def test_the_warning_is_not_shown_on_arch_in_a_container_or_when_the_value_is_not_lab_wide():
+    assert not warning_holds({"ntp": True}, ARCH, "lab")[0]
+    assert not warning_holds({"ntp": True}, LXC, "lab")[0]
+    assert not warning_holds({"ntp": True}, DEBIAN, "host media01")[0]
+    assert not warning_holds({"ntp": True}, DEBIAN, "group arch-vms")[0]
+    assert not warning_holds({"ntp": False}, DEBIAN, "lab")[0]
+    assert not warning_holds({}, DEBIAN, "lab")[0]
 
 
 # the whole path: notes on disk, resolve, build
@@ -155,7 +168,7 @@ def test_a_lab_note_with_an_override_syncs_arch_hosts_and_leaves_debian_with_the
     assert arch.values["ntp"] is True
     resources = [r for b in batches_for([arch], info) for r in b.resources]
     assert resources == [TimeSettings(timezone="Europe/Berlin"), Unit(name=UNIT, enabled=True, state="up")]
-    assert [n.level for b in batches_for([arch], info) for n in b.notes] == ["warning"]  # set lab-wide
+    assert [n for b in batches_for([arch], info) for n in b.notes] == []  # the override is in place
 
     for name in ("pve1", "deb1"):  # one by the lab override, one by the group's own null
         (applied,), info = out[name]
@@ -163,3 +176,29 @@ def test_a_lab_note_with_an_override_syncs_arch_hosts_and_leaves_debian_with_the
         batches = batches_for([applied], info)
         assert [r for b in batches for r in b.resources] == [TimeSettings(timezone="Europe/Berlin")]
         assert [n for b in batches for n in b.notes] == []
+
+
+LAB_WITH_SERVERS = ("timezone: Europe/Berlin\nntp: true\nntp_servers:\n  - 10.1.1.1\noverrides:\n"
+                    "  - when: not host.arch_like\n    ntp: null\n    ntp_servers: null\n")
+LAB_NULLING_ONLY_NTP = LAB_WITH_SERVERS.replace("    ntp_servers: null\n", "")
+
+
+def test_an_override_that_nulls_ntp_and_the_servers_opts_a_debian_host_out_cleanly(tmp_path):
+    hosts = {"arch1": ("Arch Linux", []), "pve1": ("Debian GNU/Linux 13 (trixie)", [])}
+    out = resolved(tmp_path, hosts, {"lab/time.md": LAB_WITH_SERVERS})
+
+    (arch,), info = out["arch1"]
+    assert arch.values["ntp"] is True and arch.values["ntp_servers"] == ["10.1.1.1"]
+    drop_in = next(r for b in batches_for([arch], info) for r in b.resources if isinstance(r, Settings))
+    assert drop_in.lines == ("NTP = 10.1.1.1",)
+
+    (pve,), info = out["pve1"]
+    assert pve.values["ntp"] is None and pve.values["ntp_servers"] is None
+    batches = batches_for([pve], info)
+    assert [r for b in batches for r in b.resources] == [TimeSettings(timezone="Europe/Berlin")]
+    assert [n for b in batches for n in b.notes] == []
+
+
+def test_nulling_only_ntp_while_the_servers_are_set_still_fails(tmp_path):
+    with pytest.raises(BastetError, match="ntp_servers needs ntp"):
+        resolved(tmp_path, {"pve1": ("Debian GNU/Linux 13 (trixie)", [])}, {"lab/time.md": LAB_NULLING_ONLY_NTP})

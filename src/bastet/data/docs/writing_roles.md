@@ -134,7 +134,7 @@ highest-ranked note wins (a host's `false`, or any real value, beats a group's n
 `true`), and two notes of the same rank that disagree (one null, one `true`) clash like any other disagreement. Only
 after every rank is merged is a winning null turned into "unset": the option then takes its default, or nothing. Nothing
 is removed during the merge, so the result never depends on the order of the notes. The same holds for a field inside a
-`map` or `object` option (a map entry set to null drops that entry).
+`map` or `object` option (a map entry set to null drops that entry; for a `merge_default` map it falls back to the default entry, if any).
 A null with nothing inherited does nothing. A cleared option is not listed among the origins, and `requires` and
 `conflicts` see it as unset.
 
@@ -310,7 +310,8 @@ fixed by block, whatever order a role lists its entries in:
 4. `systemd`: units (enable, start), drop-ins, hostname, time zone, locale;
 5. `commands`.
 
-Then the triggers run once, at the end: daemon-reload first, then restarts and reloads, then `on_change` commands.
+Then the triggers run once, at the end: daemon-reload first, then restarts and reloads (in the order the entries
+changed), then `on_change` commands (in that order too).
 
 That is the usual workflow written out: install the package, configure it (a file), enable the unit, and reload or
 restart it when its configuration changed. `before:` and `after:` on an entry name a block (`before: files`) and move
@@ -335,7 +336,8 @@ When a file changes, the host often has to be told. There are four classes, and 
 
 `daemon_reload`, `restart`, `reload` and `on_change` work on `content`, `template`, `line`, `block`, `edit` and `render`
 entries, not on `directory` or `link`. Triggers run once per host, after all the changes, in this order:
-daemon-reload first, then restarts and reloads, then `on_change` commands. An identical trigger named by several entries
+daemon-reload first, then restarts and reloads, then `on_change` commands; within each group, in the order the
+entries changed. An identical trigger named by several entries
 runs once. A trigger only fires for an entry that changed and did not fail.
 
 Known limitation: a unit that was started in this same run is restarted once more when its config also changed.

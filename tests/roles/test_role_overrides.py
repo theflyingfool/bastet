@@ -13,7 +13,7 @@ BASE = {"bastet": "role-definition", "name": "demo", "version": "1.2.3", "api": 
 OPTIONS = {
     "ntp": {"type": "bool"},
     "zone": {"type": "string"},
-    "key": {"type": "string", "secret": True},
+    "token": {"type": "string", "secret": True},
 }
 
 
@@ -91,8 +91,8 @@ def test_when_sees_lab_facts(tmp_path):
 
 
 def test_secret_references_pass_through(tmp_path):
-    out = run(tmp_path, {"Homelab": "overrides:\n  - {when: host.debian_like, key: 'secret:demo-key'}\n"})
-    assert out.values["key"] == "secret:demo-key"
+    out = run(tmp_path, {"Homelab": "overrides:\n  - {when: host.debian_like, token: 'secret:demo-key'}\n"})
+    assert out.values["token"] == "secret:demo-key"
 
 
 @pytest.mark.parametrize("body, text", [

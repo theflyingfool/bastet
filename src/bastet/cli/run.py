@@ -360,6 +360,7 @@ def _run(selectors: list[str] | None, exclude: list[str] | None, *, apply_change
                     out.secho(text, fg="yellow")
                 else:
                     out.echo(text)
+                events.emit("note", doc.name, message=ctx.secrets.redactor.mask(f"{note.role}: {note.message}"))
             if not any(b.resources for b in batches):
                 out.echo(f"{doc.name}: {role_names}: nothing to manage yet")
                 events.emit("host_skipped", doc.name, reason="nothing to manage yet")

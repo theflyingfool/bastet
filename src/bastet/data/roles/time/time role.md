@@ -92,9 +92,9 @@ examples:
     save_interval_sec: infinity
 checks:
 - name: ntp set lab-wide
-  when: ntp and applied.origin.ntp.startswith('lab')
+  when: ntp and applied.origin.ntp.startswith('lab') and not host.arch_like and not host.container
   level: warning
-  message: 'time sync is only implemented for Arch; setting `ntp` lab-wide makes every Debian/Proxmox host fail. Set `ntp` on an Arch group instead, or add an `overrides:` entry (`when: not host.arch_like`, `ntp: null`) to the lab note, or write `ntp: null` in the Debian/Proxmox group''s note.'
+  message: 'time sync is only implemented for Arch, and `ntp` was set lab-wide, so this Debian/Proxmox host fails. To opt it out, add an `overrides:` entry to the lab note (`when: not host.arch_like`, `ntp: null`) or write `ntp: null` in this host''s or group''s note. Clear every timesyncd option that is set as well (`ntp_servers: null`, ...), because each needs `ntp: true`. Or set `ntp` on an Arch group instead.'
 - name: container sync
   when: host.container and ntp is not none
   level: info
@@ -102,7 +102,7 @@ checks:
 - name: sync needs Arch
   when: not host.container and not host.arch_like and ntp
   level: error
-  message: 'time sync is implemented for systemd-timesyncd on Arch only; chrony for Debian/Proxmox is planned. Set `ntp: null` for this host or group to apply only the time zone.'
+  message: 'time sync is implemented for systemd-timesyncd on Arch only; chrony for Debian/Proxmox is planned. Set `ntp: null` for this host or group to apply only the time zone, and clear any timesyncd option that is set too (`ntp_servers: null`, ...), because each needs `ntp: true`.'
 - name: sync off elsewhere
   when: not host.container and not host.arch_like and ntp is not none and not ntp
   level: info
@@ -196,18 +196,24 @@ save_interval_sec: infinity
 ## One note for the whole lab
 
 Time sync is only built for Arch. Setting `ntp: true` in the lab note makes every Debian and Proxmox host fail with an
-error, and the role warns about it. Either set `ntp` in a group of Arch hosts, or keep it in the lab note and opt the
-others out with an override, so they only get the time zone and no sync message:
+error, and the role warns about it next to that error. Either set `ntp` in a group of Arch hosts, or keep it in the lab
+note and opt the others out with an override, so they only get the time zone and no sync message. The override has to
+clear the timesyncd options that are set as well, because each of them needs `ntp: true`:
 
 ```yaml
 timezone: Europe/Berlin
 ntp: true
+ntp_servers:
+  - 10.1.1.1
 overrides:
   - when: "not host.arch_like"
     ntp: null
+    ntp_servers: null
 ```
 
-A group or host note with `ntp: null` does the same for just those hosts.
+Clearing only `ntp` is not enough: the host then fails with `ntp_servers needs ntp to be true`. A group or host note with
+`ntp: null` (and the same nulls for the other timesyncd options) does the same for just those hosts. The warning
+disappears once `ntp` is cleared.
 
 ## Changes
 

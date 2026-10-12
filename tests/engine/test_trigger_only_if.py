@@ -4,6 +4,7 @@ import subprocess
 from engine_fakes import Flag
 
 from bastet import events
+from bastet.core.errors import BastetError
 from bastet.core.remote import CommandResult, LocalRunner
 from bastet.core.shell import ProbeResult
 from bastet.engine import report
@@ -127,3 +128,26 @@ def test_the_missing_unit_message_is_what_the_shell_prints(tmp_path):
                        env={"PATH": f"{bin_dir}:/usr/bin:/bin"})
     assert r.returncode == 1
     assert "unit gitea.service does not exist (is the package" in r.stderr
+
+
+class LostProbeRunner(SystemctlRunner):
+    """Like SystemctlRunner, but the is-active probe itself fails (a lost connection)."""
+
+    def run(self, script, *, timeout=120):
+        if "is-active" in script:
+            raise BastetError("connection lost")
+        return super().run(script, timeout=timeout)
+
+
+def test_a_probe_that_cannot_run_fails_the_trigger_and_stops_the_later_ones(tmp_path):
+    runner = LostProbeRunner(active={"x.service"})
+    run = _run(tmp_path, runner, restart("x.service"), Trigger("later", "true", root=False, order=60))
+    assert [(t.trigger.label, t.ok, t.skipped) for t in run.triggers] == [("restart x.service", False, False)]
+    assert "connection lost" in run.triggers[0].error
+    assert "systemctl restart x.service" not in runner.calls
+    assert not run.ok
+
+
+def test_a_probe_that_exits_non_zero_still_just_skips(tmp_path):
+    run = _run(tmp_path, SystemctlRunner(), restart("x.service"))
+    assert [(t.ok, t.skipped) for t in run.triggers] == [(True, True)]

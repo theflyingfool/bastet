@@ -222,6 +222,6 @@ def resolve(inv: Inventory, host: Document, types: dict[str, HostType], roles: d
         merged = {k: _cleared(role.options[k], v) for k, v in merged.items() if v is not None}
         origins = {k: v for k, v in origins.items() if k in merged}
         files = [s.doc.path if s.doc else s.file for s in sources if s.values]
-        check_relations(role, merged, name, file=files[-1] if files else None)  # the notes' own values, before defaults
+        check_relations(role, merged, file=files[-1] if files else None)  # the notes' own values, before defaults
         applied.append(Applied(role, with_defaults(role, merged), sources, origins))
     return sorted(applied, key=lambda a: a.role.name)

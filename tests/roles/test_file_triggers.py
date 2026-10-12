@@ -40,7 +40,7 @@ def test_daemon_reload_comes_first_then_restart_reload_and_on_change(tmp_path):
                          "on_change": [{"name": "apply sysctl", "run": "sysctl --system"}]}])
     [f] = built(r)
     assert labels(f) == ["daemon-reload", "restart a.service", "reload b.service", "apply sysctl"]
-    assert [t.order for t in f.on_change] == [10, 50, 50, 50]
+    assert [t.order for t in f.on_change] == [10, 50, 50, 60]
     assert f.on_change[-1].command == "sysctl --system" and f.on_change[-1].root and f.on_change[-1].only_if is None
 
 
@@ -145,3 +145,12 @@ def test_a_failing_resource_does_not_run_its_triggers(tmp_path):
     assert run.triggers == [] and not log.exists()
     assert not run.ok
     assert Flag is not None
+
+
+def test_on_change_triggers_run_after_restarts_reloads_and_daemon_reload(tmp_path):
+    first = role(tmp_path, [{"path": "/etc/a", "content": "a", "on_change": [{"name": "mine", "run": "r"}]},
+                            {"path": "/etc/b", "content": "b", "restart": ["x.service"], "reload": ["y.service"],
+                             "daemon_reload": True}])
+    triggers = [t for res in built(first) for t in res.on_change]
+    ordered = [t.label for t in sorted(triggers, key=lambda t: t.order)]
+    assert ordered == ["daemon-reload", "restart x.service", "reload y.service", "mine"]

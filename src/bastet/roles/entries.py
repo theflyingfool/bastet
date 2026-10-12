@@ -359,7 +359,7 @@ def triggers(entry: dict) -> dict:
     """The `restart`/`reload` unit lists of a resolved entry as `on_change` triggers."""
     units = [daemon_reload()] if entry.get("daemon_reload") else []
     units += [restart(u) for u in entry.get("restart") or [] if u] + [reload(u) for u in entry.get("reload") or [] if u]
-    units += [Trigger(label=c["name"], command=c["run"]) for c in entry.get("on_change") or []]
+    units += [Trigger(label=c["name"], command=c["run"], order=60) for c in entry.get("on_change") or []]
     return {"on_change": tuple(units)} if units else {}
 
 

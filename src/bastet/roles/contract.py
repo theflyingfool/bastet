@@ -133,6 +133,8 @@ def _relations(where: str, raw: dict, path: Path) -> tuple[dict[str, tuple | Non
             for name, want in given.items():
                 if want is None or isinstance(want, dict):
                     raise BastetError(f"{where}: requires {name} needs true, a value or a list of values", file=path)
+                if isinstance(want, list) and not want:
+                    raise BastetError(f"{where}: requires {name} needs at least one value", file=path, key="requires")
                 requires[name] = tuple(want) if isinstance(want, list) else (want,)
         else:
             raise BastetError(f"{where}: requires must be a list of names or a map of name to value", file=path)
@@ -152,6 +154,12 @@ def _check_relation_names(where: str, siblings: dict[str, Option], path: Path) -
                 if other not in siblings:
                     raise BastetError(f"{where}.{name}: {kind} names {other!r}, which isn't an option here "
                                       f"(options: {', '.join(siblings)})", file=path)
+                if kind == "requires" and named[other] is not None:  # the wanted values, as the option itself reads them
+                    try:
+                        opt.requires[other] = tuple(check_value(siblings[other], want, f"{where}.{name}: requires {other}")
+                                                    for want in named[other])
+                    except BastetError as exc:
+                        raise BastetError(exc.message, file=path, key=name) from None
 
 
 def _read_choices_file(where: str, name: object, path: Path) -> tuple[str, ...]:
@@ -177,9 +185,14 @@ def _read_choices_file(where: str, name: object, path: Path) -> tuple[str, ...]:
     return tuple(values)
 
 
-def _option(where: str, raw: object, path: Path) -> Option:
+def _option(where: str, raw: object, path: Path, as_items: bool = False) -> Option:
     if not isinstance(raw, dict) or raw.get("type") not in TYPES:
         raise BastetError(f"{where}: an option needs a type ({', '.join(TYPES)})", file=path)
+    if as_items:
+        for rule in ("requires", "conflicts"):
+            if rule in raw:
+                raise BastetError(f"{where}: {rule} can't be used on the items of a list or map (it would be ignored); "
+                                  "put it on the list or map option itself", file=path, key=rule)
     unknown = set(raw) - OPTION_KEYS
     if unknown:
         raise BastetError(f"{where}: unknown keys {sorted(unknown)}", file=path)
@@ -240,7 +253,7 @@ def _option(where: str, raw: object, path: Path) -> Option:
     if opt.type in ("list", "map"):
         if "items" not in raw:
             raise BastetError(f"{where}: a {opt.type} option needs items", file=path)
-        opt.items = _option(f"{where}[]", raw["items"], path)
+        opt.items = _option(f"{where}[]", raw["items"], path, as_items=True)
         if "choices_from" in raw:  # on the list or map itself: its string items take the values
             opt.items.choices, opt.items.choices_file = opt.choices, opt.choices_file
     if opt.type == "object":
@@ -262,6 +275,10 @@ def _options_and_examples(name: str, raw: dict, path: Path) -> tuple[dict[str, O
     clash = RESERVED & set(options)
     if clash:
         raise BastetError(f"role {name}: option names reserved for role files: {sorted(clash)}", file=path)
+    for taken in ("item", "key"):
+        if taken in options:
+            raise BastetError(f"role {name}: an option can't be called {taken!r}: inside an `each` entry that name "
+                              "stands for the current entry", file=path, key=taken)
     examples = raw.get("examples") or []
     if not isinstance(examples, list) or not all(
             isinstance(e, dict) and isinstance(e.get("title"), str) and isinstance(e.get("yaml"), str)
@@ -565,8 +582,12 @@ def _lenient(typ: str, value: object) -> object:
     return value
 
 
-def check_value(opt: Option, value: object, where: str) -> object:
-    """Validate one value; returns it normalised (shorthand expanded, empty fields dropped)."""
+def check_value(opt: Option, value: object, where: str, keep_nulls: bool = False) -> object:
+    """Validate one value; returns it normalised (shorthand expanded, empty fields dropped).
+
+    A null field or entry of an object or map is dropped, unless `keep_nulls` is set: note values keep it so that
+    resolve() can clear it after the levels are merged. Items of a list are never merged one by one, so their nulls
+    are always dropped."""
     if isinstance(value, str) and value.startswith(SECRET_PREFIX):
         return value  # unresolved reference: the real value is checked against this type once it's resolved
     # Lenient parsing: convert string values if applicable
@@ -595,7 +616,8 @@ def check_value(opt: Option, value: object, where: str) -> object:
     elif opt.type == "map":
         if not isinstance(value, dict):
             raise BastetError(f"{where}: expected a map, got {value!r}")
-        return {str(k): v if v is None else check_value(opt.items, v, f"{where}.{k}") for k, v in value.items()}  # None: opts out
+        return {str(k): v if v is None else check_value(opt.items, v, f"{where}.{k}", keep_nulls)
+                for k, v in value.items() if keep_nulls or v is not None}
     elif opt.type == "object":
         if not isinstance(value, dict):
             raise BastetError(f"{where}: expected a map of fields, got {value!r}")
@@ -605,7 +627,8 @@ def check_value(opt: Option, value: object, where: str) -> object:
         missing = [k for k, f in opt.fields.items() if f.required and value.get(k) is None]
         if missing:
             raise BastetError(f"{where}: needs {', '.join(missing)}")
-        return {k: v if v is None else check_value(opt.fields[k], v, f"{where}.{k}") for k, v in value.items()}  # None: opts out
+        return {k: v if v is None else check_value(opt.fields[k], v, f"{where}.{k}", keep_nulls)
+                for k, v in value.items() if keep_nulls or v is not None}
     if opt.type in ("int", "number"):
         if opt.min is not None and value < opt.min:
             raise BastetError(f"{where}: must be {opt.min} or more")
@@ -640,7 +663,7 @@ def check_values(role: RoleDef, values: dict, where: str, file: Path | None = No
             out[key] = None
             continue
         try:
-            out[key] = check_value(role.options[key], value, f"{role.name}.{key}")
+            out[key] = check_value(role.options[key], value, f"{role.name}.{key}", keep_nulls=True)
         except BastetError as exc:
             raise BastetError(exc.message, file=file, key=key) from None
     return out
@@ -679,7 +702,7 @@ def check_overrides(role: RoleDef, overrides: object, where: str, file: Path | N
                 values[key] = None
                 continue
             try:
-                values[key] = check_value(role.options[key], value, f"{here}.{key} ({role.name}.{key})")
+                values[key] = check_value(role.options[key], value, f"{here}.{key} ({role.name}.{key})", keep_nulls=True)
             except BastetError as exc:
                 raise fail(exc.message) from None
         out.append((when, values))
@@ -729,7 +752,7 @@ def _check_nested(opt: Option, value: object, here: str, role: str, file: Path |
             _check_nested(opt.items, item, f"{here}.{k}", role, file)
 
 
-def check_relations(role: RoleDef, values: dict, where: str, file: Path | None = None) -> None:
+def check_relations(role: RoleDef, values: dict, file: Path | None = None) -> None:
     """Check the requires and conflicts rules on values as the notes wrote them (merged, before defaults)."""
     _check_siblings(role.options, values, "", role.name, file)
 
