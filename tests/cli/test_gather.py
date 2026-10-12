@@ -8,6 +8,7 @@ import pytest
 from gather_fixtures import LAPTOP, stdout_for
 
 import bastet.cli.gather as gather_mod
+import bastet.roles.resolve as resolve_mod
 from bastet.cli.app import app
 from bastet.core.errors import Unreachable
 from bastet.core.factsnote import facts_path
@@ -106,7 +107,8 @@ def test_unknown_host_name(runner, inventory):
     assert result.exit_code == 1 and "no host named 'nope'" in result.output
 
 
-def test_gather_then_apply_in_one_run_is_one_commit(runner, laptop):
+def test_gather_then_apply_in_one_run_is_one_commit(runner, laptop, monkeypatch):
+    monkeypatch.setattr(resolve_mod, "defaults_for", lambda os_id: None)  # gathered as Arch: keep this host role-less
     before = int(git(laptop, "rev-list", "--count", "HEAD").strip())
     result = runner.invoke(app, ["run", "-g", "-a", "hp-13", "-y"])
     assert result.exit_code == 0, result.output

@@ -10,6 +10,7 @@ from bastet.core.hosttypes import HostType
 from bastet.core.hostview import host_data
 from bastet.core.inventory import Inventory
 from bastet.core.links import link_target
+from bastet.core.osdefaults import defaults_for
 from bastet.core.osinfo import os_id
 from bastet.engine.run import ConflictError
 from bastet.roles.contract import RESERVED, Option, RoleDef, check_values, with_defaults
@@ -83,6 +84,10 @@ def sources_for(inv: Inventory, host: Document, types: dict[str, HostType]) -> d
     if host_type is not None:
         for role, values in host_type.roles.items():
             out.setdefault(role, []).append(Source(role, f"type {host_type.name}", (1,), dict(values or {})))
+    os_defaults = defaults_for(os_id(host_data(inv, host, types)))
+    if os_defaults is not None:  # after the type default, before groups and hosts: anything above can override it
+        for role, values in os_defaults.roles.items():
+            out.setdefault(role, []).append(Source(role, f"OS default ({os_defaults.name})", (1, 1), dict(values or {})))
     dist = group_distances(inv, host, types)
     for doc in inv.role_files:
         target = inv.get(link_target(doc.data.get("applies_to")) or "")
