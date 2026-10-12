@@ -54,8 +54,8 @@ def test_a_bad_role_value_in_an_os_file_names_the_file(tmp_path, monkeypatch):
     from bastet.core.factsnote import facts_path, render_facts
     from bastet.core.hosttypes import load_host_types
     from bastet.core.inventory import load_inventory
-    from bastet.roles.contract import load_roles
     from bastet.roles import resolve as resolve_module
+    from bastet.roles.contract import load_roles
     from bastet.roles.resolve import resolve
 
     folder = tmp_path / "oses"
