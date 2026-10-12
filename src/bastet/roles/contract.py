@@ -21,7 +21,7 @@ SECRET_PREFIX = "secret:"  # a reference, resolved and re-checked against the op
 RESERVED = {"bastet", "role", "applies_to", "priority", "cssclasses", "tags", "aliases", "rotate_every", "overrides"}
 OPTION_KEYS = {"type", "description", "default", "choices", "items", "fields", "shorthand", "secret", "required",
                "generate", "source", "rotate_every", "key", "section", "as", "min", "max", "single_line",
-               "format", "path", "marker", "before", "after", "merge_default", "requires", "conflicts"}
+               "format", "path", "marker", "before", "after", "merge_default", "requires", "conflicts", "choices_from"}
 API_VERSIONS = (0,)
 OPTION_AS = ("flag", "value", "list", "lines", "text", "entries")
 ENTRY_FORMATS = ("deb822", "ini_section")
@@ -55,6 +55,7 @@ class Option:
     description: str = ""
     default: object = None
     choices: tuple | None = None
+    choices_file: str | None = None  # the file in the role's folder the choices were read from (choices_from)
     items: Option | None = None
     fields: dict[str, Option] = field(default_factory=dict)
     shorthand: str | None = None
@@ -150,6 +151,29 @@ def _check_relation_names(where: str, siblings: dict[str, Option], path: Path) -
                                       f"(options: {', '.join(siblings)})", file=path)
 
 
+def _read_choices_file(where: str, name: object, path: Path) -> tuple[str, ...]:
+    """The values of a `choices_from` file: one per line, blank lines and `#` lines ignored, whitespace stripped."""
+    if not isinstance(name, str) or not name.strip():
+        raise BastetError(f"{where}: choices_from must be a file name in the role's folder", file=path, key="choices_from")
+    folder = path.parent.resolve()
+    target = (folder / name).resolve()
+    if Path(name).is_absolute() or not target.is_relative_to(folder) or target == folder:
+        raise BastetError(f"{where}: choices_from {name!r} must be a file inside the role's folder", file=path,
+                          key="choices_from")
+    try:
+        text = target.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise BastetError(f"{where}: can't read choices_from file {name!r}: {getattr(exc, 'strerror', None) or exc}",
+                          file=path, key="choices_from") from None
+    values = [line.strip() for line in text.splitlines() if line.strip() and not line.strip().startswith("#")]
+    if not values:
+        raise BastetError(f"{where}: choices_from file {name!r} has no values", file=path, key="choices_from")
+    for value in values:
+        if values.count(value) > 1:
+            raise BastetError(f"{where}: choices_from file {name!r} lists {value!r} twice", file=path, key="choices_from")
+    return tuple(values)
+
+
 def _option(where: str, raw: object, path: Path) -> Option:
     if not isinstance(raw, dict) or raw.get("type") not in TYPES:
         raise BastetError(f"{where}: an option needs a type ({', '.join(TYPES)})", file=path)
@@ -191,8 +215,18 @@ def _option(where: str, raw: object, path: Path) -> Option:
         if "before" in raw and "after" in raw:
             raise BastetError(f"{where}: use before or after, not both", file=path)
     requires, conflicts = _relations(where, raw, path)
+    from_file = raw.get("choices_from")
+    if "choices_from" in raw:
+        if "choices" in raw:
+            raise BastetError(f"{where}: use choices or choices_from, not both", file=path, key="choices_from")
+        item_type = raw["items"].get("type") if isinstance(raw.get("items"), dict) else None
+        if raw["type"] != "string" and not (raw["type"] in ("list", "map") and item_type == "string"):
+            raise BastetError(f"{where}: choices_from only applies to string options and lists or maps of strings",
+                              file=path, key="choices_from")
+        from_file_values = _read_choices_file(where, from_file, path)
     opt = Option(type=raw["type"], description=str(raw.get("description", "")), default=raw.get("default"),
-                 choices=tuple(raw["choices"]) if "choices" in raw else None, shorthand=raw.get("shorthand"),
+                 choices=from_file_values if "choices_from" in raw else (tuple(raw["choices"]) if "choices" in raw else None),
+                 choices_file=from_file if "choices_from" in raw else None, shorthand=raw.get("shorthand"),
                  secret=bool(raw.get("secret", False)), required=bool(raw.get("required", False)),
                  generate=generate, source=source, rotate_every=raw.get("rotate_every"),
                  key=raw.get("key"), section=raw.get("section"), as_=raw.get("as"), min=raw.get("min"),
@@ -204,6 +238,8 @@ def _option(where: str, raw: object, path: Path) -> Option:
         if "items" not in raw:
             raise BastetError(f"{where}: a {opt.type} option needs items", file=path)
         opt.items = _option(f"{where}[]", raw["items"], path)
+        if "choices_from" in raw:  # on the list or map itself: its string items take the values
+            opt.items.choices, opt.items.choices_file = opt.choices, opt.choices_file
     if opt.type == "object":
         opt.fields = {k: _option(f"{where}.{k}", v, path) for k, v in (raw.get("fields") or {}).items()}
         _check_relation_names(where, opt.fields, path)
@@ -492,6 +528,10 @@ def check_value(opt: Option, value: object, where: str) -> object:
     if opt.single_line and (not value.strip() or "\n" in value):
         raise BastetError(f"{where}: needs a single non-empty line")
     if opt.choices is not None and value not in opt.choices:
+        if opt.choices_file:  # a long list: name the file, show at most the closest value
+            hint = did_you_mean(str(value), [str(c) for c in opt.choices])
+            raise BastetError(f"{where}: {value!r} isn't one of the values in {opt.choices_file}"
+                              + (f"; {hint}" if hint else ""))
         raise BastetError(f"{where}: {value!r} isn't one of {', '.join(map(str, opt.choices))}")
     return value
 

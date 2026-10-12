@@ -111,6 +111,21 @@ refused. Everything is checked when the note is read: the `when` syntax, the fac
 option of the role, and each value through that option's normal checks (a `secret:` reference is allowed). An error
 names the note file and the key `overrides`. In the origins, a value that came from an entry reads `lab (override)`.
 
+### Long lists of allowed values (choices_from)
+
+For a long list of allowed values (time zones, say), an option may say `choices_from: <file>` instead of `choices:`.
+The file sits in the role's own folder (no absolute path, no `..`), holds one value per line, and ignores blank lines,
+lines starting with `#` and surrounding spaces. It is checked when the role is read: it must be readable text with at
+least one value and no value twice, and `choices_from` together with `choices` is refused. It applies to string
+options, and to list or map options whose items are strings (put it on the option or on `items`). A value that is not
+in the file is refused with the option and file named and at most the closest match, never the whole list. The
+generated reference shows more than 20 values in a collapsed "N allowed values" block.
+
+```yaml
+options:
+  timezone: {type: string, choices_from: time zones.txt}
+```
+
 ### Accounts, defaults and starters
 
 `accounts:` (top level, a list of account names) lists the accounts a role brings; the unaccounted-users report treats

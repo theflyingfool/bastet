@@ -33,8 +33,20 @@ def _cell(value: object) -> str:
     return str(value).replace("|", "\\|").replace("\n", " ")
 
 
+LONG_CHOICES = 20  # more allowed values than this are collapsed
+
+
+def _choices_text(opt: Option) -> str:
+    if not opt.choices:
+        return ""
+    values = _cell(", ".join(map(str, opt.choices)))
+    if len(opt.choices) > LONG_CHOICES:
+        return f" <details><summary>{len(opt.choices)} allowed values</summary>{values}</details>"
+    return f" (one of {values})"
+
+
 def _rows(name: str, opt: Option) -> list[str]:
-    extra = f" (one of {', '.join(map(str, opt.choices))})" if opt.choices else ""
+    extra = _choices_text(opt)
     rows = [f"| {name} | {_type_text(opt)} | {_cell(opt.default)} | {_cell(opt.description)}{extra} |"]
     inner = opt.items if opt.type in ("list", "map") else opt
     suffix = "[]" if opt.type == "list" else (".<name>" if opt.type == "map" else "")
