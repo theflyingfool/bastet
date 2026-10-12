@@ -270,7 +270,9 @@ def batches_for(applied: list[Applied], host: HostInfo) -> list[Batch]:
             built = builder(a.values, host)
         except (TypeError, ValueError, KeyError) as exc:
             raise BastetError(f"{a.role.name}: {exc}") from None
-        if a.secret:
+        if a.secret and a.role.name != "users":
+            # (The users role is skipped: its secret values live only in password fields, which `User` hides itself;
+            # keys, sudoers files and groups keep showing their diffs.)
             # At least one of this role's options was a `secret:` reference: every
             # resource it built might hold that value, however deep (a systemd drop-in's content,
             # a file's content, a line in a config), so every resource from this role's batches is

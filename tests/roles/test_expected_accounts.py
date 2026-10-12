@@ -92,3 +92,31 @@ def test_an_unknown_os_tracks_only_the_managed_users():
 def test_allowed_still_hides():
     report = report_of(build([applied("users", {"allowed": ["alice"]})]))
     assert "alice" not in listed(report)
+
+
+PASSWD_STATE = {"passwd": ProbeResult(0, "root:x:0:0::/root:/bin/bash"), "groups": ProbeResult(0, "root|root"),
+                "shadow": ProbeResult(0, "root:$6$salt$hash:19000:0:99999:7:::"), "tools": ProbeResult(0, "/usr/sbin/useradd")}
+BASTET_STATE = {"passwd": ProbeResult(0, "bastet:x:1000:1000::/home/bastet:/bin/bash"),
+                "groups": ProbeResult(0, "bastet|bastet wheel"), "shadow": ProbeResult(0, "bastet:!:19000:0:99999:7:::"),
+                "tools": ProbeResult(0, "/usr/sbin/useradd")}
+
+
+def test_a_secret_password_hides_only_the_password_not_the_rest_of_the_users_role():
+    role = ROLES["users"]
+    values = with_defaults(role, check_values(role, {
+        "users": {"root": {"password": "hunter2"},
+                  "alice": {"keys": ["ssh-ed25519 AAAAC3Nza...example alice@laptop"], "sudo": {"nopasswd": True}}},
+        "groups": {"media": {"gid": 2001}}}, "users"))
+    batches = build([Applied(role, values, secret=True, secret_options=frozenset({"users"}))])
+    resources = [r for b in batches for r in b.resources]
+    assert {type(r).__name__ for r in resources} >= {"User", "Group", "AuthorizedKey", "File", "UnaccountedUsers"}
+    assert [r.label for r in resources if r.secret] == []
+    [root] = [u for u in of(batches, User) if u.name == "root"]
+    text = " ".join(str(c.before) + str(c.after) for c in root.compare(root.current(PASSWD_STATE)))
+    assert "hunter2" not in text and "(new)" in text
+
+
+def test_the_default_root_and_bastet_entries_compare_clean_on_a_normal_host():
+    users = {u.name: u for u in of(build([applied("users")]), User)}
+    assert users["root"].compare(users["root"].current(PASSWD_STATE)) == []
+    assert users["bastet"].compare(users["bastet"].current(BASTET_STATE)) == []

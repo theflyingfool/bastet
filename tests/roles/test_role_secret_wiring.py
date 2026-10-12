@@ -62,13 +62,13 @@ def test_a_markdown_role_that_raises_a_plain_error_comes_back_as_a_bastet_error(
         batches_for([Applied(role=role, values={})], host())
 
 
-def test_the_blanket_secret_rule_of_an_old_format_role_leaves_the_unaccounted_lists_readable():
+def test_the_blanket_secret_rule_skips_the_users_role_whose_user_hides_its_own_password():
     role = load_roles()["users"]
     values = with_defaults(role, check_values(role, {"users": {"alice": {"password_hash": "$6$salt$hash"}}}, "users"))
     resources = [r for b in batches_for([Applied(role=role, values=values, secret=True)], host()) for r in b.resources]
     [report] = [r for r in resources if isinstance(r, UnaccountedUsers)]
     [alice] = [r for r in resources if isinstance(r, User) and r.name == "alice"]
-    assert report.secret is False and alice.secret is True
+    assert report.secret is False and alice.secret is False
 
 
 def test_the_unaccounted_package_list_stays_readable_too():

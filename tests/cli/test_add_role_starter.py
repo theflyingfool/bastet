@@ -82,10 +82,10 @@ def test_users_note_resolves_with_merged_defaults(runner, inventory):
     assert users["bastet"] == {"system": True}
 
 
-def test_removing_the_password_line_keeps_default_root_and_bastet(runner, inventory):
+def test_removing_the_root_entry_keeps_default_root_and_bastet(runner, inventory):
     assert runner.invoke(app, ["add", "role", "users", "pve1", "-y"]).exit_code == 0
     path = _note(inventory, "pve1", "users")
-    # the password line and the `root:` line above it (a bare `root:` with nothing under it is not a map)
+    # the whole root entry: the password line and the `root:` line above it (a bare `root:` is not a map)
     kept = [ln for ln in path.read_text().splitlines(keepends=True)
             if "root_password" not in ln and ln.strip() != "root:"]
     path.write_text("".join(kept))
