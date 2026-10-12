@@ -7,7 +7,7 @@ _KEY = re.compile(r"^(ssh-[a-z0-9-]+|ecdsa-sha2-[a-z0-9-]+|sk-[a-z0-9@.-]+) [A-Z
 
 _SCRIPT = """set -e
 if ! id bastet >/dev/null 2>&1; then
-  useradd --create-home --shell /bin/sh bastet
+  useradd --system --create-home --shell /bin/sh bastet
 fi
 usermod -p '*' bastet
 home=$(getent passwd bastet | cut -d: -f6)
