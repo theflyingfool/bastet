@@ -1,0 +1,5 @@
+name: arch
+description: Arch Linux and Arch-based systems
+roles:
+  systemd: {}
+accounts: [bin, daemon, mail, ftp, http, nobody, dbus, tss, uuidd, _talkd]

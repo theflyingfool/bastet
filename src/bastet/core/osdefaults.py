@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 import re
+from importlib import resources
 from pathlib import Path
 
+import yaml
+from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
+
 from bastet.core.errors import BastetError
+from bastet.core.osinfo import ARCH_LIKE
 
 ACCOUNT = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]*\$?")
 
@@ -23,3 +28,43 @@ def check_accounts(value: object, where: str, path: Path | None = None) -> tuple
         raise BastetError(f"{where}: accounts must be a list of account names (letters, digits, _ . -), not {bad!r}",
                           file=path, key="accounts")
     return tuple(dict.fromkeys(value))
+
+
+class OsDefaults(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    description: str = ""
+    roles: dict[str, dict] = {}
+    accounts: tuple[str, ...] = ()
+
+    @field_validator("accounts", mode="before")
+    @classmethod
+    def _accounts(cls, value: object) -> tuple[str, ...]:
+        return check_accounts(value, "OS defaults")
+
+
+def _shipped_dir() -> Path:
+    return Path(str(resources.files("bastet") / "data" / "oses"))
+
+
+def load_os_defaults(directory: Path | None = None) -> dict[str, OsDefaults]:
+    directory = directory or _shipped_dir()
+    found: dict[str, OsDefaults] = {}
+    for path in sorted(directory.glob("*.yml")):
+        try:
+            raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+            defaults = OsDefaults.model_validate(raw)
+        except BastetError as exc:
+            raise BastetError(f"invalid OS defaults: {exc.message}", file=path) from None
+        except (yaml.YAMLError, ValidationError) as exc:
+            raise BastetError(f"invalid OS defaults: {exc}".splitlines()[0], file=path) from None
+        found[defaults.name] = defaults
+    return found
+
+
+def defaults_for(os_id: str | None, directory: Path | None = None) -> OsDefaults | None:
+    """The defaults for an OS id, or None when the OS is missing or has none yet."""
+    if not os_id:
+        return None
+    return load_os_defaults(directory).get("arch" if os_id in ARCH_LIKE else os_id)
