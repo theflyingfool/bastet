@@ -28,6 +28,8 @@
 3. **Not an OS default.** Arch hosts do not get `time` automatically (a default would have to change nothing anyway); you add it to a lab, group or host note.
 4. **One grouped option replaces `ntp`, `ntp_service`, `ntp_servers` and `fallback_ntp_servers`:** `ntp_settings: {service: timesyncd|chrony|off, servers: [...], fallback_servers: [...]}`. `service` has no default (unset leaves sync alone; `off` stops and disables sync). `servers` and `fallback_servers` only take effect with a daemon chosen, and `fallback_servers` only with `timesyncd`; mismatches are ignored and the option descriptions say so (the contract has no cross-option checks, and none is added). The old `keep` daemon mode goes: `service: timesyncd|chrony` installs and enables that daemon, `off` disables sync through `timedatectl`.
 
+5. **The role installs the daemon it needs on every OS** (`chrony` on Arch, Debian and Proxmox alike; `systemd-timesyncd` on Debian-like, where it is separate); it never relies on what the OS ships. `servers` is optional: unset, both daemons use the distro's stock servers. `servers` are added to the daemon's stock ones (chrony) or replace them (timesyncd `NTP=`); the role's docs say which. Task 1 step 3 checks the stock configs of Arch and Debian (`chrony.conf`, `timesyncd.conf`) before the docs are written, and the docs state the result.
+
 ## Review Focus
 
 - With no options set, the role emits nothing on any host type and OS (a test builds it empty on Arch, Debian and an LXC).
