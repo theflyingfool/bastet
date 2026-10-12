@@ -78,6 +78,9 @@ def host_block(run: HostRun, *, full: bool) -> Block:
     if run.triggers:
         block.add("On change", "bold")
         for t in run.triggers:
+            if t.skipped:
+                block.add(f"  {t.trigger.label} skipped: not running", "dim")
+                continue
             block.add(f"  {t.trigger.label} ✓" if t.ok else f"  {t.trigger.label} ✗ {t.error}", "green" if t.ok else "red")
         block.add("")
     if collapsed:

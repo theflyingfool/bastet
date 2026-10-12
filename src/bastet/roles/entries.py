@@ -9,7 +9,7 @@ from pathlib import Path
 
 from bastet.core.errors import BastetError
 from bastet.engine.files import Block, Directory, File, Line, Symlink
-from bastet.engine.model import Resource
+from bastet.engine.model import Resource, Trigger
 from bastet.engine.packages import Package
 from bastet.engine.run import Note
 from bastet.engine.slots import SLOTS
@@ -18,6 +18,7 @@ from bastet.engine.systemd import (
     Locale,
     TimeSettings,
     Unit,
+    daemon_reload,
     drop_in,
     reload,
     restart,
@@ -356,7 +357,9 @@ def _systemd_entry(role, ctx: dict, host, secrets: frozenset, notes: list[Note],
 
 def triggers(entry: dict) -> dict:
     """The `restart`/`reload` unit lists of a resolved entry as `on_change` triggers."""
-    units = [restart(u) for u in entry.get("restart") or [] if u] + [reload(u) for u in entry.get("reload") or [] if u]
+    units = [daemon_reload()] if entry.get("daemon_reload") else []
+    units += [restart(u) for u in entry.get("restart") or [] if u] + [reload(u) for u in entry.get("reload") or [] if u]
+    units += [Trigger(label=c["name"], command=c["run"]) for c in entry.get("on_change") or []]
     return {"on_change": tuple(units)} if units else {}
 
 

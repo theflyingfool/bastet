@@ -52,6 +52,7 @@ class TriggerRun:
     trigger: Trigger
     ok: bool
     error: str | None = None
+    skipped: bool = False  # its only_if failed (the unit wasn't running), so it didn't run
 
 
 @dataclass
@@ -305,6 +306,12 @@ def run_host(
                     if t not in pending:
                         pending.append(t)
         for t in sorted(pending, key=lambda t: t.order):  # phase 5
+            if t.only_if:
+                active, _ = _exec(runner, [t.only_if], t.root, fix_timeout, host=host, phase="on_change")
+                if not active:
+                    run.triggers.append(TriggerRun(t, True, skipped=True))
+                    events.emit("trigger_fired", host, trigger=t.label, ok=True, error=None, skipped="not running")
+                    continue
             ok, error = _exec(runner, [t.command], t.root, fix_timeout, host=host, phase="on_change")
             if ok and t.check:
                 for attempt in range(t.check_tries):

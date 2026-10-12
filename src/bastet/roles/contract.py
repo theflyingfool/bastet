@@ -34,15 +34,15 @@ ROLE_NOTE_KEYS = {"bastet", "name", "version", "api", "description", "os", "prov
 FILE_EDITS = ("ini",)
 FILE_RENDERS = ("apt",)
 FILE_FORMS = ("edit", "render", "content", "template", "directory", "link", "line", "block")
-EDIT_RENDER_KEYS = {"path", "edit", "render", "mode", "owner", "group", "validate", "before", "after", "backup", "when", "restart", "reload"}
+EDIT_RENDER_KEYS = {"path", "edit", "render", "mode", "owner", "group", "validate", "before", "after", "backup", "when", "restart", "reload", "daemon_reload", "on_change"}
 FILE_KEYS = EDIT_RENDER_KEYS | {"content", "template", "directory", "link", "line", "match", "unique", "block", "marker", "comment", "each"}
 FORM_KEYS = {
-    "content": {"mode", "owner", "group", "validate", "restart", "reload", "backup"},
-    "template": {"mode", "owner", "group", "validate", "restart", "reload", "backup"},
+    "content": {"mode", "owner", "group", "validate", "restart", "reload", "daemon_reload", "on_change", "backup"},
+    "template": {"mode", "owner", "group", "validate", "restart", "reload", "daemon_reload", "on_change", "backup"},
     "directory": {"mode", "owner", "group"},
     "link": set(),
-    "line": {"match", "unique", "validate", "restart", "reload"},
-    "block": {"marker", "comment", "validate", "restart", "reload"},
+    "line": {"match", "unique", "validate", "restart", "reload", "daemon_reload", "on_change"},
+    "block": {"marker", "comment", "validate", "restart", "reload", "daemon_reload", "on_change"},
 }
 COMMAND_KEYS = {"name", "run", "unless", "when", "before", "after", "each"}
 SECTION_BLOCKS = ("packages", "users", "files", "systemd", "commands")
@@ -329,6 +329,15 @@ def _file_entry(path: Path, entry: object, options: dict[str, Option], index: in
     for key in ("restart", "reload"):
         if key in entry and not (isinstance(entry[key], list) and all(isinstance(u, str) for u in entry[key])):
             raise BastetError(f"files entry: {key} must be a list of unit names", file=path, key=key)
+    if "daemon_reload" in entry and not isinstance(entry["daemon_reload"], bool):
+        raise BastetError("files entry: daemon_reload must be true or false", file=path, key="daemon_reload")
+    if "on_change" in entry:
+        items = entry["on_change"]
+        if not (isinstance(items, list) and items and all(
+                isinstance(c, dict) and set(c) == {"name", "run"}
+                and all(isinstance(c[k], str) and c[k].strip() for k in ("name", "run")) for c in items)):
+            raise BastetError("files entry: on_change must be a list of maps, each with a name and a run (both text)",
+                              file=path, key="on_change")
     where = f"files[{index}]"
     try:
         role_entries.refuse_bastet_path(entry["path"], where)

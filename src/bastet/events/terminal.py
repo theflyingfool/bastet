@@ -62,6 +62,8 @@ class TerminalSink:
             return lines
         if e.kind == "trigger_fired":
             ok = d["ok"]
+            if d.get("skipped"):
+                return [(f"{h}  trigger {d['trigger']} skipped: {d['skipped']}", "dim")]
             return [(f"{h}  trigger {d['trigger']} " + ("✓" if ok else f"✗ {d.get('error') or ''}".rstrip()),
                      "green" if ok else "red")]
         if e.kind == "note":

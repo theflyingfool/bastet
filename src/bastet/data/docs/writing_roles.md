@@ -246,6 +246,28 @@ entry from a secret is hashed on the controller in the host's own scheme.
 
 `bastet doctor <folder>` lints a Markdown role.
 
+### Reacting to changes
+
+When a file changes, the host often has to be told. There are four classes, and each has its own key:
+
+- **daemon-reload** is for unit definitions and drop-ins under `/etc/systemd/system`, and Quadlet files. Write
+  `daemon_reload: true` on the `files:` entry. A `systemd:` entry of `kind: dropin` does this for you.
+- **restart and reload** are for an application's own config (a file under `/etc/example-app/` or a `conf.d`
+  folder). Write `restart: [unit]` or `reload: [unit]`. Only a running unit is touched: a stopped or failed unit is left alone,
+  and the report says "skipped: not running". To bring a unit up, add a `systemd:` unit
+  entry with `state: up`.
+- **enable, disable, start and stop** belong to the `systemd:` unit entry (`enabled:`, `state:`), not to a file.
+- **`on_change`** runs a command of your own for anything else, such as `sysctl --system` or
+  `update-ca-certificates`: `on_change: [{name: apply sysctl, run: sysctl --system}]`. Both `name` and `run` are
+  required text and may use `{{ }}`.
+
+`daemon_reload`, `restart`, `reload` and `on_change` work on `content`, `template`, `line`, `block`, `edit` and `render`
+entries, not on `directory` or `link`. Triggers run once per host, after all the changes, in this order:
+daemon-reload first, then restarts and reloads, then `on_change` commands. An identical trigger named by several entries
+runs once. A trigger only fires for an entry that changed and did not fail.
+
+Known limitation: a unit that was started in this same run is restarted once more when its config also changed.
+
 ### Stopping or warning instead of skipping silently
 
 Nothing is skipped without a message, unless the setting itself says to skip. When a role leaves something out, or
