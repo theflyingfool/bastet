@@ -97,6 +97,11 @@ def test_duplicates_are_refused(tmp_path):
         make_role(tmp_path, STRING, {"zones.txt": "UTC\nAsia/Tokyo\n UTC\n"})
 
 
+def test_the_first_listed_repeated_value_is_named(tmp_path):
+    with pytest.raises(BastetError, match=r"lists 'UTC' twice"):
+        make_role(tmp_path, STRING, {"zones.txt": "UTC\nAsia/Tokyo\nAsia/Tokyo\nUTC\n"})
+
+
 def test_with_choices_is_refused(tmp_path):
     with pytest.raises(BastetError, match="choices_from.*choices|choices.*choices_from"):
         make_role(tmp_path, "  zone: {type: string, choices: [a], choices_from: zones.txt}\n", {"zones.txt": ZONES})

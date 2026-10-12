@@ -180,9 +180,15 @@ def _read_choices_file(where: str, name: object, path: Path) -> tuple[str, ...]:
     values = [line.strip() for line in text.splitlines() if line.strip() and not line.strip().startswith("#")]
     if not values:
         raise BastetError(f"{where}: choices_from file {name!r} has no values", file=path, key="choices_from")
+    seen: set[str] = set()
+    repeated: set[str] = set()
     for value in values:
-        if values.count(value) > 1:
-            raise BastetError(f"{where}: choices_from file {name!r} lists {value!r} twice", file=path, key="choices_from")
+        if value in seen:
+            repeated.add(value)
+        seen.add(value)
+    if repeated:  # name the first listed value that occurs more than once
+        value = next(v for v in values if v in repeated)
+        raise BastetError(f"{where}: choices_from file {name!r} lists {value!r} twice", file=path, key="choices_from")
     return tuple(values)
 
 
