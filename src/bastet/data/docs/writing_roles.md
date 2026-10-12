@@ -51,17 +51,21 @@ The apt role's `modernize_sources` option uses one to run `apt modernize-sources
 
 `accounts:` (top level, a list of account names) lists the accounts a role brings; the unaccounted-users report treats
 them as expected on hosts the role is applied to. OS defaults are shipped per OS (`src/bastet/data/oses/`); for
-example Arch comes with the `systemd` role and the always-present Arch accounts, and a lab, group or host note can
-still change that role's options.
+example Arch comes with the `systemd` role and the always-present Arch accounts. An OS default ranks below the lab: a
+lab, group or host note (and a host type's default) can still change that role's options, and the resolved table names
+the origin as "OS default (arch)".
 
 An option with `merge_default: true` (a map option) keeps its default entries when a note sets some of its own: the
 `users` role's default `root` and `bastet` entries stay when a note adds `alice`, and `root: {password: ...}` merges
 with the default `root` entry instead of replacing it.
 
 `starter:` (a map of option values) is written into the frontmatter of a new role note by `bastet add role`; the
-`users` role starts with `root`'s password as a `secret:` reference and `bastet` as a system account. A top-level
-option that is `secret: true` and `required: true` is written into the new note as a `secret:` reference
-automatically; for a nested one, add it under `starter:`.
+`users` role starts with `root`'s password as a `secret:` reference and `bastet` as a system account. To drop one of
+those entries, delete the whole entry (or write `root: {}`), not just its password line. Setting root's password keeps
+an already locked root locked; add `locked: false` to unlock it. A top-level option that is `secret: true` and
+`required: true` is written into the new note as a `secret:` reference automatically, which spares you from adding the
+reference by hand and from the "missing secret" lookup (an unset secret option already reads the same secret name, so it
+is not needed to make it work); for a nested one, add it under `starter:`.
 
 ### Calling the building blocks
 

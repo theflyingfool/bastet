@@ -66,7 +66,7 @@ repositories:
 | dpkg_options | list of string |  | Dpkg::Options: options passed to dpkg |
 | repositories | list of object |  | Extra apt repositories, one /etc/apt/sources.list.d/<name>.sources file each, written before packages are installed |
 | repositories[].name | string |  | File name, letters, digits and . _ + - |
-| repositories[].types | list of string | ['deb'] | deb, deb-src |
+| repositories[].types | list of string | ["deb"] | deb, deb-src |
 | repositories[].uris | list of string |  |  |
 | repositories[].suites | list of string |  |  |
 | repositories[].components | list of string |  |  |
@@ -99,7 +99,7 @@ microcode: never
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| tools | list of string | ['vim', 'zsh', 'git', 'htop', 'tree', 'gdu', 'wget', 'less'] | Admin tools to install; setting this replaces the default list (use extra_tools to add) |
+| tools | list of string | ["vim", "zsh", "git", "htop", "tree", "gdu", "wget", "less"] | Admin tools to install; setting this replaces the default list (use extra_tools to add) |
 | extra_tools | list of string | [] | More tools on top of `tools` |
 | microcode | string | auto | auto: install CPU microcode on physical hosts (by host type; Intel or AMD from the gathered CPU), never on VMs or containers. Debian needs the non-free-firmware component. (one of auto, never) |
 
@@ -214,7 +214,7 @@ sysctl:
 | fail2ban_bantime | string | 1h | How long a ban lasts |
 | fail2ban_findtime | string | 10m | Window for counting failures |
 | fail2ban_maxretry | int | 5 | Failures before a ban |
-| fail2ban_ignoreip | list of string | ['127.0.0.1/8', '::1'] | Never ban these addresses/networks (add your LAN to avoid locking yourself out) |
+| fail2ban_ignoreip | list of string | ["127.0.0.1/8", "::1"] | Never ban these addresses/networks (add your LAN to avoid locking yourself out) |
 | fail2ban_backend | string | systemd | Where fail2ban reads logs (systemd journal; Arch and Debian 12+ have no auth.log) |
 | fail2ban_jails | map of map | {} | More jails: name → settings, written as-is |
 | fail2ban_sandbox | bool | true | Run fail2ban sandboxed (systemd drop-in); turn off if a jail needs more access |
@@ -623,8 +623,8 @@ users:
 
 ```yaml
 allowed:
-  - root
-  - bastet
+  - backup
+  - www-data
 report_system_accounts: false
 ```
 
@@ -657,7 +657,7 @@ groups:
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| users | map of object | {'root': {}, 'bastet': {'system': True}} | Users by name. root and bastet are always there; entries you list merge over them |
+| users | map of object | {"root": {}, "bastet": {"system": true}} | Users by name. root and bastet are always there; entries you list merge over them. To drop a starter entry, delete the whole entry (or write `root: {}`), not just its password line. Setting root's password keeps an already locked root locked; add `locked: false` to unlock it |
 | users.<name>.uid | int |  |  |
 | users.<name>.group | string |  | Primary group |
 | users.<name>.groups | list of string |  | Supplementary groups |
@@ -708,4 +708,4 @@ groups:
 | sudoers.<name>.defaults | list of string |  |  |
 | allowed | list of string |  | Account names that are fine without a role; they are left out of the report of accounts no role manages |
 | report_unaccounted | bool | true | Report accounts on the host that no role manages or allows (never changes or removes them) |
-| report_system_accounts | bool | true | Include root, bastet and system accounts such as nobody and systemd-* in that report on purpose; false lists only accounts in the login.defs UID_MIN to UID_MAX range (the first real run shows how noisy this is and decides whether the default changes) |
+| report_system_accounts | bool | true | Include system accounts such as nobody and systemd-* in that report on purpose (root and bastet are managed by default, so they are never listed); false lists only accounts in the login.defs UID_MIN to UID_MAX range (the first real run shows how noisy this is and decides whether the default changes) |

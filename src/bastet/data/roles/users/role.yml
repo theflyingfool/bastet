@@ -6,7 +6,7 @@ starter:
 options:
   users:
     type: map
-    description: "Users by name. root and bastet are always there; entries you list merge over them"
+    description: "Users by name. root and bastet are always there; entries you list merge over them. To drop a starter entry, delete the whole entry (or write `root: {}`), not just its password line. Setting root's password keeps an already locked root locked; add `locked: false` to unlock it"
     default: {root: {}, bastet: {system: true}}
     merge_default: true
     items:
@@ -90,7 +90,7 @@ options:
   report_system_accounts:
     type: bool
     default: true
-    description: "Include root, bastet and system accounts such as nobody and systemd-* in that report on purpose; false lists only accounts in the login.defs UID_MIN to UID_MAX range (the first real run shows how noisy this is and decides whether the default changes)"
+    description: "Include system accounts such as nobody and systemd-* in that report on purpose (root and bastet are managed by default, so they are never listed); false lists only accounts in the login.defs UID_MIN to UID_MAX range (the first real run shows how noisy this is and decides whether the default changes)"
 examples:
   - title: Root's password from a secret (then run `bastet secret set <host> users root_password` and type the password; the secret holds plain text and Bastet hashes it for the host)
     yaml: |
@@ -100,8 +100,8 @@ examples:
   - title: Report accounts nothing manages, except a few
     yaml: |
       allowed:
-        - root
-        - bastet
+        - backup
+        - www-data
       report_system_accounts: false
   - title: A user with an SSH key and passwordless sudo
     yaml: |

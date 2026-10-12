@@ -1,5 +1,6 @@
 """Generated reference pages: one per role, every option with type, default and description, and who uses it."""
 
+import json
 import re
 from pathlib import Path
 
@@ -27,6 +28,8 @@ def _cell(value: object) -> str:
         return ""
     if isinstance(value, bool):
         return "true" if value else "false"
+    if isinstance(value, (dict, list)):  # flow style, not Python's repr
+        value = json.dumps(value)
     return str(value).replace("|", "\\|").replace("\n", " ")
 
 
