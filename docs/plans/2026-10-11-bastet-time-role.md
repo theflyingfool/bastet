@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax. In this repo, the `bastet-run-plan` skill supplies the Bastet-specific parts; the `bastet-new-role` skill holds the role checklist.
 
-**Status:** revised 2026-10-11 after an independent audit of the contract code (`src/bastet/roles/*.py`, `src/bastet/engine/{run,model,systemd,files}.py`) and the owner's decisions. **Awaiting owner review; no code is written yet.**
+**Status:** revised 2026-10-11 after an independent audit of the contract code (`src/bastet/roles/*.py`, `src/bastet/engine/{run,model,systemd,files}.py`) and the owner's decisions. **Owner decisions D-1 to D-3 received 2026-10-12; awaiting the owner's final read; no code is written yet.**
 
 **Goal:** finish the Markdown role contract now so the next role is boring to write (options, supported systems, compose blocks, conditions, docs, tests), then write the `time` role on it as the first real proof. Preserve the architecture: Markdown roles over Python blocks, blocks do the work and report changes, the contract only describes and sequences.
 
@@ -24,13 +24,16 @@
 
 ## Owner decisions (2026-10-11, supersede earlier plan text)
 
-1. **Strict time zone validation** with `choices_from:`; the list is regenerated from `timedatectl list-timezones` at version bumps (Task 7), not per commit or run.
+1. **Strict time zone validation** with `choices_from:`; the list is regenerated from `timedatectl list-timezones` at version bumps (Task 8), not per commit or run.
 2. **`systemd-timesync` stays in the `systemd` role's `accounts:`** (an OS-provided account is recognised whether or not an optional role is applied). Recognised accounts (OS file, role `accounts:`, `allowed`) stay distinct from accounts Bastet manages (`User` entries); the audit found both already represented (A-17). No notes about unaccounted users are needed.
 3. **NTP:** `ntp` unset = leave sync alone; `true` = write applicable settings and enable/start; `false` = stop/disable only. Disabling never deletes or rewrites managed config. No file-removal feature is invented here.
 4. **Reload classes are separate:** `daemon-reload` only for unit definitions and unit drop-ins; restart/reload for application config; enable/disable and start/stop are the `Unit` resource. `/etc/systemd/timesyncd.conf.d/bastet.conf` needs a service restart, not a daemon-reload.
 5. **Platforms:** Arch = systemd-timesyncd (built). Debian/Proxmox = chrony, one item, **not built**; setting sync options there is an **error**, not a skip. LXC = time sync is delegated to the node: an **info** message, never a warning, and the role never claims it configured sync. The time zone applies wherever `timedatectl` works. An unknown OS is treated like Debian (error), never as supported.
 6. `rtc_local` is dropped from the role (owner has no dual-boot hosts); the `systemd` block keeps the field.
 7. The time options leave the Python `systemd` role (its `role.yml`); the `systemd` block and its `kind: time` entry stay.
+8. **Loops over list options are included** (`each:`, Task 6): caddy sites, mounts, fail2ban jails, sudoers and WireGuard peers will need them.
+9. **Triggers restart or reload only a running unit.** A unit that has *failed* is not restarted by a trigger either (a role that wants it up says so with a `Unit` entry `state: up`, which starts it). Known, accepted exception.
+10. **Lab-wide warning:** `checks:` can see where an option's value came from (`applied.origin.<option>`: `lab`, `group <name>`, `host <name>`, …). The `time` role uses it to warn when `ntp` is set from the lab note. The check (`bastet run` without applying) already shows the per-host Debian/Proxmox error.
 
 ## Audit: what the contract does today
 
@@ -68,20 +71,21 @@ Verified by reading the code (not assumed). ✔ implemented and covered by tests
 | A-4 | `choices_from:` | 3 |
 | A-5, A-7, A-8 | notes channel + role `checks:` (info/warning/error); container drops become visible notes; parse-time check of `host.<fact>` | 4 |
 | A-6 | `sections:` | 5 |
-| A-9, A-10, A-11 | `daemon_reload` and `on_change` on `files` entries; restart/reload only act on a running unit; clearer missing-unit error | 6 |
-| A-20 | version-bump script that refreshes and validates the time zone list; a test that fails when the list was not refreshed for the version | 7 |
-| A-16 | docs and generators | 9 |
+| loops (decision 8) | `each:` on entries | 6 |
+| A-9, A-10, A-11 | `daemon_reload` and `on_change` on `files` entries; restart/reload only act on a running unit; clearer missing-unit error | 7 |
+| A-20 | version-bump script that refreshes and validates the time zone list; a test that fails when the list was not refreshed for the version | 8 |
+| A-16 | docs and generators | 10 |
 
 ## Forward-looking gap analysis (from `docs/ROADMAP.md`; the role list is not invented)
 
 | Role / area | Expressible after this plan? | Missing shared capability? | Reusable? | Do now? |
 |---|---|---|---|---|
 | base | Yes: packages with `when: host.physical` for microcode, per-OS names via `sections:` | No | – | – |
-| caddy | Yes: package, `files` with `validate:`, `reload:`, unit, `directory` for `conf.d` | Restart semantics (A-10) | yes | Task 6 |
+| caddy | Yes: package, `files` with `validate:`, `reload:`, unit, `directory` for `conf.d`; several sites via `each:` | Restart semantics (A-10) | yes | Tasks 6, 7 |
 | forgejo / vaultwarden | Yes: package, `edit: ini` (flat keyed options), systemd drop-in, secrets as whole values | `edit: env` is a **files-block** feature the roadmap already assigns to vaultwarden | block work | with that role |
-| docker / podman | Quadlet files + `daemon-reload` + units: yes once `daemon_reload` exists | `daemon_reload` on files (A-9); rootless **user-scope** units (`systemctl --user`, linger) | daemon_reload yes; user units need block design | daemon_reload now; user units deferred (no near role needs them) |
-| WireGuard (not on the roadmap; judged from your table) | Yes: secret key as whole value, mode `0600`, `wg-quick@` unit, restart on change, sysctl via file + `on_change` | generic command trigger (A-9) | yes | Task 6 |
-| monitoring (grafana, glances, …) | Yes: packages, templates, units, multi-component | A loop over a list option (one file/entry per item) | likely (caddy sites, mounts, fail2ban jails, sudoers) | **owner decision D-1** |
+| docker / podman | Quadlet files + `daemon-reload` + units: yes once `daemon_reload` exists | `daemon_reload` on files (A-9); rootless **user-scope** units (`systemctl --user`, linger) | daemon_reload yes; user units need block design | daemon_reload now (Task 7); user units deferred (no near role needs them) |
+| WireGuard (not on the roadmap; judged from your table) | Yes: secret key as whole value, mode `0600`, `wg-quick@` unit, restart on change, sysctl via file + `on_change` | generic command trigger (A-9) | yes | Task 7 |
+| monitoring (grafana, glances, …) | Yes: packages, templates, units, multi-component | A loop over a list option (one file/entry per item) | yes (caddy sites, mounts, fail2ban jails, sudoers, WireGuard peers) | Task 6 (`each:`) |
 | Proxmox / LXC | Host-type conditions and info/error checks: yes | JSON `api` block for guest lifecycle is a **block**, not contract | block | later |
 | storage / ZFS | Report-first roles: yes | More host facts (disks) and destructive-operation safeguards: the facts list is extensible (`expr.context`), safeguards are block/design | facts: cheap later | later |
 | fetch / git | A new block needs a new entry list in the contract (`ROLE_NOTE_KEYS`, a `parse_*`, an `entries` builder) | Adding a **block** touches the contract by design; acceptable | – | when the block is built |
@@ -99,7 +103,9 @@ All keys are optional and change nothing for existing roles.
 - **`choices_from: <file>`.** One value per line in a file in the role's folder; blank lines and `#` comments ignored. Values are checked like `choices`; the file is checked when the role is read (exists, non-empty, no duplicates, not together with `choices`). Generated docs show lists longer than about twenty in a collapsed `<details>`.
 - **`checks:`.** Role-level list of `{name?, when, level: info|warning|error, message}`. `when` sees options and `host`/`lab` facts (**planning-time only; it cannot test remote state**; run-time safeguards remain `validate:`, `unless:` and trigger `check`s). `error` stops that host's build with a message naming role and file; `info` and `warning` become **notes** on the build, shown through `bastet.ui.out` in `bastet run` and the check workflow, once per host and message. `info` = intentionally delegated or informational; `warning` = probably unintended; `error` = cannot be done.
 - **`sections:`.** `sections: [{name?, when?, packages, users, files, systemd, commands}]`. A section's `when` is ANDed with each entry's own `when`; a section without `when` only organises. Several sections and top-level lists coexist; order is still by block then listing; nesting is refused; no new execution semantics.
-- **`files` entry triggers.** Existing `restart:` / `reload:` plus `daemon_reload: true` (unit definitions, Quadlet files) and `on_change: [{name, run}]` (a command run once after the host's fixes when the entry changed something). Triggers only run for entries that changed, are de-duplicated, `daemon-reload` first and then the rest in listing order. `restart:`/`reload:` act only when the unit is running, so they never start a stopped or disabled service.
+- **`each:`.** On any entry (packages, users, files, systemd, commands, also inside a section): `each: <option name>` where the option is a list or a map. One entry is built per item; `{{ item }}` (and `{{ key }}` for a map) are available in the entry's values and `when:`; the section's and the entry's `when:` are evaluated per item. Only an option name is allowed (not an expression) so the role can be checked when it is read, and `item`/`key` are accepted as names only inside an entry that has `each:`. An unset or empty option builds nothing. Two items that build the same file path, unit or user are refused with the item numbers. Errors name role, file, entry and item number.
+- **Where an option's value came from (`applied`).** `checks:` (and `when:` in checks) can use `applied.origin.<option>`: the label of the note that set the option (`lab`, `group <name>`, `type <name>`, `host <name>`, `OS default (<os>)`), empty when unset. Backed by `Applied.origins`, which `resolve` already records.
+- **`files` entry triggers.** Existing `restart:` / `reload:` plus `daemon_reload: true` (unit definitions, Quadlet files) and `on_change: [{name, run}]` (a command run once after the host's fixes when the entry changed something). Triggers only run for entries that changed, are de-duplicated, `daemon-reload` first and then the rest in listing order. `restart:`/`reload:` act only when the unit is running, so they never start a stopped, disabled or failed service.
 
 ## The `time` role
 
@@ -107,7 +113,7 @@ All keys are optional and change nothing for existing roles.
 
 - **Options (flat, upstream names):** `timezone` (string, `choices_from: time zones.txt`); `ntp` (bool, no default); `ntp_servers` → `NTP`, `ntp_fallback_servers` → `FallbackNTP`, `root_distance_max_sec`, `poll_interval_min_sec`, `poll_interval_max_sec`, `connection_retry_sec`, `save_interval_sec` (all seven keys of `timesyncd.conf(5)`; each `key:`, `section: Time`, `single_line`, `requires: {ntp: true}`). The implementer re-checks the key list against `man timesyncd.conf` and the ArchWiki page the owner supplied (untracked; never commit it).
 - **Entries:** `systemd` `kind: time` with `timezone` only (never `ntp` or `rtc_local`), everywhere. A `sections:` group `when: host.arch_like and not host.container`: `files` `edit: ini` on `/etc/systemd/timesyncd.conf.d/bastet.conf` with `when: ntp` and `restart: [systemd-timesyncd.service]`; `systemd` `kind: unit` `systemd-timesyncd.service` with `enabled: "{{ ntp }}"`, `state: "{{ 'up' if ntp else 'down' }}"`, `when: ntp is not none`. So `ntp: false` writes no settings, touches no files and restarts nothing.
-- **Checks:** `info` when container and `ntp is not none` ("time sync on a container is provided by its host; only the time zone is applied"); `error` when not container, not `arch_like` and `ntp is not none` ("time sync is implemented for systemd-timesyncd on Arch only; chrony for Debian/Proxmox is planned").
+- **Checks:** `warning` when `applied.origin.ntp` starts with `lab` ("time sync is only implemented for Arch; setting `ntp` lab-wide makes every Debian/Proxmox host fail. Set `ntp` on an Arch group instead."); `info` when container and `ntp is not none` ("time sync on a container is provided by its host; only the time zone is applied"); `error` when not container, not `arch_like` and `ntp is not none` ("time sync is implemented for systemd-timesyncd on Arch only; chrony for Debian/Proxmox is planned").
 - **Docs (role body):** Supported systems (Arch: systemd-timesyncd; Debian/Proxmox: chrony planned, one item, not built, with a visible "needs expanding" note; LXC: delegated); the time zone list is a snapshot refreshed at version bumps; the reload classes in plain words (changing the drop-in restarts the service, no daemon-reload); the stock servers are `FallbackNTP` and stay when `NTP=` is set; `ntp: false` leaves the drop-in in place; the SD-card example `PollIntervalMinSec=1d` with `SaveIntervalSec=infinity`.
 - **Behaviour tests:** no options emits nothing on Arch, Debian and LXC; `timezone` only gives one `TimeSettings(timezone)`; an invalid zone is refused; `ntp: true` gives the drop-in, the restart trigger and the unit enabled/up and **no daemon-reload**; an unchanged drop-in gives no trigger; `ntp: false` gives the unit disabled/down only; a key without `ntp: true` is refused; Debian gives the error, LXC the info plus the zone only; the role builds with no other role applied.
 
@@ -123,6 +129,8 @@ There is none today. Add `scripts/version-bump X.Y.Z` (repo tooling, Python like
 - Sections combine conditions with AND and never reorder blocks.
 - A trigger never starts a stopped unit, never fires for an unchanged or failed entry, and `daemon-reload` is only used for unit definitions.
 - `ntp: false` writes nothing and leaves the drop-in alone.
+- `each:` builds nothing for an unset or empty option, refuses duplicate results, and `item`/`key` are rejected outside an `each:` entry.
+- Setting `ntp` in the lab note shows the lab-wide warning and a Debian host in that lab still gets its error.
 - The version-bump script writes nothing when the zone lines are unchanged apart from the stamp.
 
 ---
@@ -137,29 +145,31 @@ There is none today. Add `scripts/version-bump X.Y.Z` (repo tooling, Python like
 | `src/bastet/data/roles/systemd/role.yml`, `roles/builtin.py` | Remove the moved options and the time branch |
 | `scripts/version-bump`, a note in `docs/` | Version-bump workflow |
 | `src/bastet/data/docs/writing_roles.md`, `docs/roles.md`, `docs/ROADMAP.md`, `scripts/gen_roles_doc.py`, `roles/pages.py` | Documentation |
-| new tests in `tests/roles/` (unique names): `test_contract_pinning.py`, `test_option_requires.py`, `test_choices_from.py`, `test_role_checks.py`, `test_role_sections.py`, `test_file_triggers.py`, `test_time_role.py`, `test_time_zone_list.py` | |
+| new tests in `tests/roles/` (unique names): `test_contract_pinning.py`, `test_option_requires.py`, `test_choices_from.py`, `test_role_checks.py`, `test_role_sections.py`, `test_role_each.py`, `test_file_triggers.py`, `test_time_role.py`, `test_time_zone_list.py` | |
 
 ## Tasks (order and dependencies)
 
-Tasks 2 to 7 are independent of each other after Task 1. Task 8 needs 2 to 7. Task 9 is last.
+Tasks 2 to 8 are independent of each other after Task 1 (Task 6 builds on Task 5's entry plumbing; do 5 before 6). Task 9 needs 2 to 8. Task 10 is last.
 
 1. **Pin existing behaviour** (`test_contract_pinning.py`): `false`/`0`/`""`/`[]` through `when:`; `edit: ini` creating a new file in a new directory; trigger de-duplication, ordering, no trigger when unchanged or failed; the `time` entries build with no other role; a bad role stops before any host command (A-15). Fix what the tests reveal, each fix a failing test first.
 2. **`requires` / `conflicts`.** Tests, implement, document.
 3. **`choices_from`.** Tests, implement, docs rendering (long lists collapsed).
-4. **Notes and `checks:`:** the build notes channel, `info|warning|error`, display in run and check, de-duplication per host and message, container drops (A-8) become notes, `host.<fact>` parse check. If the display hook is large, **stop and report**.
+4. **Notes and `checks:`:** the build notes channel, `info|warning|error`, display in run and check, de-duplication per host and message, the `applied.origin` fact, container drops (A-8) become notes, `host.<fact>` parse check. If the display hook is large, **stop and report**.
 5. **`sections:`.** Tests, implement, document with the Arch example.
-6. **File triggers** (`daemon_reload`, `on_change`), **restart/reload only if running**, a clearer missing-unit error. Document the four reload classes in `writing_roles.md`.
-7. **Version-bump script and zone list tests.**
-8. **The `time` role**, and removing the time options from the `systemd` role; regenerate docs.
-9. **Documentation and roadmap:** `writing_roles.md` (every new key, `is none` guidance, the reload classes, checks versus runtime protection), generated docs, `docs/ROADMAP.md` (tick `time`, next is `base`, log deferred items with reasons), `scripts/privacy-check`, `ruff`.
+6. **`each:`.** Tests (list, map, empty, unset, duplicates refused, `item` outside `each:` refused, `when:` per item, inside a section, secrets), implement, document with a caddy-sites example.
+7. **File triggers** (`daemon_reload`, `on_change`), **restart/reload only if running**, a clearer missing-unit error. Document the four reload classes in `writing_roles.md`.
+8. **Version-bump script and zone list tests.**
+9. **The `time` role**, and removing the time options from the `systemd` role; regenerate docs.
+10. **Documentation and roadmap:** `writing_roles.md` (every new key, `is none` guidance, the reload classes, checks versus runtime protection, `each:`, `applied`), generated docs, `docs/ROADMAP.md` (tick `time`, next is `base`, log deferred items with reasons), `scripts/privacy-check`, `ruff`.
 
 Final: opus review, one fix wave, scoped re-review, the owner runs `uv run pytest -q` and says when it passed, then ask about merging.
 
-## Owner input needed
+## Owner decisions resolved (2026-10-12)
 
-- **D-1: loops over list options** (`each:` on entries: one file or unit per item). Likely reused by caddy sites, mounts, fail2ban jails, sudoers and WireGuard peers, but no role among the next five needs it. Default: **deferred**; say "include" to add it as a task before the time role.
-- **D-2: zone list stamp.** The version-bump script rewrites one stamp line on every bump so the check can pass even when no zone changed. Default: yes.
-- **D-3: trigger semantics change** (restart/reload only act on a running unit) changes behaviour for every role that uses `restart:`/`reload:` today; the covering tests are the ssh, pacman and apt ones. Default: yes, because starting a stopped service is wrong.
+- **D-1:** include loops (`each:`, Task 6).
+- **D-2:** zone list stamp: yes.
+- **D-3:** restart/reload only act on a running unit; failed units are left to a `Unit` entry (decision 9).
+- **Added:** the lab-wide warning for `ntp` (decision 10).
 
 ## Deferred (with reasons)
 
