@@ -47,6 +47,22 @@ runs only when the check fails), and optionally `when` (a condition, see below) 
 and `unless` texts are literal: `{{ }}` in them is not filled in.
 The apt role's `modernize_sources` option uses one to run `apt modernize-sources -y`.
 
+### Accounts, defaults and starters
+
+`accounts:` (top level, a list of account names) lists the accounts a role brings; the unaccounted-users report treats
+them as expected on hosts the role is applied to. OS defaults are shipped per OS (`src/bastet/data/oses/`); for
+example Arch comes with the `systemd` role and the always-present Arch accounts, and a lab, group or host note can
+still change that role's options.
+
+An option with `merge_default: true` (a map option) keeps its default entries when a note sets some of its own: the
+`users` role's default `root` and `bastet` entries stay when a note adds `alice`, and `root: {password: ...}` merges
+with the default `root` entry instead of replacing it.
+
+`starter:` (a map of option values) is written into the frontmatter of a new role note by `bastet add role`; the
+`users` role starts with `root`'s password as a `secret:` reference and `bastet` as a system account. A top-level
+option that is `secret: true` and `required: true` is written into the new note as a `secret:` reference
+automatically; for a nested one, add it under `starter:`.
+
 ### Calling the building blocks
 
 A role file can also list `packages:`, `users:` and `systemd:` entries, which call the blocks of the same names; a role
