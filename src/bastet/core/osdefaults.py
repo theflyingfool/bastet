@@ -7,7 +7,7 @@ from importlib import resources
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from bastet.core.errors import BastetError
 from bastet.core.osinfo import ARCH_LIKE
@@ -37,6 +37,7 @@ class OsDefaults(BaseModel):
     description: str = ""
     roles: dict[str, dict] = {}
     accounts: tuple[str, ...] = ()
+    path: Path | None = Field(default=None, exclude=True)  # set by load_os_defaults, so errors can name the file
 
     @field_validator("accounts", mode="before")
     @classmethod
@@ -56,9 +57,10 @@ def load_os_defaults(directory: Path | None = None) -> dict[str, OsDefaults]:
             raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
             defaults = OsDefaults.model_validate(raw)
         except BastetError as exc:
-            raise BastetError(f"invalid OS defaults: {exc.message}", file=path) from None
+            raise BastetError(f"invalid OS defaults: {exc.message}", file=path, key=exc.key) from None
         except (yaml.YAMLError, ValidationError) as exc:
             raise BastetError(f"invalid OS defaults: {exc}".splitlines()[0], file=path) from None
+        defaults.path = path
         found[defaults.name] = defaults
     return found
 

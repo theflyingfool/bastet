@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from bastet.core.errors import BastetError
 from bastet.core.frontmatter import Document
@@ -23,6 +24,7 @@ class Source:
     rank: tuple
     values: dict
     doc: Document | None = None
+    file: Path | None = None  # for a source that is a shipped file rather than a note (an OS default)
 
 
 @dataclass
@@ -87,7 +89,8 @@ def sources_for(inv: Inventory, host: Document, types: dict[str, HostType]) -> d
     os_defaults = defaults_for(os_id(host_data(inv, host, types)))
     if os_defaults is not None:  # below the lab: the lab, the type default, groups and hosts all override it
         for role, values in os_defaults.roles.items():
-            out.setdefault(role, []).append(Source(role, f"OS default ({os_defaults.name})", (-1,), dict(values or {})))
+            out.setdefault(role, []).append(Source(role, f"OS default ({os_defaults.name})", (-1,), dict(values or {}),
+                                              file=os_defaults.path))
     dist = group_distances(inv, host, types)
     for doc in inv.role_files:
         target = inv.get(link_target(doc.data.get("applies_to")) or "")
@@ -150,9 +153,9 @@ def resolve(inv: Inventory, host: Document, types: dict[str, HostType], roles: d
         if role is None:
             src = next((s for s in sources if s.doc is not None), sources[0])
             raise BastetError(f"unknown role {name!r} (roles: {', '.join(sorted(roles))})",
-                              file=src.doc.path if src.doc else None, key="role")
+                              file=src.doc.path if src.doc else src.file, key="role")
         for s in sources:
-            s.values = check_values(role, s.values, s.label, file=s.doc.path if s.doc else None)
+            s.values = check_values(role, s.values, s.label, file=s.doc.path if s.doc else s.file)
         merged: dict = {}
         origins: dict[str, str] = {}
         for rank in sorted({s.rank for s in sources}):
