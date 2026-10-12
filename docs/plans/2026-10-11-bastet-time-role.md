@@ -154,20 +154,55 @@ There is none today. Add `scripts/version-bump X.Y.Z` (repo tooling, Python like
 
 ## Tasks (order and dependencies)
 
-Tasks 2 to 8 are independent of each other after Task 1 (Task 6 builds on Task 5's entry plumbing; do 5 before 6). Task 9 needs 2 to 8. Task 10 is last.
+Every task reads the plan sections it names and the Global Constraints. Order: 1, 2a, 2b, 2c, 3, 4, 5, 6, 7, 8, 9, 10. Tasks 2a to 8 are independent of each other after Task 1 (Task 6 builds on Task 5's entry plumbing, so do 5 before 6; 2c builds on 2b's null handling). Task 9 needs 2a to 8. Task 10 is last. Each task is TDD: failing tests first, see them fail for the right reason, then implement, then document in `writing_roles.md`.
 
-1. **Pin existing behaviour** (`test_contract_pinning.py`): `false`/`0`/`""`/`[]` through `when:`; `edit: ini` creating a new file in a new directory; trigger de-duplication, ordering, no trigger when unchanged or failed; the `time` entries build with no other role; a bad role stops before any host command (A-15). Fix what the tests reveal, each fix a failing test first.
-2. **`requires` / `conflicts`.** Tests, implement, document.
-   - **2c. `overrides:` in role notes.** Tests in `test_role_overrides.py`: a matching entry replaces the note's own value; a non-matching one does nothing; listing order decides between two matching entries; a higher-ranked note beats a lab override; `null` values work after the merge; `when` using an option name, a bad fact, a bad syntax, an unknown option or a wrong value type is refused when the note is read, naming file and key; the origin label says override. Implement in `resolve.py` / `contract.py`, document in `writing_roles.md` with the lab-wide `ntp` example.
-   - **2b. Clearing an inherited option.** Tests in `test_option_clear.py`: null at host/group/type clears a lab value only after the merge (a host `false` beats a group `null`, a group `null` beats a lab `true`, order of notes never matters, same-rank `null` vs `true` clashes); null inside a map/object field; null with nothing inherited is a no-op; required options and defaults behave (a cleared option falls back to its default); the starter and `bastet add role` output contain no bare keys. Implement in `resolve.py` / `contract.check_values`, document in `writing_roles.md`.
-3. **`choices_from`.** Tests, implement, docs rendering (long lists collapsed).
-4. **Notes and `checks:`:** the build notes channel, `info|warning|error`, display in run and check, de-duplication per host and message, the `applied.origin` fact, container drops (A-8) become notes, `host.<fact>` parse check. If the display hook is large, **stop and report**.
-5. **`sections:`.** Tests, implement, document with the Arch example.
-6. **`each:`.** Tests (list, map, empty, unset, duplicates refused, `item` outside `each:` refused, `when:` per item, inside a section, secrets), implement, document with a caddy-sites example.
-7. **File triggers** (`daemon_reload`, `on_change`), **restart/reload only if running**, a clearer missing-unit error. Document the four reload classes in `writing_roles.md`.
-8. **Version-bump script and zone list tests.**
-9. **The `time` role**, and removing the time options from the `systemd` role; regenerate docs.
-10. **Documentation and roadmap:** `writing_roles.md` (every new key, `is none` guidance, the reload classes, checks versus runtime protection, `each:`, `applied`), generated docs, `docs/ROADMAP.md` (tick `time`, next is `base`, log deferred items with reasons), `scripts/privacy-check`, `ruff`.
+### Task 1: Pin existing behaviour
+
+`test_contract_pinning.py`: `false`/`0`/`""`/`[]` through `when:`; `edit: ini` creating a new file in a new directory; trigger de-duplication, ordering, no trigger when unchanged or failed; the `time` entries build with no other role; a bad role stops before any host command (audit A-2, A-13, A-15, A-18). Fix what the tests reveal, each fix a failing test first.
+
+### Task 2a: `requires` / `conflicts`
+
+Option keys as specified in "The final contract additions". Tests in `test_option_requires.py`, implement in `contract.py` (`OPTION_KEYS`, `Option`, `_option`, the check in `check_values` on pre-default values), document.
+
+### Task 2b: Clearing an inherited option
+
+Tests in `test_option_clear.py`: null at host/group/type clears a lab value only after the merge (a host `false` beats a group `null`, a group `null` beats a lab `true`, the order of notes never matters, same-rank `null` vs `true` clashes); null inside a map/object field; null with nothing inherited is a no-op; required options and defaults behave (a cleared option falls back to its default); the starter and `bastet add role` output contain no bare keys. Implement in `resolve.py` / `contract.check_values`, document.
+
+### Task 2c: `overrides:` in role notes
+
+Tests in `test_role_overrides.py`: a matching entry replaces the note's own value; a non-matching one does nothing; listing order decides between two matching entries; a higher-ranked note beats a lab override; `null` values work after the merge (Task 2b); `when` using an option name, a bad fact, bad syntax, an unknown option or a wrong value type is refused when the note is read, naming file and key; the origin label says override. Implement in `resolve.py` / `contract.py`, document with the lab-wide `ntp` example.
+
+### Task 3: `choices_from`
+
+Tests in `test_choices_from.py`, implement in `contract.py` (`OPTION_KEYS`, `Option`, `check_value`), docs rendering (long lists collapsed in `scripts/gen_roles_doc.py` and `roles/pages.py`).
+
+### Task 4: Notes and `checks:`
+
+The build notes channel, `info|warning|error`, display in run and check, de-duplication per host and message, the `applied.origin` fact, container drops (A-8) become notes, `host.<fact>` parse check. Tests in `test_role_checks.py`. If the display hook is large, **stop and report**.
+
+### Task 5: `sections:`
+
+Tests in `test_role_sections.py`, implement, document with the Arch example.
+
+### Task 6: `each:`
+
+Tests in `test_role_each.py` (list, map, empty, unset, duplicates refused, `item` outside `each:` refused, `when:` per item, inside a section, secrets), implement, document with a caddy-sites example.
+
+### Task 7: File triggers and restart semantics
+
+`daemon_reload`, `on_change`, **restart/reload only if running** (a failed unit is left alone too), a clearer missing-unit error. Tests in `test_file_triggers.py`. Document the four reload classes in `writing_roles.md`.
+
+### Task 8: Version-bump script and zone list tests
+
+`scripts/version-bump`, `time zones.txt` handling and `test_time_zone_list.py`, as in "Version-bump workflow". The list file itself is made once from `timedatectl list-timezones` (a throwaway command from `$CLAUDE_JOB_DIR/tmp`, nothing committed except the file).
+
+### Task 9: The `time` role
+
+The role as in "The `time` role", removing the time options from the `systemd` role (`role.yml`, `builtin.py`), tests in `test_time_role.py` (move the old time tests, say which in the report), regenerate docs.
+
+### Task 10: Documentation and roadmap
+
+`writing_roles.md` (every new key, `is none` guidance, the reload classes, checks versus runtime protection, `each:`, `applied`, `overrides:`, clearing with null), generated docs, `docs/ROADMAP.md` (tick `time`, next is `base`, log deferred items with reasons, the versioning line), `scripts/privacy-check`, `ruff`.
 
 Final: opus review, one fix wave, scoped re-review, the owner runs `uv run pytest -q` and says when it passed, then ask about merging.
 
