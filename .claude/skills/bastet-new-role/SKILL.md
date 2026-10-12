@@ -60,7 +60,8 @@ Write a short plan in `docs/plans/<date>-bastet-<role>-role.md` first and let th
    at planning time over options and facts (`host.*`, `lab`, `applied.origin.<option>`); protection against the host's
    current state is `validate:`, `unless:` and trigger checks. For a lab-wide option that only fits some systems,
    a note can opt out with `overrides:` (a `when:` over host facts) or `key: null`; the role's checks should name that
-   way out.
+   way out. A limit that belongs to the role itself (a system it does not support yet) goes in the role file's own
+   `overrides:` instead, which clears the options on those hosts and leaves one info note.
 7. **Compatibility.** Set `os:` when the role only makes sense on some systems; roles with no `os:` are offered
    everywhere.
 

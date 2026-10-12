@@ -93,6 +93,19 @@ def check_fact_when(text: str, options: set[str], where: str) -> None:
     check_when(text, set(), where)
 
 
+def check_option_when(text: str, options: set[str], where: str) -> None:
+    """Check a role-level override's `when:`: the role's options plus the host and lab facts, never `applied`."""
+    check_option_text("{{ " + text + " }}", options, f"{where}: when")
+    check_when(text, options, where)
+
+
+def check_option_text(text: str, options: set[str], where: str) -> None:
+    """Like check_text, but for a place that sees the options, `host` and `lab` and no `applied`."""
+    if _templated(text) and "applied" in _variables(text, where):
+        raise BastetError(f"{where}: applied isn't available here (only the role's options, host and lab)")
+    check_text(text, options, where)
+
+
 def _reason(exc: Exception) -> str:
     """Why an expression failed. Syntax and sandbox errors are fixed text; others could quote a value, so give the type."""
     if isinstance(exc, TemplateError) and not isinstance(exc, UndefinedError):

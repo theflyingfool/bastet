@@ -3,7 +3,7 @@ bastet: role-definition
 name: time
 version: 1.0.0
 api: 0
-description: 'The time zone (every system) and, on Arch, time sync with systemd-timesyncd: servers and poll settings go in a drop-in at /etc/systemd/timesyncd.conf.d/bastet.conf. Unset = leave things as they are.'
+description: 'The time zone (every system) and, on Arch, time sync with systemd-timesyncd: servers and poll settings go in a drop-in at /etc/systemd/timesyncd.conf.d/bastet.conf. On other systems the sync settings are ignored with a note and only the time zone applies. Unset = leave things as they are.'
 starter:
   timezone: UTC
   ntp: true
@@ -85,28 +85,33 @@ examples:
     ntp: true
     ntp_servers:
       - 10.1.1.1
+- title: In the lab note (other systems ignore the sync settings and only get the time zone)
+  yaml: |
+    timezone: Europe/Berlin
+    ntp: true
+    ntp_servers:
+      - 10.1.1.1
 - title: A host on an SD card, writing the clock as little as possible
   yaml: |
     ntp: true
     poll_interval_min_sec: 1d
     save_interval_sec: infinity
 checks:
-- name: ntp set lab-wide
-  when: ntp and applied.origin.ntp.startswith('lab') and not host.arch_like and not host.container
-  level: warning
-  message: 'time sync is only implemented for Arch, and `ntp` was set lab-wide, so this Debian/Proxmox host fails. To opt it out, add an `overrides:` entry to the lab note (`when: not host.arch_like`, `ntp: null`) or write `ntp: null` in this host''s or group''s note. Clear every timesyncd option that is set as well (`ntp_servers: null`, ...), because each needs `ntp: true`. Or set `ntp` on an Arch group instead.'
 - name: container sync
   when: host.container and ntp is not none
   level: info
   message: 'time sync on a container is provided by its host; only the time zone is applied'
-- name: sync needs Arch
-  when: not host.container and not host.arch_like and ntp
-  level: error
-  message: 'time sync is implemented for systemd-timesyncd on Arch only; chrony for Debian/Proxmox is planned. Set `ntp: null` for this host or group to apply only the time zone, and clear any timesyncd option that is set too (`ntp_servers: null`, ...), because each needs `ntp: true`.'
-- name: sync off elsewhere
-  when: not host.container and not host.arch_like and ntp is not none and not ntp
-  level: info
-  message: '`ntp: false` is not applied on this system yet; nothing changed'
+overrides:
+- when: not host.arch_like
+  note: time sync is only built for Arch (systemd-timesyncd); chrony for Debian and Proxmox is planned, so the sync settings are ignored on this host and only the time zone is applied
+  ntp: null
+  ntp_servers: null
+  ntp_fallback_servers: null
+  root_distance_max_sec: null
+  poll_interval_min_sec: null
+  poll_interval_max_sec: null
+  connection_retry_sec: null
+  save_interval_sec: null
 systemd:
 - kind: time
   timezone: '{{ timezone }}'
@@ -141,11 +146,11 @@ gets no change at all.
 - **Arch (and Arch-based): systemd-timesyncd.** `ntp` and the timesyncd options below are written to a drop-in,
   `/etc/systemd/timesyncd.conf.d/bastet.conf` (created, with its `[Time]` section, when it does not exist), and the
   service is enabled and started.
-- **Debian and Proxmox: chrony is planned, not built.** Needs expanding: until then `ntp: true` (or any timesyncd
-  option, which needs `ntp: true`) on such a host is an **error**, and `ntp: false` is only an info note ("not applied on
-  this system yet; nothing changed"). The time zone still applies. An unknown OS is treated like Debian.
+- **Debian and Proxmox: chrony is planned, not built.** Until then the role ignores `ntp` and every timesyncd option
+  on such a host (the role's own `overrides:` entry clears them) and says so in one info note; the time zone still
+  applies. This holds for `ntp: false` too. An unknown OS is treated like Debian.
 - **LXC containers: time sync belongs to the Proxmox node.** If `ntp` is set the role says so (info) and applies only the
-  time zone; it never claims to have configured sync.
+  time zone; it never claims to have configured sync. A Debian container gets the "sync is ignored" note instead.
 
 ## Options
 
@@ -195,26 +200,25 @@ save_interval_sec: infinity
 
 ## One note for the whole lab
 
-Time sync is only built for Arch. Setting `ntp: true` in the lab note makes every Debian and Proxmox host fail with an
-error, and the role warns about it next to that error. Either set `ntp` in a group of Arch hosts, or keep it in the lab
-note and opt the others out with an override, so they only get the time zone and no sync message. The override has to
-clear the timesyncd options that are set as well, because each of them needs `ntp: true`:
+A lab-wide `ntp: true` just works. Time sync is only built for Arch, so on every other system the role ignores `ntp`
+and the timesyncd options (the role's own override clears them before anything is checked, so the usual "needs
+`ntp: true`" rule is not tripped) and gives one info note saying the sync settings are ignored and only the time zone
+is applied. Nothing needs to be cleared by hand:
 
 ```yaml
 timezone: Europe/Berlin
 ntp: true
 ntp_servers:
   - 10.1.1.1
-overrides:
-  - when: "not host.arch_like"
-    ntp: null
-    ntp_servers: null
 ```
 
-Clearing only `ntp` is not enough: the host then fails with `ntp_servers needs ntp to be true`. A group or host note with
-`ntp: null` (and the same nulls for the other timesyncd options) does the same for just those hosts. The warning
-disappears once `ntp` is cleared.
+To change what happens for one lab, add an `overrides:` entry to the lab note (or a group or host note); it works on
+the notes' own values, before the role's override. For example `when: host.name == 'pve1'` with `ntp: null` and
+`ntp_servers: null` keeps one Arch host out of sync; a group or host note with `ntp: null` (and the same nulls for the
+other timesyncd options) does the same. Clearing only `ntp` while a timesyncd option is still set on an Arch host fails
+with `ntp_servers needs ntp to be true`.
 
 ## Changes
 
-- 1.0.0: first version; replaces the time options of the `systemd` role.
+- 1.0.0: first version; replaces the time options of the `systemd` role. Sync settings are ignored, with a note, on
+  systems other than Arch.

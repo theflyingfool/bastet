@@ -8,7 +8,6 @@ from bastet.core.hosttypes import load_host_types
 from bastet.core.inventory import load_inventory
 from bastet.engine.files import Settings
 from bastet.engine.systemd import TimeSettings, Unit
-from bastet.roles import expr
 from bastet.roles.builtin import HostInfo, batches_for
 from bastet.roles.contract import check_relations, check_values, load_roles, with_defaults
 from bastet.roles.resolve import Applied, resolve
@@ -85,15 +84,11 @@ def test_a_timesyncd_setting_needs_ntp_true(key):
             check_relations(TIME, {key: value, **ntp})
 
 
-def test_debian_with_ntp_true_is_an_error():
-    with pytest.raises(BastetError, match="Arch only"):
-        build({"ntp": True, "timezone": "UTC"}, DEBIAN)
-
-
-def test_debian_with_ntp_false_applies_the_zone_and_only_says_info():
-    resources, notes = build({"ntp": False, "timezone": "UTC"}, DEBIAN)
-    assert resources == [TimeSettings(timezone="UTC")]
-    assert [n.level for n in notes] == ["info"] and "nothing changed" in notes[0].message
+def test_debian_with_ntp_set_directly_gets_the_zone_and_no_error_or_sync():
+    """(Without resolve the role's own override is not applied; the sync parts are Arch-only anyway.)"""
+    for ntp in (True, False):
+        resources, notes = build({"ntp": ntp, "timezone": "UTC"}, DEBIAN)
+        assert resources == [TimeSettings(timezone="UTC")] and notes == []
 
 
 def test_a_container_gets_the_zone_and_an_info_note_about_the_node():
@@ -101,31 +96,6 @@ def test_a_container_gets_the_zone_and_an_info_note_about_the_node():
         resources, notes = build({"ntp": ntp, "timezone": "UTC"}, LXC)
         assert resources == [TimeSettings(timezone="UTC")]
         assert [n.level for n in notes] == ["info"] and "provided by its host" in notes[0].message
-
-
-def warning_holds(values, system, origin):
-    """Whether the lab-wide warning check holds (a Debian host also gets the error check, which stops the host first)."""
-    host = HostInfo(name="media01", type=system[0], data={"os": system[1]}, root=Path("/nonexistent"), lab={})
-    ctx = expr.context(TIME.options, values, host, {"ntp": origin})
-    check = next(c for c in TIME.checks if c["level"] == "warning")
-    return expr.truthy(check["when"], ctx), check
-
-
-def test_the_lab_wide_warning_shows_only_on_debian_and_names_the_way_out():
-    for origin in ("lab", "lab (override)"):
-        holds, check = warning_holds({"ntp": True}, DEBIAN, origin)
-        assert holds
-    for text in ("overrides", "ntp_servers", "ntp: null"):
-        assert text in check["message"]
-
-
-def test_the_warning_is_not_shown_on_arch_in_a_container_or_when_the_value_is_not_lab_wide():
-    assert not warning_holds({"ntp": True}, ARCH, "lab")[0]
-    assert not warning_holds({"ntp": True}, LXC, "lab")[0]
-    assert not warning_holds({"ntp": True}, DEBIAN, "host media01")[0]
-    assert not warning_holds({"ntp": True}, DEBIAN, "group arch-vms")[0]
-    assert not warning_holds({"ntp": False}, DEBIAN, "lab")[0]
-    assert not warning_holds({}, DEBIAN, "lab")[0]
 
 
 # the whole path: notes on disk, resolve, build
@@ -136,9 +106,9 @@ LAB = "timezone: Europe/Berlin\nntp: true\noverrides:\n  - when: not host.arch_l
 def resolved(tmp_path, hosts, notes):
     """hosts: name -> (os text, groups); notes: relative path under _roles -> body."""
     files = {"Homelab.md": "---\nbastet: lab\n---\n# Homelab\n", "groups/debian-vms.md": "---\nbastet: group\n---\n# debian-vms\n"}
-    for name, (os_text, groups) in hosts.items():
+    for name, (os_text, groups, *kind) in hosts.items():
         listed = "".join(f'  - "[[{g}]]"\n' for g in groups)
-        files[f"hosts/{name}.md"] = (f"---\nbastet: host\ntype: computer\nconnection: local\n"
+        files[f"hosts/{name}.md"] = (f"---\nbastet: host\ntype: {kind[0] if kind else 'computer'}\nconnection: local\n"
                                      f"{'groups:' + chr(10) + listed if groups else ''}---\n# {name}\n")
         files[f"_bastet/facts/{name} facts.md"] = render_facts(name, {"os": os_text}, "2026-10-06T10:00:00Z")
     for rel, body in notes.items():
@@ -152,7 +122,7 @@ def resolved(tmp_path, hosts, notes):
     out = {}
     for name in hosts:
         host = inv.get(name)
-        info = HostInfo(name=name, type="vps", data={"os": hosts[name][0]}, root=tmp_path, lab={})
+        info = HostInfo(name=name, type=hosts[name][2] if len(hosts[name]) > 2 else "computer", data={"os": hosts[name][0]}, root=tmp_path, lab={})
         applied = [a for a in resolve(inv, host, TYPES, ROLES) if a.role.name == "time"]
         out[name] = (applied, info)
     return out
@@ -199,6 +169,55 @@ def test_an_override_that_nulls_ntp_and_the_servers_opts_a_debian_host_out_clean
     assert [n for b in batches for n in b.notes] == []
 
 
-def test_nulling_only_ntp_while_the_servers_are_set_still_fails(tmp_path):
+def test_a_note_that_nulls_ntp_but_not_the_servers_still_fails_where_the_role_does_not_override(tmp_path):
     with pytest.raises(BastetError, match="ntp_servers needs ntp"):
-        resolved(tmp_path, {"pve1": ("Debian GNU/Linux 13 (trixie)", [])}, {"lab/time.md": LAB_NULLING_ONLY_NTP})
+        resolved(tmp_path, {"arch1": ("Arch Linux", [])}, {"lab/time.md": LAB_WITH_SERVERS, "hosts/arch1/time.md": "ntp:\n"})
+
+
+LAB_PLAIN = "timezone: Europe/Berlin\nntp: true\nntp_servers:\n  - 10.1.1.1\n"
+DEB = "Debian GNU/Linux 13 (trixie)"
+
+
+def built(out, name):
+    (applied,), info = out[name]
+    batches = batches_for([applied], info)
+    return applied, [r for b in batches for r in b.resources], [n for b in batches for n in b.notes]
+
+
+def test_a_lab_wide_ntp_just_works_arch_keeps_it_and_other_systems_ignore_it_with_one_note(tmp_path):
+    hosts = {"arch1": ("Arch Linux", []), "pve1": (DEB, [])}
+    out = resolved(tmp_path, hosts, {"lab/time.md": LAB_PLAIN})
+
+    arch, resources, notes = built(out, "arch1")
+    assert arch.values["ntp"] is True and arch.values["ntp_servers"] == ["10.1.1.1"]
+    assert sorted(type(r).__name__ for r in resources) == ["Settings", "TimeSettings", "Unit"] and notes == []
+
+    pve, resources, notes = built(out, "pve1")
+    assert pve.values["ntp"] is None and pve.values["ntp_servers"] is None
+    assert resources == [TimeSettings(timezone="Europe/Berlin")]
+    assert [n.level for n in notes] == ["info"] and notes[0].role == "time"
+    assert "chrony" in notes[0].message and "only the time zone is applied" in notes[0].message
+
+
+def test_a_debian_container_ignores_the_sync_settings_with_the_same_one_note(tmp_path):
+    out = resolved(tmp_path, {"ct1": (DEB, [], "lxc")}, {"lab/time.md": LAB_PLAIN})
+    applied, resources, notes = built(out, "ct1")
+    assert applied.values["ntp"] is None and resources == [TimeSettings(timezone="Europe/Berlin")]
+    assert [n.level for n in notes] == ["info"] and "chrony" in notes[0].message
+
+
+def test_an_arch_container_keeps_its_container_info_and_gets_only_the_zone(tmp_path):
+    out = resolved(tmp_path, {"ct1": ("Arch Linux", [], "lxc")}, {"lab/time.md": LAB_PLAIN})
+    applied, resources, notes = built(out, "ct1")
+    assert applied.values["ntp"] is True and resources == [TimeSettings(timezone="Europe/Berlin")]
+    assert [n.level for n in notes] == ["info"] and "provided by its host" in notes[0].message
+
+
+def test_ntp_false_lab_wide_gives_a_debian_host_the_one_ignore_note(tmp_path):
+    out = resolved(tmp_path, {"pve1": (DEB, [])}, {"lab/time.md": "timezone: UTC\nntp: false\n"})
+    _, resources, notes = built(out, "pve1")
+    assert resources == [TimeSettings(timezone="UTC")] and len(notes) == 1 and "ignored" in notes[0].message
+
+
+def test_the_time_role_has_no_lab_wide_warning_and_no_sync_errors():
+    assert [c["name"] for c in TIME.checks] == ["container sync"]

@@ -257,5 +257,5 @@ def test_a_role_note_is_kept_in_the_run_record(runner, inventory, monkeypatch):
     assert result.exit_code == 0, result.output
     notes = [e for e in events_of(records()[0]) if e["kind"] == "note"]
     assert [(e["host"], e["data"]["message"]) for e in notes] == [
-        ("box", "time: `ntp: false` is not applied on this system yet; nothing changed")]
-    assert result.output.count("not applied on this system yet") == 1
+        ("box", "time: time sync is only built for Arch (systemd-timesyncd); chrony for Debian and Proxmox is planned, so the sync settings are ignored on this host and only the time zone is applied")]
+    assert result.output.count("sync settings are ignored on this host") == 1

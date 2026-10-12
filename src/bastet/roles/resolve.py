@@ -13,7 +13,8 @@ from bastet.core.inventory import Inventory
 from bastet.core.links import link_target
 from bastet.core.osdefaults import defaults_for
 from bastet.core.osinfo import os_id
-from bastet.engine.run import ConflictError
+from bastet.engine.run import ConflictError, Note
+from bastet.roles import expr
 from bastet.roles.contract import RESERVED, Option, RoleDef, check_overrides, check_relations, check_values, with_defaults
 from bastet.roles.expr import host_facts, truthy
 
@@ -38,6 +39,7 @@ class Applied:
     origins: dict[str, str] = field(default_factory=dict)
     secret: bool = False  # at least one option resolve_refs() replaced with a decrypted secret value
     secret_options: frozenset[str] = frozenset()  # their names, so a Markdown role marks only what uses them
+    notes: list[Note] = field(default_factory=list)  # info from the role's own `overrides:`, shown with its batch
 
 
 def _links(value) -> list[str]:
@@ -178,6 +180,32 @@ def _apply_overrides(source: Source, entries: list[tuple[str, dict]], ctx, file:
     source.overridden = frozenset(changed)
 
 
+def _apply_role_overrides(role: RoleDef, merged: dict, origins: dict[str, str], facts: dict) -> list[Note]:
+    """The role's own `overrides:`, in listing order, on the merged values (before defaults): set or clear options
+    for this host. An entry that changed an option which had a value leaves one info note."""
+    notes: list[Note] = []
+    for i, entry in enumerate(role.overrides):
+        ctx = {**{name: merged.get(name) for name in role.options}, **facts}
+        try:
+            if not truthy(entry["when"], ctx):
+                continue
+            changed = [k for k, v in entry["values"].items()
+                       if merged.get(k) is not None and (v is None or _cleared(role.options[k], v) != merged[k])]
+            text = entry["note"] and str(expr.resolve(entry["note"], ctx))
+        except BastetError as exc:
+            raise BastetError(f"role {role.name}: overrides[{i}]: {exc.message}", file=role.path, key="overrides") from None
+        for key, value in entry["values"].items():
+            if value is None:
+                merged.pop(key, None)
+                origins.pop(key, None)
+            else:
+                merged[key] = _cleared(role.options[key], value)
+                origins[key] = "role override"
+        if changed:
+            notes.append(Note("info", role.name, text or f"role {role.name} ignores {', '.join(changed)} on this host"))
+    return notes
+
+
 def resolve(inv: Inventory, host: Document, types: dict[str, HostType], roles: dict[str, RoleDef]) -> list[Applied]:
     applied: list[Applied] = []
     host_type = types.get(str(host.data.get("type")))
@@ -221,7 +249,8 @@ def resolve(inv: Inventory, host: Document, types: dict[str, HostType], roles: d
                                          for s in level if key in s.values)
         merged = {k: _cleared(role.options[k], v) for k, v in merged.items() if v is not None}
         origins = {k: v for k, v in origins.items() if k in merged}
+        notes = _apply_role_overrides(role, merged, origins, facts_ctx()) if role.overrides else []
         files = [s.doc.path if s.doc else s.file for s in sources if s.values]
         check_relations(role, merged, file=files[-1] if files else None)  # the notes' own values, before defaults
-        applied.append(Applied(role, with_defaults(role, merged), sources, origins))
+        applied.append(Applied(role, with_defaults(role, merged), sources, origins, notes=notes))
     return sorted(applied, key=lambda a: a.role.name)

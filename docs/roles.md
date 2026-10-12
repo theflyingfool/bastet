@@ -592,7 +592,7 @@ dropins:
 
 ## time
 
-The time zone (every system) and, on Arch, time sync with systemd-timesyncd: servers and poll settings go in a drop-in at /etc/systemd/timesyncd.conf.d/bastet.conf. Unset = leave things as they are.
+The time zone (every system) and, on Arch, time sync with systemd-timesyncd: servers and poll settings go in a drop-in at /etc/systemd/timesyncd.conf.d/bastet.conf. On other systems the sync settings are ignored with a note and only the time zone applies. Unset = leave things as they are.
 
 ### Examples
 
@@ -603,6 +603,15 @@ timezone: Europe/Berlin
 ```
 
 **Arch host synced against a local server**
+
+```yaml
+timezone: Europe/Berlin
+ntp: true
+ntp_servers:
+  - 10.1.1.1
+```
+
+**In the lab note (other systems ignore the sync settings and only get the time zone)**
 
 ```yaml
 timezone: Europe/Berlin

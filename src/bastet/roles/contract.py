@@ -30,7 +30,7 @@ ROLE_NOTE_RESERVED = {"uses", "needs", "contributes", "collects", "requires", "t
                       "not_types", "os_min", "data", "vars", "presets", "templates", "units", "hooks",
                       "source", "source_hash"}
 ROLE_NOTE_KEYS = {"bastet", "name", "version", "api", "description", "os", "provides", "options", "examples", "files", "commands", "packages",
-                  "systemd", "users", "accounts", "starter", "checks", "sections"}
+                  "systemd", "users", "accounts", "starter", "checks", "sections", "overrides"}
 FILE_EDITS = ("ini",)
 FILE_RENDERS = ("apt",)
 FILE_FORMS = ("edit", "render", "content", "template", "directory", "link", "line", "block")
@@ -101,6 +101,7 @@ class RoleDef:
     systemd: list[dict] = field(default_factory=list)
     users: list[dict] = field(default_factory=list)
     checks: list[dict] = field(default_factory=list)
+    overrides: list[dict] = field(default_factory=list)  # role-level: {when, note, values}, checked when the role is read
     markdown: bool = False
     raw: dict = field(default_factory=dict)
 
@@ -453,6 +454,49 @@ def _sections(path: Path, items: object, options: dict[str, Option]) -> dict[str
     return out
 
 
+def _role_overrides(role_name: str, items: object, options: dict[str, Option], path: Path) -> list[dict]:
+    """The role's own `overrides:` as {"when", "note", "values"} entries (values checked like a note's, nulls kept)."""
+
+    def fail(text: str) -> BastetError:
+        return BastetError(f"role {role_name}: {text}", file=path, key="overrides")
+
+    if items is None:
+        return []
+    if not isinstance(items, list):
+        raise fail("overrides must be a list of entries like {when: ..., option: value}")
+    names = set(options)
+    out: list[dict] = []
+    for i, entry in enumerate(items):
+        here = f"overrides[{i}]"
+        if not isinstance(entry, dict):
+            raise fail(f"{here} must be a map like {{when: ..., option: value}}")
+        when = entry.get("when")
+        if not isinstance(when, str) or not when.strip():
+            raise fail(f"{here} needs a when (text, an expression over the options, host and lab facts)")
+        note = entry.get("note")
+        try:
+            expr.check_option_when(when, names, here)
+            if "note" in entry:
+                if not isinstance(note, str) or not note.strip():
+                    raise BastetError(f"{here}: note must be text")
+                expr.check_option_text(note, names, f"{here}: note")
+        except BastetError as exc:
+            raise fail(exc.message) from None
+        values: dict = {}
+        for key, value in entry.items():
+            if key in ("when", "note"):
+                continue
+            if key not in options:
+                suggestion = did_you_mean(str(key), list(options))
+                raise fail(f"{here} names no option {key!r}" + (f"; {suggestion}" if suggestion else f" (options: {', '.join(options)})"))
+            try:
+                values[key] = None if value is None else check_value(options[key], value, f"{here}.{key} ({role_name}.{key})", keep_nulls=True)
+            except BastetError as exc:
+                raise fail(exc.message) from None
+        out.append({"when": when, "note": note, "values": values})
+    return out
+
+
 def parse_role(path: Path) -> RoleDef:
     """Read one Markdown role note ("<name> role.md"): the frontmatter is the contract."""
     doc = parse_document(path.read_text(encoding="utf-8"), path)
@@ -497,6 +541,7 @@ def parse_role(path: Path) -> RoleDef:
         users = role_entries.parse_users(path, data.get("users") or [], options)
         checks = role_entries.parse_checks(path, data.get("checks") or [], options)
         grouped = _sections(path, data.get("sections") or [], options)
+        overrides = _role_overrides(name, data.get("overrides"), options, path)
         entries += grouped["files"]
         commands += grouped["commands"]
         packages += grouped["packages"]
@@ -508,7 +553,7 @@ def parse_role(path: Path) -> RoleDef:
         raise
     role = RoleDef(name, description, options, path, examples, api=data["api"], version=version, os=os_,
                    provides=provides, accounts=accounts, entries=entries, commands=commands, packages=packages,
-                   systemd=systemd, users=users, checks=checks, markdown=True,
+                   systemd=systemd, users=users, checks=checks, overrides=overrides, markdown=True,
                    raw={k: data[k] for k in ROLE_NOTE_RESERVED if k in data})
     try:
         _read_starter(role, data.get("starter"), path)

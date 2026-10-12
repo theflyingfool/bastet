@@ -20,6 +20,7 @@ Role keys (top level of the role note):
 - `packages`, `users`, `files`, `systemd`, `commands`: [Calling the building blocks](#calling-the-building-blocks).
 - `checks`: info, warning or error from a role, [Stopping or warning instead of skipping silently](#stopping-or-warning-instead-of-skipping-silently).
 - `sections`: [Grouping entries](#grouping-entries-sections).
+- `overrides`: options the role itself sets or clears on some hosts, [Overrides defined by the role itself](#overrides-defined-by-the-role-itself).
 - `accounts`, `starter`: [Accounts, defaults and starters](#accounts-defaults-and-starters).
 - `examples`: example values shown in the generated reference ([Markdown roles](#markdown-roles-draft)).
 
@@ -162,6 +163,37 @@ overrides:
 refused. Everything is checked when the note is read: the `when` syntax, the fact names, that every other key is an
 option of the role, and each value through that option's normal checks (a `secret:` reference is allowed). An error
 names the note file and the key `overrides`. In the origins, a value that came from an entry reads `lab (override)`.
+
+### Overrides defined by the role itself
+
+The role file may carry its own `overrides:`, for a limit the role knows about (a system it does not support yet)
+instead of every lab having to write the same note-level override. It is a different thing from the `overrides:` of a
+lab, group, type or host note above, and it applies to this role's own options only. Each entry is `{when, note?,
+<option>: <value or null>, ...}`:
+
+```yaml
+# in the role file's frontmatter
+overrides:
+  - when: not host.arch_like
+    note: sync is only built for Arch, so the sync settings are ignored on this host
+    ntp: null
+    ntp_servers: null
+```
+
+It is evaluated for each host once all notes are merged and their nulls cleared, after every note-level `overrides:`
+entry, before the `requires`/`conflicts` check and before defaults are added. So it wins over every note, and a value
+it clears is never seen by the relation rules. Entries apply in listing order, and a later entry sees the options as
+the earlier ones left them. A matching entry sets the options it lists; `null` removes the option, as if no note had set
+it. In the origins, a value it set reads `role override`, and a cleared one is not listed.
+
+`when` may use the role's option names (their merged values before defaults, `none` when unset), `host` and `lab`, but
+not `applied`. If a matching entry changed at least one option that had a value, the host gets one info note: the
+entry's `note` (which may use `{{ }}` over the same names) or `role <name> ignores <options> on this host`. If nothing
+had a value, no note. The note is shown like any note from a `checks:` entry, once per host.
+
+Everything is checked when the role is read: unknown keys (the options are the only other keys), option names that do
+not exist, each value through the option's normal check, the `when` syntax and names, and the `note` text. An error
+names the role, the role file, the key `overrides` and the entry number (`overrides[0]`, counting from 0).
 
 ### Long lists of allowed values (choices_from)
 
