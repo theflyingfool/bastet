@@ -30,7 +30,7 @@ ROLE_NOTE_RESERVED = {"uses", "needs", "contributes", "collects", "requires", "t
                       "not_types", "os_min", "data", "vars", "presets", "templates", "units", "hooks",
                       "source", "source_hash"}
 ROLE_NOTE_KEYS = {"bastet", "name", "version", "api", "description", "os", "provides", "options", "examples", "files", "commands", "packages",
-                  "systemd", "users", "accounts", "starter"}
+                  "systemd", "users", "accounts", "starter", "checks"}
 FILE_EDITS = ("ini",)
 FILE_RENDERS = ("apt",)
 FILE_FORMS = ("edit", "render", "content", "template", "directory", "link", "line", "block")
@@ -98,6 +98,7 @@ class RoleDef:
     packages: list[dict] = field(default_factory=list)
     systemd: list[dict] = field(default_factory=list)
     users: list[dict] = field(default_factory=list)
+    checks: list[dict] = field(default_factory=list)
     markdown: bool = False
     raw: dict = field(default_factory=dict)
 
@@ -401,13 +402,14 @@ def parse_role(path: Path) -> RoleDef:
         packages = role_entries.parse_packages(path, data.get("packages") or [], options)
         systemd = role_entries.parse_systemd(path, data.get("systemd") or [], options)
         users = role_entries.parse_users(path, data.get("users") or [], options)
+        checks = role_entries.parse_checks(path, data.get("checks") or [], options)
     except BastetError as exc:
         if exc.line is None and exc.key in doc.key_lines:
             raise BastetError(exc.message, file=path, line=doc.key_lines[exc.key], key=exc.key) from None
         raise
     role = RoleDef(name, description, options, path, examples, api=data["api"], version=version, os=os_,
                    provides=provides, accounts=accounts, entries=entries, commands=commands, packages=packages,
-                   systemd=systemd, users=users, markdown=True,
+                   systemd=systemd, users=users, checks=checks, markdown=True,
                    raw={k: data[k] for k in ROLE_NOTE_RESERVED if k in data})
     try:
         _read_starter(role, data.get("starter"), path)
@@ -422,6 +424,8 @@ def _parse_yml_role(path: Path) -> RoleDef:
         raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     except yaml.YAMLError as exc:
         raise BastetError(f"invalid role definition: {exc}".splitlines()[0], file=path) from None
+    if "checks" in raw:
+        raise BastetError("checks are for Markdown roles; a role.yml role can't have them", file=path, key="checks")
     options, examples = _options_and_examples(name, raw, path)
     accounts = check_accounts(raw.get("accounts"), f"role {name}", path)
     role = RoleDef(name, str(raw.get("description", "")), options, path, examples, accounts=accounts)

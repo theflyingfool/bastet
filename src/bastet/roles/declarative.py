@@ -178,12 +178,14 @@ RENDERERS = {"apt": _apt}
 EDITORS = {"ini": _ini}
 
 
-def build(role: RoleDef, values: dict, host, secret_options: frozenset = frozenset()) -> list[Batch]:
+def build(role: RoleDef, values: dict, host, secret_options: frozenset = frozenset(),
+          origins: dict[str, str] | None = None) -> list[Batch]:
     # Any secret option may have reached a file this role edits, renders or writes as entries, so those are marked.
     secret = bool(secret_options)
     _check_os(role, host)
     resources: list[Resource] = []
-    ctx = expr.context(role.options, values, host)
+    ctx = expr.context(role.options, values, host, origins)
+    notes = entries.run_checks(role, ctx)  # first, so an error check stops the host before anything is planned
     for i, entry in enumerate(role.entries):
         if not expr.truthy(entry.get("when"), ctx):
             continue
@@ -200,14 +202,13 @@ def build(role: RoleDef, values: dict, host, secret_options: frozenset = frozens
         else:
             resources += entries.build_files(role, ctx, entry, i, secret_options, r)
     resources += _entries(role, values, secret)
-    resources += entries.build_entries(role, values, host, secret_options)
-    resources += _commands(role, values, host)
-    return [Batch(role.name, resources)]
+    resources += entries.build_entries(role, ctx, host, secret_options, notes)
+    resources += _commands(role, ctx)
+    return [Batch(role.name, resources, notes)]
 
 
-def _commands(role: RoleDef, values: dict, host) -> list[Resource]:
+def _commands(role: RoleDef, ctx: dict) -> list[Resource]:
     """The role's commands whose `when` condition (if any) holds."""
-    ctx = expr.context(role.options, values, host)
     return [Command(name=c["name"], run=c["run"], unless=c["unless"], run_before=c.get("before"), run_after=c.get("after"))
             for c in role.commands if expr.truthy(c.get("when"), ctx)]
 

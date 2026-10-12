@@ -178,3 +178,34 @@ in the same sandbox as the expressions), `directory`, `link`, `line` and `block`
 entry from a secret is hashed on the controller in the host's own scheme.
 
 `bastet doctor <folder>` lints a Markdown role.
+
+### Stopping or warning instead of skipping silently
+
+Nothing is skipped without a message, unless the setting itself says to skip. When a role leaves something out, or
+cannot do what a value asks for on this host, say so with `checks:`, a list of `{name?, when, level, message}`:
+
+- `info`: context the person may want (shown, does not matter to the outcome).
+- `warning`: something to look at (shown in yellow; the run goes on).
+- `error`: stops that host before anything is planned or applied, like any other error in the role.
+
+`when` is an expression and `message` may use `{{ }}`, both over the role's options and the facts `host`, `lab` and
+`applied`; they are checked when the role is read, including `host.<fact>` against the known host facts. A check holds
+or not at planning time, from the options and the facts only: it can't look at the remote host, so protection that
+depends on the host's current state stays with `validate:`, `unless:` and trigger checks. Notes show in both `run -c`
+and `run`, once per host and message.
+
+```yaml
+checks:
+  - name: ntp needs a zone
+    when: ntp and not timezone
+    level: error
+    message: "set a timezone together with ntp"
+  - when: host.container and ntp
+    level: warning
+    message: "{{ host.name }} is a container; its NTP comes from the Proxmox node"
+```
+
+`applied.origin.<option>` tells where this host's value came from: `lab`, `group <name>`, `type <name>`, `host <name>` or
+`OS default (<os>)`, with ` (override)` added when an `overrides:` entry set it, and an empty string when the option is
+unset. It works in `checks:`, `when:` and `{{ }}`. A role.yml (Python) role has no checks. The `time` and `hostname`
+entries on a container already say what they leave to the Proxmox node as `info` notes.

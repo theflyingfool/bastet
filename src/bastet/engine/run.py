@@ -17,12 +17,22 @@ class ConflictError(BastetError):
     """Two sources want different things for the same item."""
 
 
+@dataclass(frozen=True)
+class Note:
+    """A message a role has for the person running it: `info` is context, `warning` is something to look at."""
+
+    level: str
+    role: str
+    message: str
+
+
 @dataclass
 class Batch:
     """Resources from one source (later: one role file), applied in order; a failure stops the rest of it."""
 
     name: str
     resources: list[Resource]
+    notes: list[Note] = field(default_factory=list)
 
 
 @dataclass

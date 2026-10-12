@@ -11,6 +11,7 @@ from bastet.core.errors import BastetError
 from bastet.engine.files import Block, Directory, File, Line, Symlink
 from bastet.engine.model import Resource
 from bastet.engine.packages import Package
+from bastet.engine.run import Note
 from bastet.engine.slots import SLOTS
 from bastet.engine.systemd import (
     Hostname,
@@ -89,6 +90,44 @@ def _walk_check(value: object, allowed: set[str], where: str, path: Path, key: s
 def _unknown(entry: dict, keys: set[str], where: str, path: Path) -> None:
     if bad := sorted(str(k) for k in set(entry) - keys):
         raise _fail(f"{where}: unknown key {', '.join(bad)}", path, bad[0])
+
+
+CHECK_KEYS = {"name", "when", "level", "message"}
+CHECK_LEVELS = ("info", "warning", "error")
+
+
+def parse_checks(path: Path, items: object, options: dict) -> list[dict]:
+    if not isinstance(items, list):
+        raise _fail("checks must be a list", path, "checks")
+    allowed, out = set(options), []
+    for i, entry in enumerate(items):
+        where = f"checks[{i}]"
+        if not isinstance(entry, dict):
+            raise _fail(f"{where}: each check is a map", path, "checks")
+        _unknown(entry, CHECK_KEYS, where, path)
+        for need in ("when", "level", "message"):
+            if not isinstance(entry.get(need), str) or not entry[need].strip():
+                raise _fail(f"{where}: needs {need} (text)", path, "checks")
+        if entry["level"] not in CHECK_LEVELS:
+            raise _fail(f"{where}: level must be one of {', '.join(CHECK_LEVELS)}", path, "checks")
+        if "name" in entry and not isinstance(entry["name"], str):
+            raise _fail(f"{where}: name must be text", path, "checks")
+        check_common({"when": entry["when"], "message": entry["message"]}, allowed, where, path, "checks")
+        out.append(dict(entry))
+    return out
+
+
+def run_checks(role, ctx: dict) -> list[Note]:
+    """The notes from the role's checks that hold; an `error` check that holds stops the host."""
+    notes: list[Note] = []
+    for check in role.checks:
+        if not expr.truthy(check["when"], ctx):
+            continue
+        message = str(expr.resolve(check["message"], ctx))
+        if check["level"] == "error":
+            raise BastetError(f"{role.name}: {message}", file=role.path, key="checks")
+        notes.append(Note(check["level"], role.name, message))
+    return notes
 
 
 def parse_packages(path: Path, items: object, options: dict) -> list[dict]:
@@ -230,7 +269,11 @@ def _users(role, ctx: dict, secrets: frozenset) -> list[Resource]:
     return out
 
 
-def _systemd(role, ctx: dict, host, secrets: frozenset) -> list[Resource]:
+CONTAINER_TIME_NOTE = "time: the clock and NTP settings of a container come from its Proxmox node; only the time zone is applied"
+CONTAINER_HOSTNAME_NOTE = "hostname: the hostname of a container comes from its Proxmox node; not changed"
+
+
+def _systemd(role, ctx: dict, host, secrets: frozenset, notes: list[Note]) -> list[Resource]:
     out: list[Resource] = []
     for i, entry in enumerate(role.systemd):
         if not expr.truthy(entry.get("when"), ctx):
@@ -246,9 +289,13 @@ def _systemd(role, ctx: dict, host, secrets: frozenset) -> list[Resource]:
             made = [Unit(name=str(f["name"]), enabled=f.get("enabled"), state=f.get("state"))]
         elif kind == "time":
             if host.container:  # a container can't set the clock or NTP; only the timezone applies
+                if any(f.get(k) is not None for k in ("ntp", "rtc_local")):
+                    notes.append(Note("info", role.name, CONTAINER_TIME_NOTE))
                 f = {k: v for k, v in f.items() if k not in ("ntp", "rtc_local")}
             made = [TimeSettings(**f)] if any(v is not None for v in f.values()) else []
         elif kind == "hostname":
+            if host.container:
+                notes.append(Note("info", role.name, CONTAINER_HOSTNAME_NOTE))
             made = [] if host.container else [Hostname(name=str(f.get("name") or host.data.get("hostname") or host.name))]
         elif kind == "locale":
             made = [Locale(**f)] if any(v is not None for v in f.values()) else []
@@ -312,6 +359,7 @@ def build_files(role, ctx: dict, entry: dict, i: int, secrets: frozenset = froze
     return [placed(made, role, used, secrets)]
 
 
-def build_entries(role, values: dict, host, secret_options: frozenset = frozenset()) -> list[Resource]:
-    ctx = expr.context(role.options, values, host)
-    return [*_packages(role, ctx, secret_options), *_users(role, ctx, secret_options), *_systemd(role, ctx, host, secret_options)]
+def build_entries(role, ctx: dict, host, secret_options: frozenset = frozenset(), notes: list[Note] | None = None) -> list[Resource]:
+    notes = [] if notes is None else notes
+    return [*_packages(role, ctx, secret_options), *_users(role, ctx, secret_options),
+            *_systemd(role, ctx, host, secret_options, notes)]

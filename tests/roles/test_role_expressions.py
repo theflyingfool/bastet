@@ -56,7 +56,7 @@ def test_truthy_none_means_no_condition_and_bare_option_names_work():
 def test_check_text_accepts_known_names_and_plain_text():
     check_text("plain, no braces", set(), "k")
     check_text("{{ tools }} and {{ host.name }}", {"tools"}, "k")
-    assert FACT_NAMES == ("host", "lab")
+    assert FACT_NAMES == ("host", "lab", "applied")
 
 
 def test_check_text_refuses_unknown_names_and_bad_syntax():

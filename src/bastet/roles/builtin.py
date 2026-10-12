@@ -258,7 +258,7 @@ def batches_for(applied: list[Applied], host: HostInfo) -> list[Batch]:
     for a in sorted(applied, key=lambda a: ORDER.index(a.role.name) if a.role.name in ORDER else len(ORDER)):
         if a.role.markdown:
             try:
-                batches += declarative.build(a.role, a.values, host, a.secret_options)
+                batches += declarative.build(a.role, a.values, host, a.secret_options, a.origins)
             except (TypeError, ValueError, KeyError) as exc:
                 raise BastetError(f"{a.role.name}: {exc}") from None
             continue

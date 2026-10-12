@@ -46,7 +46,7 @@ from bastet.core.security_note import security_items, security_section
 from bastet.core.selectors import select_hosts
 from bastet.engine.packages import Reboot
 from bastet.engine.report import host_block
-from bastet.engine.run import Batch, run_host
+from bastet.engine.run import Batch, Note, run_host
 from bastet.engine.script import exec_script, new_mark
 from bastet.engine.security import LYNIS_AUDIT, LynisReport
 from bastet.roles.builtin import HostInfo, batches_for
@@ -71,6 +71,11 @@ def plan_for(ctx: Context, doc: Document, roles: dict[str, RoleDef], updates: bo
         a.secret = bool(became_secret)
         a.secret_options = frozenset(became_secret)
     return applied, batches_for(applied, host_info(ctx, doc, updates=updates))
+
+
+def distinct_notes(batches: list[Batch]) -> list[Note]:
+    """The roles' notes for one host, each (role, message) once, in plan order."""
+    return list(dict.fromkeys(n for b in batches for n in b.notes))
 
 
 def connect(ctx: Context, doc: Document, tmp: Path, *, yes: bool):
@@ -349,6 +354,12 @@ def _run(selectors: list[str] | None, exclude: list[str] | None, *, apply_change
                         out.secho(f"{doc.name}: {s.doc.path.relative_to(ctx.root)} has "
                                     f"{', '.join(k + ':' for k in found)} in the page text; Bastet only reads "
                                     "the properties at the top", fg="yellow")
+            for note in distinct_notes(batches):
+                text = ctx.secrets.redactor.mask(f"{doc.name}: {note.role}: {note.message}")
+                if note.level == "warning":
+                    out.secho(text, fg="yellow")
+                else:
+                    out.echo(text)
             if not any(b.resources for b in batches):
                 out.echo(f"{doc.name}: {role_names}: nothing to manage yet")
                 events.emit("host_skipped", doc.name, reason="nothing to manage yet")
