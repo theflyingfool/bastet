@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Bump the Bastet version and refresh the time zone list: scripts/version-bump X.Y.Z [--refresh] [--check]
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+exec uv run python scripts/version_bump.py "$@"
