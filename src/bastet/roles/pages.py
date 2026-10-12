@@ -157,8 +157,9 @@ def _fmt(opt: Option | None, value: object) -> str:
 
 def _from(applied: Applied, key: str) -> str:
     setters = sorted((s for s in applied.sources if key in s.values), key=lambda s: s.rank)
-    if not setters:
-        return "default"
+    if not setters:  # the role's own default, unless an OS default put the role on this host
+        os_default = next((s.label for s in applied.sources if s.label.startswith("OS default")), None)
+        return f"default ({os_default})" if os_default else "default"
     if applied.role.options[key].type in ("list", "map", "object"):
         return ", ".join(dict.fromkeys(s.label for s in setters))
     top = setters[-1].rank
@@ -171,7 +172,7 @@ def resolved_table(applied: list[Applied]) -> str:
         return ""
     esc = lambda s: str(s).replace("|", "\\|")  # noqa: E731
     lines = ["> [!warning] Resolved roles: read-only",
-             "> What Bastet applies to this host, merged from every level (type, lab, groups, host). "
+             "> What Bastet applies to this host, merged from every level (OS default, type, lab, groups, host)."
              "Don't edit it here: change the role files, and the next Bastet command refreshes this table.",
              "", "| Role | Option | Value | From |", "|---|---|---|---|"]
     for a in applied:

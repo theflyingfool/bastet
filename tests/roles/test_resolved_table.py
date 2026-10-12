@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from bastet.core.factsnote import facts_path, render_facts
 from bastet.core.hosttypes import load_host_types
 from bastet.core.inventory import load_inventory
 from bastet.core.render import host_summary
@@ -61,3 +62,15 @@ def test_no_roles_no_table(tmp_path):
     (tmp_path / "hosts" / "x.md").write_text("---\nbastet: host\ntype: vm\nip: 10.0.10.5\n---\n# x\n")
     inv = load_inventory(tmp_path, TYPES)
     assert "Resolved roles" not in host_summary(inv, inv.get("x"), TYPES, [])
+
+
+def test_arch_host_table_names_the_os_default(tmp_path):
+    lab(tmp_path)
+    facts_path(tmp_path, "hp-13").parent.mkdir(parents=True, exist_ok=True)
+    facts_path(tmp_path, "hp-13").write_text(render_facts("hp-13", {"os": "Arch Linux"}, "2026-10-06T10:00:00Z"))
+    inv = load_inventory(tmp_path, TYPES)
+    applied = [a for a in resolve(inv, inv.get("hp-13"), TYPES, load_roles()) if a.role.name == "systemd"]
+    assert any(s.label == "OS default (arch)" for s in applied[0].sources)
+    text = resolved_table(applied)
+    assert "OS default, type, lab" in text
+    assert "| [[systemd role\\|systemd]] | manage_hostname | false | default (OS default (arch)) |" in text

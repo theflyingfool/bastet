@@ -85,9 +85,9 @@ def sources_for(inv: Inventory, host: Document, types: dict[str, HostType]) -> d
         for role, values in host_type.roles.items():
             out.setdefault(role, []).append(Source(role, f"type {host_type.name}", (1,), dict(values or {})))
     os_defaults = defaults_for(os_id(host_data(inv, host, types)))
-    if os_defaults is not None:  # after the type default, before groups and hosts: anything above can override it
+    if os_defaults is not None:  # below the lab: the lab, the type default, groups and hosts all override it
         for role, values in os_defaults.roles.items():
-            out.setdefault(role, []).append(Source(role, f"OS default ({os_defaults.name})", (1, 1), dict(values or {})))
+            out.setdefault(role, []).append(Source(role, f"OS default ({os_defaults.name})", (-1,), dict(values or {})))
     dist = group_distances(inv, host, types)
     for doc in inv.role_files:
         target = inv.get(link_target(doc.data.get("applies_to")) or "")

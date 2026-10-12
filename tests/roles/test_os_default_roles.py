@@ -49,12 +49,37 @@ def test_arch_like_host_gets_it_too(tmp_path):
     assert applied is not None and applied.sources[0].label == "OS default (arch)"
 
 
-def test_group_beats_the_os_default_and_host_beats_the_group(tmp_path):
-    group = '---\nbastet: role\nrole: systemd\napplies_to: "[[boxes]]"\ntimezone: UTC\n---\n'
-    inv = lab(tmp_path, {"_roles/groups/boxes/systemd.md": group})
-    applied = systemd(inv, "arch1")
-    assert applied.values["timezone"] == "UTC" and applied.origins["timezone"] == "group boxes"
-    assert [s.label for s in applied.sources] == ["OS default (arch)", "group boxes"]
-    host = '---\nbastet: role\nrole: systemd\napplies_to: "[[arch1]]"\ntimezone: America/Chicago\n---\n'
-    inv = lab(tmp_path, {"_roles/hosts/arch1/systemd.md": host})
-    assert systemd(inv, "arch1").values["timezone"] == "America/Chicago"
+def with_value(monkeypatch):
+    """Give the Arch OS default a real value, so an override can be told from the default."""
+    from bastet.core import osdefaults
+    from bastet.roles import resolve as resolve_module
+
+    real = osdefaults.defaults_for
+
+    def patched(os_id, directory=None):
+        found = real(os_id, directory)
+        return found.model_copy(update={"roles": {"systemd": {"timezone": "UTC"}}}) if found else None
+
+    monkeypatch.setattr(resolve_module, "defaults_for", patched)
+
+
+def note(applies_to, tz, folder):
+    return {f"_roles/{folder}/systemd.md":
+            f'---\nbastet: role\nrole: systemd\napplies_to: "[[{applies_to}]]"\ntimezone: {tz}\n---\n'}
+
+
+def test_without_a_note_the_os_default_value_wins(tmp_path, monkeypatch):
+    with_value(monkeypatch)
+    applied = systemd(lab(tmp_path), "arch1")
+    assert applied.values["timezone"] == "UTC" and applied.origins["timezone"] == "OS default (arch)"
+
+
+def test_lab_group_and_host_notes_each_override_the_os_default(tmp_path, monkeypatch):
+    with_value(monkeypatch)
+    applied = systemd(lab(tmp_path, note("Homelab", "Europe/Paris", "lab")), "arch1")
+    assert applied.values["timezone"] == "Europe/Paris" and applied.origins["timezone"] == "lab"
+    assert [s.label for s in sorted(applied.sources, key=lambda s: s.rank)] == ["OS default (arch)", "lab"]
+    applied = systemd(lab(tmp_path, note("boxes", "Asia/Tokyo", "groups/boxes")), "arch1")
+    assert applied.values["timezone"] == "Asia/Tokyo" and applied.origins["timezone"] == "group boxes"
+    applied = systemd(lab(tmp_path, note("arch1", "America/Chicago", "hosts/arch1")), "arch1")
+    assert applied.values["timezone"] == "America/Chicago" and applied.origins["timezone"] == "host arch1"
