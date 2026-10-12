@@ -1,4 +1,8 @@
 description: "Users, groups, SSH keys and sudoers rules."
+starter:
+  users:
+    root: {password: "secret:root_password"}
+    bastet: {system: true}
 options:
   users:
     type: map

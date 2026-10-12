@@ -30,7 +30,7 @@ ROLE_NOTE_RESERVED = {"uses", "needs", "contributes", "collects", "requires", "t
                       "not_types", "os_min", "data", "vars", "presets", "templates", "units", "hooks",
                       "source", "source_hash"}
 ROLE_NOTE_KEYS = {"bastet", "name", "version", "api", "description", "os", "provides", "options", "examples", "files", "commands", "packages",
-                  "systemd", "users", "accounts"}
+                  "systemd", "users", "accounts", "starter"}
 FILE_EDITS = ("ini",)
 FILE_RENDERS = ("apt",)
 FILE_FORMS = ("edit", "render", "content", "template", "directory", "link", "line", "block")
@@ -89,6 +89,7 @@ class RoleDef:
     os: tuple[str, ...] = ()
     provides: tuple[str, ...] = ()
     accounts: tuple[str, ...] = ()
+    starter: dict = field(default_factory=dict)  # values `bastet add role` writes into a new note
     entries: list[dict] = field(default_factory=list)
     commands: list[dict] = field(default_factory=list)
     packages: list[dict] = field(default_factory=list)
@@ -96,6 +97,23 @@ class RoleDef:
     users: list[dict] = field(default_factory=list)
     markdown: bool = False
     raw: dict = field(default_factory=dict)
+
+    def new_note_values(self) -> dict:
+        """What a new note for this role starts with: the starter, plus a `secret:<name>` reference for every
+        required top-level secret option the starter leaves out (nested secret options need an explicit starter)."""
+        values = copy.deepcopy(self.starter)
+        for name, opt in self.options.items():
+            if opt.secret and opt.required and name not in values:
+                values[name] = f"{SECRET_PREFIX}{name}"
+        return values
+
+
+def _read_starter(role: RoleDef, value: object, path: Path) -> None:
+    if value is None:
+        return
+    if not isinstance(value, dict):
+        raise BastetError(f"role {role.name}: starter must be a map of option values", file=path, key="starter")
+    role.starter = check_values(role, value, f"role {role.name} starter", file=path)
 
 
 def _option(where: str, raw: object, path: Path) -> Option:
@@ -313,10 +331,15 @@ def parse_role(path: Path) -> RoleDef:
         if exc.line is None and exc.key in doc.key_lines:
             raise BastetError(exc.message, file=path, line=doc.key_lines[exc.key], key=exc.key) from None
         raise
-    return RoleDef(name, description, options, path, examples, api=data["api"], version=version, os=os_,
+    role = RoleDef(name, description, options, path, examples, api=data["api"], version=version, os=os_,
                    provides=provides, accounts=accounts, entries=entries, commands=commands, packages=packages,
                    systemd=systemd, users=users, markdown=True,
                    raw={k: data[k] for k in ROLE_NOTE_RESERVED if k in data})
+    try:
+        _read_starter(role, data.get("starter"), path)
+    except BastetError as exc:
+        raise BastetError(exc.message, file=path, line=doc.key_lines.get("starter"), key=exc.key) from None
+    return role
 
 
 def _parse_yml_role(path: Path) -> RoleDef:
@@ -327,7 +350,9 @@ def _parse_yml_role(path: Path) -> RoleDef:
         raise BastetError(f"invalid role definition: {exc}".splitlines()[0], file=path) from None
     options, examples = _options_and_examples(name, raw, path)
     accounts = check_accounts(raw.get("accounts"), f"role {name}", path)
-    return RoleDef(name, str(raw.get("description", "")), options, path, examples, accounts=accounts)
+    role = RoleDef(name, str(raw.get("description", "")), options, path, examples, accounts=accounts)
+    _read_starter(role, raw.get("starter"), path)
+    return role
 
 
 def load_roles(directory: Path | None = None) -> dict[str, RoleDef]:

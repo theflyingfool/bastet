@@ -271,9 +271,11 @@ def add_role(
             out.secho(f"{doc.name} already has the {role} role ({path.relative_to(ctx.root)}); edit it in Obsidian",
                         fg="yellow")
             continue
-        # When no values are set, use the minimal body line
-        body = f"Docs: [[Using roles]] · Options: ![[{role} role#Options]]\n\nNo values set; this role uses its defaults.\n"
-        data = {"bastet": "role", "role": role, "applies_to": make_link(doc.name)}
+        values = known[role].new_note_values()
+        line = ("These entries are listed so you can change them; delete any you do not need." if values
+                else "No values set; this role uses its defaults.")
+        body = f"Docs: [[Using roles]] · Options: ![[{role} role#Options]]\n\n{line}\n"
+        data = {"bastet": "role", "role": role, "applies_to": make_link(doc.name), **values}
         changes.append(Change(path, None, new_document(data, body)))
         added.append(role)
     if not changes:
