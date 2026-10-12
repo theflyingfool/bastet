@@ -126,6 +126,35 @@ options:
   timezone: {type: string, choices_from: time zones.txt}
 ```
 
+### Grouping entries (sections)
+
+`sections:` is a list of maps `{name, when, packages, users, files, systemd, commands}`; the five block keys take the
+same entry lists as the role's top-level keys of the same name. A section's optional `when` (an expression over the
+options and the host, lab and applied facts, checked when the role is read) is ANDed with each entry's own `when`; a
+section without `when` only organises. `name` is optional text that appears in error messages, for example
+`sections[1] (arch): files[0]: ...`.
+
+Sections and the top-level lists coexist. The engine still orders entries by block (packages, users, files, systemd,
+commands); within a block the top-level entries come first, then each section in order. `before:` and `after:` on an
+entry work as usual. A section inside a section, an unknown key, a value that is not a list and a section with no entries
+are refused when the role is read, naming the role file and `sections`.
+
+```yaml
+sections:
+  - name: arch
+    when: host.arch_like
+    packages: [ntp]                                  # install
+    files:
+      - path: /etc/ntp.conf                          # configure
+        content: "server {{ ntp_server }}\n"
+        reload: [ntpd.service]                       # reload when the file changed
+    systemd:
+      - {kind: unit, name: ntpd.service, enabled: true, state: up}   # enable and start
+```
+
+Install, configure, enable and reload run in block order whatever the order they are written in. An error raised while a
+role is built (an option that resolves to nothing, say) names the entry by its position among all entries of that block.
+
 ### Accounts, defaults and starters
 
 `accounts:` (top level, a list of account names) lists the accounts a role brings; the unaccounted-users report treats

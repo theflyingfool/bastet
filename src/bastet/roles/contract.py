@@ -30,7 +30,7 @@ ROLE_NOTE_RESERVED = {"uses", "needs", "contributes", "collects", "requires", "t
                       "not_types", "os_min", "data", "vars", "presets", "templates", "units", "hooks",
                       "source", "source_hash"}
 ROLE_NOTE_KEYS = {"bastet", "name", "version", "api", "description", "os", "provides", "options", "examples", "files", "commands", "packages",
-                  "systemd", "users", "accounts", "starter", "checks"}
+                  "systemd", "users", "accounts", "starter", "checks", "sections"}
 FILE_EDITS = ("ini",)
 FILE_RENDERS = ("apt",)
 FILE_FORMS = ("edit", "render", "content", "template", "directory", "link", "line", "block")
@@ -45,6 +45,8 @@ FORM_KEYS = {
     "block": {"marker", "comment", "validate", "restart", "reload"},
 }
 COMMAND_KEYS = {"name", "run", "unless", "when", "before", "after"}
+SECTION_BLOCKS = ("packages", "users", "files", "systemd", "commands")
+SECTION_KEYS = {"name", "when", *SECTION_BLOCKS}
 GENERATE_KINDS = ("password", "token")
 SECRET_SOURCES = ("generated", "chosen", "issued")
 
@@ -360,6 +362,64 @@ def _command_entry(path: Path, entry: object, options: dict[str, Option]) -> dic
     return entry
 
 
+def _section_lists(path: Path, section: object, options: dict[str, Option], here: str) -> dict[str, list[dict]]:
+    """One section's entries, parsed like the role's own lists, each with the section's `when` ANDed into its own."""
+
+    def fail(text: str) -> BastetError:
+        return BastetError(f"{here}: {text}", file=path, key="sections")
+
+    if not isinstance(section, dict):
+        raise fail("each section is a map")
+    if "sections" in section:
+        raise fail("sections can't be nested")
+    if unknown := sorted(str(k) for k in set(section) - SECTION_KEYS):
+        raise fail(f"unknown key {', '.join(unknown)} (known: {', '.join(sorted(SECTION_KEYS))})")
+    when = section.get("when")
+    if "when" in section:
+        if not isinstance(when, str) or not when.strip():
+            raise fail("when must be text")
+        try:
+            expr.check_when(when, set(options), here)
+        except BastetError as exc:
+            raise BastetError(exc.message, file=path, key="sections") from None
+    if "name" in section and not isinstance(section["name"], str):
+        raise fail("name must be text")
+    parsers = {
+        "packages": lambda items: role_entries.parse_packages(path, items, options),
+        "users": lambda items: role_entries.parse_users(path, items, options),
+        "systemd": lambda items: role_entries.parse_systemd(path, items, options),
+        "files": lambda items: [_file_entry(path, e, options, i) for i, e in enumerate(items)],
+        "commands": lambda items: [_command_entry(path, e, options) for e in items],
+    }
+    out: dict[str, list[dict]] = {}
+    for block in SECTION_BLOCKS:
+        items = section.get(block) or []
+        if not isinstance(items, list):
+            raise fail(f"{block} must be a list")
+        try:
+            parsed = parsers[block](items)
+        except BastetError as exc:
+            raise BastetError(f"{here}: {exc.message}", file=path, key="sections") from None
+        out[block] = [{**e, "when": f"({when}) and ({e['when']})" if "when" in e else f"({when})"} if when else e
+                      for e in parsed]
+    if not any(out.values()):
+        raise fail("a section needs at least one entry (packages, users, files, systemd or commands)")
+    return out
+
+
+def _sections(path: Path, items: object, options: dict[str, Option]) -> dict[str, list[dict]]:
+    """The entries of every section, per block, in listing order."""
+    if not isinstance(items, list):
+        raise BastetError("sections must be a list", file=path, key="sections")
+    out: dict[str, list[dict]] = {block: [] for block in SECTION_BLOCKS}
+    for i, section in enumerate(items):
+        name = section.get("name") if isinstance(section, dict) else None
+        here = f"sections[{i}]" + (f" ({name})" if isinstance(name, str) and name else "")
+        for block, parsed in _section_lists(path, section, options, here).items():
+            out[block] += parsed
+    return out
+
+
 def parse_role(path: Path) -> RoleDef:
     """Read one Markdown role note ("<name> role.md"): the frontmatter is the contract."""
     doc = parse_document(path.read_text(encoding="utf-8"), path)
@@ -403,6 +463,12 @@ def parse_role(path: Path) -> RoleDef:
         systemd = role_entries.parse_systemd(path, data.get("systemd") or [], options)
         users = role_entries.parse_users(path, data.get("users") or [], options)
         checks = role_entries.parse_checks(path, data.get("checks") or [], options)
+        grouped = _sections(path, data.get("sections") or [], options)
+        entries += grouped["files"]
+        commands += grouped["commands"]
+        packages += grouped["packages"]
+        systemd += grouped["systemd"]
+        users += grouped["users"]
     except BastetError as exc:
         if exc.line is None and exc.key in doc.key_lines:
             raise BastetError(exc.message, file=path, line=doc.key_lines[exc.key], key=exc.key) from None
