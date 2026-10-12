@@ -197,7 +197,8 @@ files yet; remove it by hand.
 
 `accounts:` (top level, a list of account names) lists the accounts a role brings; the unaccounted-users report treats
 them as expected on hosts the role is applied to. OS defaults are shipped per OS (`src/bastet/data/oses/`); for
-example Arch comes with the `systemd` role and the always-present Arch accounts. An OS default ranks below the lab: a
+example Arch comes with the `systemd` role and the always-present Arch accounts. The `systemd` role is there only for its
+accounts (the systemd-* system users every Arch install has); with no options it changes nothing. An OS default ranks below the lab: a
 lab, group or host note (and a host type's default) can still change that role's options, and the resolved table names
 the origin as "OS default (arch)".
 

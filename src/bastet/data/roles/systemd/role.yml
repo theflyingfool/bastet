@@ -1,16 +1,6 @@
-description: "Settings systemd owns: time and time sync, hostname, locale, and services with their drop-ins."
+description: "Settings systemd owns: hostname, locale, and services with their drop-ins (time and time sync are the time role). Arch comes with this role by default only for its accounts, the systemd-* system users every Arch install has; with no options it changes nothing."
 accounts: [systemd-coredump, systemd-network, systemd-oom, systemd-journal-remote, systemd-resolve, systemd-timesync]
 options:
-  timezone: {type: string, description: "IANA timezone, e.g. America/Chicago"}
-  ntp: {type: bool, description: "Keep the clock synced (on LXC the node does this, so it's left alone)"}
-  ntp_service:
-    type: string
-    default: keep
-    choices: [keep, timesyncd, chrony]
-    description: "keep: leave the service alone and let timedatectl turn sync on or off. timesyncd/chrony: install, enable and configure that one, and stop the other"
-  ntp_servers: {type: list, items: {type: string}, description: "NTP servers (timesyncd NTP=, chrony server lines); needs timesyncd or chrony"}
-  fallback_ntp_servers: {type: list, items: {type: string}, description: "timesyncd FallbackNTP= (timesyncd only)"}
-  rtc_local: {type: bool, description: "Hardware clock in local time (true) or UTC (false); only for Windows dual-boot. Unset leaves the clock alone"}
   manage_hostname: {type: bool, default: false, description: "Set the hostname from the host file's hostname: (or the note name); off unless you turn it on"}
   locale: {type: string, description: "LANG, e.g. en_US.UTF-8; the locale must exist on the host"}
   keymap: {type: string, description: "Console keymap (not supported on Debian yet)"}
@@ -33,13 +23,6 @@ options:
         content: {type: string, required: true, description: "The drop-in's contents"}
         restart: {type: bool, default: true, description: "Restart the unit when the drop-in changes"}
 examples:
-  - title: Lab-wide time, synced with timesyncd
-    yaml: |
-      timezone: America/Chicago
-      ntp: true
-      ntp_service: timesyncd
-      ntp_servers:
-        - 10.0.10.1
   - title: Keep a service running, with a drop-in
     yaml: |
       services:
