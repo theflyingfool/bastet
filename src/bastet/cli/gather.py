@@ -199,6 +199,14 @@ def _prepare(ctx: Context, doc: Document, host_type, tmp: Path, *, yes: bool, ac
     """Pin the host key and log in (asking as needed); the collection itself happens later, in parallel."""
     if host_type.name == "unifi":
         address, known, hostkey, _ = _pin(ctx, doc, tmp, yes=yes, accept=accept)
+        key = ctx.config.ssh.key
+        if key is not None:  # the owner installs Bastet's key on the device by hand; try it as bastet first
+            try:
+                runner = ssh_runner(SshTarget(address, "bastet", key, known))
+                runner.run("true\n")
+                return Prepared(hostkey, runner, True)
+            except AuthFailed:
+                pass
         user = ctx.config.ssh.bootstrap_user or getpass.getuser()
         return Prepared(hostkey, ssh_runner(SshTarget(address, user, None, known)), True)
     address, known, hostkey, port = _pin(ctx, doc, tmp, yes=yes, accept=accept, ports=ssh_ports(ctx, doc))
