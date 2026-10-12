@@ -2,7 +2,9 @@ description: "Users, groups, SSH keys and sudoers rules."
 options:
   users:
     type: map
-    description: "Users by name"
+    description: "Users by name. root and bastet are always there; entries you list merge over them"
+    default: {root: {}, bastet: {system: true}}
+    merge_default: true
     items:
       type: object
       fields:

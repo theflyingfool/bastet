@@ -7,6 +7,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from bastet.core.errors import BastetError
+from bastet.core.osdefaults import defaults_for
 from bastet.core.osinfo import ARCH_LIKE, os_id
 from bastet.engine.command import Command
 from bastet.engine.files import Block, Directory, File, Line, Symlink
@@ -282,13 +283,15 @@ def batches_for(applied: list[Applied], host: HostInfo) -> list[Batch]:
     # Everything Bastet installs is accounted for, whichever role installs it.
     present = sorted({r.name for b in batches for r in b.resources if isinstance(r, Package) and r.state == "present"})
     user_names = sorted({r.name for b in batches for r in b.resources if isinstance(r, User)})
+    os_defaults = defaults_for(host.os_id)
+    expected = (*(os_defaults.accounts if os_defaults else ()), *(n for a in applied for n in a.role.accounts), *user_names)
     units = tuple(dict.fromkeys(
         [r.name for b in batches for r in b.resources if isinstance(r, Unit)]
         + [r.path.split("/")[-2][:-2] for b in batches for r in b.resources
            if isinstance(r, File) and r.path.startswith("/etc/systemd/system/") and r.path.split("/")[-2].endswith(".d")]))
     for b in batches:
         b.resources = [replace(r, tracked=tuple(dict.fromkeys((*r.tracked, *present)))) if isinstance(r, Unaccounted)
-                       else replace(r, tracked=tuple(dict.fromkeys((*r.tracked, *user_names)))) if isinstance(r, UnaccountedUsers)
+                       else replace(r, tracked=tuple(dict.fromkeys((*r.tracked, *expected)))) if isinstance(r, UnaccountedUsers)
                        else replace(r, managed=tuple(u for u in units if u.endswith(".service"))) if isinstance(r, ServiceExposure)
                        else r
                        for r in b.resources]

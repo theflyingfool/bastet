@@ -67,7 +67,7 @@ def test_the_blanket_secret_rule_of_an_old_format_role_leaves_the_unaccounted_li
     values = with_defaults(role, check_values(role, {"users": {"alice": {"password_hash": "$6$salt$hash"}}}, "users"))
     resources = [r for b in batches_for([Applied(role=role, values=values, secret=True)], host()) for r in b.resources]
     [report] = [r for r in resources if isinstance(r, UnaccountedUsers)]
-    [alice] = [r for r in resources if isinstance(r, User)]
+    [alice] = [r for r in resources if isinstance(r, User) and r.name == "alice"]
     assert report.secret is False and alice.secret is True
 
 

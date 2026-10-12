@@ -649,7 +649,7 @@ groups:
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| users | map of object |  | Users by name |
+| users | map of object | {'root': {}, 'bastet': {'system': True}} | Users by name. root and bastet are always there; entries you list merge over them |
 | users.<name>.uid | int |  |  |
 | users.<name>.group | string |  | Primary group |
 | users.<name>.groups | list of string |  | Supplementary groups |

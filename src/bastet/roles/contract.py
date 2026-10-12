@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import re
 from dataclasses import dataclass, field
 from importlib import resources
@@ -20,7 +21,7 @@ SECRET_PREFIX = "secret:"  # a reference, resolved and re-checked against the op
 RESERVED = {"bastet", "role", "applies_to", "priority", "cssclasses", "tags", "aliases", "rotate_every"}
 OPTION_KEYS = {"type", "description", "default", "choices", "items", "fields", "shorthand", "secret", "required",
                "generate", "source", "rotate_every", "key", "section", "as", "min", "max", "single_line",
-               "format", "path", "marker", "before", "after"}
+               "format", "path", "marker", "before", "after", "merge_default"}
 API_VERSIONS = (0,)
 OPTION_AS = ("flag", "value", "list", "lines", "text", "entries")
 ENTRY_FORMATS = ("deb822", "ini_section")
@@ -73,6 +74,7 @@ class Option:
     marker: str | None = None  # as: entries, ini_section only: the block marker; may contain {name}
     before: str | None = None  # as: entries only: the slot the entries are written before
     after: str | None = None  # as: entries only: the slot the entries are written after
+    merge_default: bool = False  # map only: the default entries stay, the given entries merge over them
 
 
 @dataclass
@@ -118,6 +120,8 @@ def _option(where: str, raw: object, path: Path) -> Option:
                 raise BastetError(f"{where}: {bound} must be a number", file=path)
     if raw.get("single_line") is not None and raw["type"] != "string":
         raise BastetError(f"{where}: single_line only applies to string options", file=path)
+    if raw.get("merge_default") and raw["type"] != "map":
+        raise BastetError(f"{where}: merge_default only applies to map options", file=path)
     entries = raw.get("as") == "entries"
     for knob in ("format", "path", "marker", "before", "after"):
         if knob in raw and not entries:
@@ -141,7 +145,7 @@ def _option(where: str, raw: object, path: Path) -> Option:
                  key=raw.get("key"), section=raw.get("section"), as_=raw.get("as"), min=raw.get("min"),
                  max=raw.get("max"), single_line=bool(raw.get("single_line", False)),
                  format=raw.get("format"), path=raw.get("path"), marker=raw.get("marker"), before=raw.get("before"),
-                 after=raw.get("after"))
+                 after=raw.get("after"), merge_default=bool(raw.get("merge_default", False)))
     if opt.type in ("list", "map"):
         if "items" not in raw:
             raise BastetError(f"{where}: a {opt.type} option needs items", file=path)
@@ -448,5 +452,18 @@ def check_values(role: RoleDef, values: dict, where: str, file: Path | None = No
     return out
 
 
+def _merged(default: object, given: object) -> object:
+    if given is None:
+        return copy.deepcopy(default)
+    if not isinstance(default, dict) or not isinstance(given, dict):
+        return given
+    out = copy.deepcopy(default)
+    for key, value in given.items():
+        base = out.get(key)
+        out[key] = {**base, **value} if isinstance(base, dict) and isinstance(value, dict) else value
+    return out
+
+
 def with_defaults(role: RoleDef, values: dict) -> dict:
-    return {k: values.get(k, opt.default) for k, opt in role.options.items()}
+    return {k: _merged(opt.default, values.get(k)) if opt.merge_default else values.get(k, opt.default)
+            for k, opt in role.options.items()}
