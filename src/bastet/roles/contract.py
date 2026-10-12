@@ -11,6 +11,7 @@ import yaml
 
 from bastet.core.errors import BastetError, did_you_mean
 from bastet.core.frontmatter import parse_document
+from bastet.core.osdefaults import check_accounts
 from bastet.roles import entries as role_entries
 from bastet.roles import expr
 
@@ -28,7 +29,7 @@ ROLE_NOTE_RESERVED = {"uses", "needs", "contributes", "collects", "requires", "t
                       "not_types", "os_min", "data", "vars", "presets", "templates", "units", "hooks",
                       "source", "source_hash"}
 ROLE_NOTE_KEYS = {"bastet", "name", "version", "api", "description", "os", "provides", "options", "examples", "files", "commands", "packages",
-                  "systemd", "users"}
+                  "systemd", "users", "accounts"}
 FILE_EDITS = ("ini",)
 FILE_RENDERS = ("apt",)
 FILE_FORMS = ("edit", "render", "content", "template", "directory", "link", "line", "block")
@@ -85,6 +86,7 @@ class RoleDef:
     version: str = "0.0.0"
     os: tuple[str, ...] = ()
     provides: tuple[str, ...] = ()
+    accounts: tuple[str, ...] = ()
     entries: list[dict] = field(default_factory=list)
     commands: list[dict] = field(default_factory=list)
     packages: list[dict] = field(default_factory=list)
@@ -291,6 +293,7 @@ def parse_role(path: Path) -> RoleDef:
         options, examples = _options_and_examples(name, data, path)
         os_ = _text_list(path, "os", data.get("os"))
         provides = _text_list(path, "provides", data.get("provides"))
+        accounts = check_accounts(data.get("accounts"), f"role {name}", path)
         files = data.get("files") or []
         if not isinstance(files, list):
             raise BastetError("files must be a list", file=path, key="files")
@@ -307,7 +310,7 @@ def parse_role(path: Path) -> RoleDef:
             raise BastetError(exc.message, file=path, line=doc.key_lines[exc.key], key=exc.key) from None
         raise
     return RoleDef(name, description, options, path, examples, api=data["api"], version=version, os=os_,
-                   provides=provides, entries=entries, commands=commands, packages=packages,
+                   provides=provides, accounts=accounts, entries=entries, commands=commands, packages=packages,
                    systemd=systemd, users=users, markdown=True,
                    raw={k: data[k] for k in ROLE_NOTE_RESERVED if k in data})
 
@@ -319,7 +322,8 @@ def _parse_yml_role(path: Path) -> RoleDef:
     except yaml.YAMLError as exc:
         raise BastetError(f"invalid role definition: {exc}".splitlines()[0], file=path) from None
     options, examples = _options_and_examples(name, raw, path)
-    return RoleDef(name, str(raw.get("description", "")), options, path, examples)
+    accounts = check_accounts(raw.get("accounts"), f"role {name}", path)
+    return RoleDef(name, str(raw.get("description", "")), options, path, examples, accounts=accounts)
 
 
 def load_roles(directory: Path | None = None) -> dict[str, RoleDef]:

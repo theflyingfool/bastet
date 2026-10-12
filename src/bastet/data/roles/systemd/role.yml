@@ -1,4 +1,5 @@
 description: "Settings systemd owns: time and time sync, hostname, locale, and services with their drop-ins."
+accounts: [systemd-coredump, systemd-network, systemd-oom, systemd-journal-remote, systemd-resolve, systemd-timesync]
 options:
   timezone: {type: string, description: "IANA timezone, e.g. America/Chicago"}
   ntp: {type: bool, description: "Keep the clock synced (on LXC the node does this, so it's left alone)"}

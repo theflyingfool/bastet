@@ -8,6 +8,8 @@ os:
 - arch
 provides:
 - package-manager
+accounts:
+- alpm
 options:
   root_dir:
     type: string
