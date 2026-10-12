@@ -26,7 +26,7 @@
 1. **Move, not copy.** The time options (`timezone`, `ntp`, `ntp_service`, `ntp_servers`, `fallback_ntp_servers`, `rtc_local`) are removed from the `systemd` role's `role.yml` (the user-facing surface only; the `systemd` block and its `kind: time` entry, which is what calls `timedatectl`, are unchanged) (which keeps hostname, locale, keymap, services, drop-ins). A note that still sets them gets the normal "unknown option" error naming the key. Cost if wrong: a one-time edit of any note using them. The roadmap says the time part "moves out of the `systemd` role".
 2. **`systemd-timesync` account** moves from the `systemd` role's `accounts:` to the `time` role (already agreed in the account-defaults plan).
 3. **Not an OS default.** Arch hosts do not get `time` automatically (a default would have to change nothing anyway); you add it to a lab, group or host note.
-4. **One grouped option replaces `ntp`, `ntp_service`, `ntp_servers` and `fallback_ntp_servers`:** `ntp_settings: {service: timesyncd|chrony|off, servers: [...], fallback_servers: [...]}`. `service` has no default (unset leaves sync alone; `off` stops and disables sync). `servers` and `fallback_servers` only take effect with a daemon chosen, and `fallback_servers` only with `timesyncd`; mismatches are ignored and the option descriptions say so (the contract has no cross-option checks, and none is added). The old `keep` daemon mode goes: `service: timesyncd|chrony` installs and enables that daemon, `off` disables sync through `timedatectl`.
+4. **One grouped option replaces `ntp`, `ntp_service`, `ntp_servers` and `fallback_ntp_servers`:** `ntp_settings: {service: timesyncd|chrony|off, servers: [...], fallback_servers: [...]}`. `service` has no default (unset leaves sync alone; `off` stops and disables sync). `servers` and `fallback_servers` only take effect with a daemon chosen, and `fallback_servers` only with `timesyncd`; mismatches are refused by the new `requires` / `conflicts` option keys (Task 1). The old `keep` daemon mode goes: `service: timesyncd|chrony` installs and enables that daemon, `off` disables sync through `timedatectl`.
 
 5. **The role installs the daemon it needs on every OS** (`chrony` when `service: chrony`; `systemd-timesyncd` on Debian-like, where it is separate); it never relies on what the OS ships. `servers` is optional: unset, both daemons use the distro's stock servers. `servers` are added to chrony's stock pool lines; for timesyncd they take the place of the stock (fallback) servers (see 6). Arch's stock servers are confirmed by the owner. Debian and Proxmox are not targeted until Arch works (owner, 2026-10-11), but the Debian handling the old code already has is kept and tested.
 6. **All of timesyncd's settings are exposed**, under their upstream names (rule 2 of `bastet-new-role`), written to `/etc/systemd/timesyncd.conf.d/bastet.conf` section `[Time]`. `timesyncd.conf(5)` has seven keys: `NTP` (`servers`), `FallbackNTP` (`fallback_servers`), `RootDistanceMaxSec`, `PollIntervalMinSec`, `PollIntervalMaxSec`, `ConnectionRetrySec`, `SaveIntervalSec`. The implementer re-checks the list against `man timesyncd.conf` on the dev machine and the ArchWiki page the owner supplied (it stays untracked; never commit it). Only the keys that are set are written. Facts for the docs (ArchWiki): the stock servers are the distro's pool, built in as `FallbackNTP`; per-interface servers (networkd, DHCP) come first, then `NTP=`, and `FallbackNTP=` is used only if none were found, so setting `servers` stops the stock servers being used; the state file `/var/lib/systemd/timesync/clock` is written on every sync and every 60 s and can't be moved, so for SD cards or read-only roots the docs example is `PollIntervalMinSec=1d` with `SaveIntervalSec=infinity`.
@@ -36,7 +36,7 @@
 
 - With no options set, the role emits nothing on any host type and OS (a test builds it empty on Arch, Debian and an LXC).
 - On an LXC, only the time zone is applied: no packages, units, `ntp`, `rtc_local` or NTP files.
-- Mismatched settings (servers with `off` or no service, fallback with chrony) emit nothing extra and never raise; the option descriptions say they are ignored. Nested unset fields (`ntp_settings.service` when only `servers` is given) evaluate cleanly in `when:`.
+- Mismatched settings (servers with `off` or no service, fallback with chrony) are refused with an error naming both options and the file. Nested unset fields (`ntp_settings.service` when only `servers` is given) evaluate cleanly in `when:`.
 - Switching service stops and disables the other one (`chronyd.service` vs `systemd-timesyncd.service`), and a config change restarts or reloads the right unit (timesyncd restart; chrony `reload sources` on Debian-like, restart on Arch).
 - `service: off` yields the `time` entry with `ntp: false` and installs nothing.
 - No option value with a line break reaches a config file (`single_line: true` on the server options, or each server as a list item).
@@ -51,26 +51,32 @@
 | Create `src/bastet/data/roles/time/time role.md` | The role: frontmatter (options, `accounts: [systemd-timesync]`, `examples`, entries) and docs body with `## Changes` |
 | Modify `src/bastet/data/roles/systemd/role.yml` | Remove the six moved options and `systemd-timesync` from `accounts` |
 | Modify `src/bastet/roles/builtin.py` | `_systemd` drops the time/NTP code; keeps hostname, locale, services, drop-ins |
-| Create `tests/roles/test_time_role.py` | Entries per case, neutrality, container, ignored mismatches, `when:` skips |
+| Create `tests/roles/test_time_role.py` | Entries per case, neutrality, container, refused mismatches, `when:` skips |
 | Modify existing tests that use the moved options (`grep -rn "ntp\|timezone\|rtc_local" tests`) | Move their cases to the role test or drop the moved options |
 | Modify `docs/roles.md` (generated), `docs/ROADMAP.md` | Tick `time`, update VPS apps step 2 and "Planned additions" |
 
 ## Tasks
 
-### Task 1: The `time` role note and its tests
+### Task 1: `requires` and `conflicts` on options (contract change, owner-approved 2026-10-11)
 
-- [ ] **Step 1: Failing tests** in `tests/roles/test_time_role.py` (see the Review Focus). Cases: empty options emit nothing (Arch, Debian, LXC); `timezone` only gives one `TimeSettings(timezone)`; `service: off` gives `TimeSettings(ntp=False)` and no packages or files; timesyncd on Arch with servers gives the drop-in `/etc/systemd/timesyncd.conf.d/bastet.conf` with `NTP=` and `FallbackNTP=`, a restart of `systemd-timesyncd.service`, `chronyd.service` disabled and down, timesyncd enabled and up; timesyncd on Debian also installs `systemd-timesyncd`; chrony on Arch gives package `chrony`, block `bastet servers` in `/etc/chrony.conf` (`server <s> iburst`), restart `chronyd.service`; chrony on Debian-like gives `/etc/chrony/sources.d/bastet.sources` and `chronyc reload sources`; LXC with `ntp_settings` and `rtc_local` gives only the time zone; mismatches are ignored without error; `parse_role` accepts the note and `accounts` is `['systemd-timesync']`.
+- [ ] **Step 1: Failing tests** in `tests/roles/test_option_requires.py`. Syntax: `requires: [other]` (if this option is set, `other` must be set), `requires: {other: value-or-list}` (and `other` must have one of those values), `conflicts: [other]` (can't both be set). Inside an `object` option the names are sibling fields; at top level, other top-level options. Cases: each form passes when satisfied and is refused otherwise; an unset option checks nothing; an option set to its default counts as set only if the note set it; the error names both options (with the parent for fields) and the file; `parse_role` refuses a `requires`/`conflicts` that names an unknown option or field, or has the wrong shape.
+- [ ] **Step 2: See them fail**, then implement in `src/bastet/roles/contract.py` (`OPTION_KEYS`, `Option`, `_option`, and the check in `check_values`). Update `src/bastet/data/docs/writing_roles.md` (an "Options that need or exclude each other" section with the example) and the generated docs if they list option keys.
+- [ ] **Step 3:** `uv run pytest tests/roles -q`, `ruff check src tests`, commit by name. ROADMAP: note the feature; `needs`/`uses` (role dependencies) stay reserved.
+
+### Task 2: The `time` role note and its tests
+
+- [ ] **Step 1: Failing tests** in `tests/roles/test_time_role.py` (see the Review Focus). Cases: empty options emit nothing (Arch, Debian, LXC); `timezone` only gives one `TimeSettings(timezone)`; `service: off` gives `TimeSettings(ntp=False)` and no packages or files; timesyncd on Arch with servers gives the drop-in `/etc/systemd/timesyncd.conf.d/bastet.conf` with `NTP=` and `FallbackNTP=`, a restart of `systemd-timesyncd.service`, `chronyd.service` disabled and down, timesyncd enabled and up; timesyncd on Debian also installs `systemd-timesyncd`; chrony on Arch gives package `chrony`, block `bastet servers` in `/etc/chrony.conf` (`server <s> iburst`), restart `chronyd.service`; chrony on Debian-like gives `/etc/chrony/sources.d/bastet.sources` and `chronyc reload sources`; LXC with `ntp_settings` and `rtc_local` gives only the time zone; the mismatches above are refused; `parse_role` accepts the note and `accounts` is `['systemd-timesync']`.
 - [ ] **Step 2: See them fail** for the right reason (role not found).
-- [ ] **Step 3: Write the role note.** Use the frontmatter keys from `bastet-new-role`. The old `_systemd` time branch in `builtin.py` is the behaviour reference. Express the cases as `when:` conditions. Do not add a contract feature; if one seems needed, **stop and report** (an owner decision).
+- [ ] **Step 3: Write the role note,** using `requires`/`conflicts` for the option rules. Use the frontmatter keys from `bastet-new-role`. The old `_systemd` time branch in `builtin.py` is the behaviour reference. Express the cases as `when:` conditions. The only contract change is Task 1; for anything else **stop and report** (an owner decision).
 - [ ] **Step 4: Tests pass** (`uv run pytest tests/roles -q`), then commit by name.
 
-### Task 2: Take the time options out of the `systemd` role
+### Task 3: Take the time options out of the `systemd` role
 
 - [ ] **Step 1: Failing tests:** the `systemd` role refuses `timezone` etc. as unknown options (message names the key); its built batch for hostname, locale, services and drop-ins is unchanged.
 - [ ] **Step 2:** remove the options and the time branch of `_systemd`, move `systemd-timesync` to the `time` role's `accounts:`, move the old time tests to `test_time_role.py` (or delete them where the new test covers the case; say which in the report).
 - [ ] **Step 3:** `uv run python scripts/gen_roles_doc.py`; run `tests/roles` and any test file the grep named; `ruff check src tests`; commit by name.
 
-### Task 3: Docs and roadmap
+### Task 4: Docs and roadmap
 
 - [ ] **Step 1:** `docs/ROADMAP.md`: tick `time` in the roles table and in VPS apps step 2, set "Next step" to `base`, remove the `time` row from "Planned additions", and record anything the work revealed (for example a missing contract feature; the LXC `time` check on a real host stays in "Docs and tooling").
 - [ ] **Step 2:** `scripts/privacy-check` clean; commit by name.
