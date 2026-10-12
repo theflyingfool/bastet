@@ -116,22 +116,29 @@ def sources_for(inv: Inventory, host: Document, types: dict[str, HostType]) -> d
     return out
 
 
+_MISSING = object()  # a key a note doesn't mention; a null (None) is a value that opts out and merges by rank
+
+
 def _merge(opt: Option, a, b, path: str, clash):
-    if a is None:
+    if a is _MISSING:
         return b
-    if b is None:
+    if b is _MISSING:
         return a
+    if a is None or b is None:
+        if clash is not None and a != b:
+            clash(path, opt, a, b)
+        return b
     if opt.type == "list":
         return a + [x for x in b if x not in a]
     if opt.type == "map":
         out = dict(a)
         for k, v in b.items():
-            out[k] = _merge(opt.items, a.get(k), v, f"{path}.{k}", clash)
+            out[k] = _merge(opt.items, a.get(k, _MISSING), v, f"{path}.{k}", clash)
         return out
     if opt.type == "object":
         out = dict(a)
         for k, v in b.items():
-            out[k] = _merge(opt.fields[k], a.get(k), v, f"{path}.{k}", clash)
+            out[k] = _merge(opt.fields[k], a.get(k, _MISSING), v, f"{path}.{k}", clash)
         return out
     if clash is not None and a != b:
         clash(path, opt, a, b)
@@ -140,7 +147,16 @@ def _merge(opt: Option, a, b, path: str, clash):
 
 def _merge_values(role: RoleDef, a: dict, b: dict, clash=None) -> dict:
     keys = list(a) + [k for k in b if k not in a]
-    return {k: _merge(role.options[k], a.get(k), b.get(k), k, clash) for k in keys}
+    return {k: _merge(role.options[k], a.get(k, _MISSING), b.get(k, _MISSING), k, clash) for k in keys}
+
+
+def _cleared(opt: Option, value):
+    """Drop the nulls left after merging (inside maps and objects too): those options are unset."""
+    if opt.type == "map" and isinstance(value, dict):
+        return {k: _cleared(opt.items, v) for k, v in value.items() if v is not None}
+    if opt.type == "object" and isinstance(value, dict):
+        return {k: _cleared(opt.fields[k], v) for k, v in value.items() if v is not None}
+    return value
 
 
 def resolve(inv: Inventory, host: Document, types: dict[str, HostType], roles: dict[str, RoleDef]) -> list[Applied]:
@@ -171,6 +187,8 @@ def resolve(inv: Inventory, host: Document, types: dict[str, HostType], roles: d
             merged = _merge_values(role, merged, combined)
             for key in combined:
                 origins[key] = ", ".join(s.label for s in level if key in s.values)
+        merged = {k: _cleared(role.options[k], v) for k, v in merged.items() if v is not None}
+        origins = {k: v for k, v in origins.items() if k in merged}
         files = [s.doc.path if s.doc else s.file for s in sources if s.values]
         check_relations(role, merged, name, file=files[-1] if files else None)  # the notes' own values, before defaults
         applied.append(Applied(role, with_defaults(role, merged), sources, origins))

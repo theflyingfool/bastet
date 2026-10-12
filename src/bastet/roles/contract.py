@@ -473,7 +473,7 @@ def check_value(opt: Option, value: object, where: str) -> object:
     elif opt.type == "map":
         if not isinstance(value, dict):
             raise BastetError(f"{where}: expected a map, got {value!r}")
-        return {str(k): check_value(opt.items, v, f"{where}.{k}") for k, v in value.items()}
+        return {str(k): v if v is None else check_value(opt.items, v, f"{where}.{k}") for k, v in value.items()}  # None: opts out
     elif opt.type == "object":
         if not isinstance(value, dict):
             raise BastetError(f"{where}: expected a map of fields, got {value!r}")
@@ -483,7 +483,7 @@ def check_value(opt: Option, value: object, where: str) -> object:
         missing = [k for k, f in opt.fields.items() if f.required and value.get(k) is None]
         if missing:
             raise BastetError(f"{where}: needs {', '.join(missing)}")
-        return {k: check_value(opt.fields[k], v, f"{where}.{k}") for k, v in value.items() if v is not None}
+        return {k: v if v is None else check_value(opt.fields[k], v, f"{where}.{k}") for k, v in value.items()}  # None: opts out
     if opt.type in ("int", "number"):
         if opt.min is not None and value < opt.min:
             raise BastetError(f"{where}: must be {opt.min} or more")
@@ -497,9 +497,11 @@ def check_value(opt: Option, value: object, where: str) -> object:
 
 
 def check_values(role: RoleDef, values: dict, where: str, file: Path | None = None) -> dict:
+    """Validate a note's values. A null (`key:`) is kept: it opts out of an inherited value and is cleared by resolve()
+    once the levels are merged. Unknown option names are refused even with a null."""
     out: dict = {}
     for key, value in values.items():
-        if key in RESERVED or value is None:
+        if key in RESERVED:
             continue
         if key not in role.options:
             suggestion = did_you_mean(key, list(role.options.keys()))
@@ -508,6 +510,9 @@ def check_values(role: RoleDef, values: dict, where: str, file: Path | None = No
             else:
                 msg = f"{where}: {role.name} has no option {key!r} (options: {', '.join(role.options)})"
             raise BastetError(msg, file=file, key=key)
+        if value is None:
+            out[key] = None
+            continue
         try:
             out[key] = check_value(role.options[key], value, f"{role.name}.{key}")
         except BastetError as exc:

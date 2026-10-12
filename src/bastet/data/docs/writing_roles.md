@@ -74,6 +74,22 @@ options:
     conflicts: [ntp_servers]
 ```
 
+### Opting a host or group out of an inherited option
+
+A host or group note can undo something a broader note set by giving the option an explicit null (`key:` or
+`key: null`). The null is kept as an ordinary value while the notes are merged, so the usual rules decide: the
+highest-ranked note wins (a host's `false`, or any real value, beats a group's null; a group's null beats the lab's
+`true`), and two notes of the same rank that disagree (one null, one `true`) clash like any other disagreement. Only
+after every rank is merged is a winning null turned into "unset": the option then takes its default, or nothing. Nothing
+is removed during the merge, so the result never depends on the order of the notes. The same holds for a field inside a
+`map` or `object` option (a map entry set to null drops that entry).
+A null with nothing inherited does nothing. A cleared option is not listed among the origins, and `requires` and
+`conflicts` see it as unset.
+
+A bare `key:` with nothing after it is a null, so never write one expecting "no value yet": it clears whatever the
+lab or a group set. Shipped starters and `bastet add role` never write one. An option name that does not exist is
+refused even with a null.
+
 ### Accounts, defaults and starters
 
 `accounts:` (top level, a list of account names) lists the accounts a role brings; the unaccounted-users report treats
