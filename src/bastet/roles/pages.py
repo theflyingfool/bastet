@@ -175,7 +175,7 @@ def resolved_table(applied: list[Applied]) -> str:
         return ""
     esc = lambda s: str(s).replace("|", "\\|")  # noqa: E731
     lines = ["> [!warning] Resolved roles: read-only",
-             "> What Bastet applies to this host, merged from every level (OS default, type, lab, groups, host)."
+             "> What Bastet applies to this host, merged from every level (OS default, type, lab, groups, host). "
              "Don't edit it here: change the role files, and the next Bastet command refreshes this table.",
              "", "| Role | Option | Value | From |", "|---|---|---|---|"]
     for a in applied:
