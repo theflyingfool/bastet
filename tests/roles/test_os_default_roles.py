@@ -58,28 +58,28 @@ def with_value(monkeypatch):
 
     def patched(os_id, directory=None):
         found = real(os_id, directory)
-        return found.model_copy(update={"roles": {"systemd": {"timezone": "UTC"}}}) if found else None
+        return found.model_copy(update={"roles": {"systemd": {"locale": "UTC"}}}) if found else None
 
     monkeypatch.setattr(resolve_module, "defaults_for", patched)
 
 
 def note(applies_to, tz, folder):
     return {f"_roles/{folder}/systemd.md":
-            f'---\nbastet: role\nrole: systemd\napplies_to: "[[{applies_to}]]"\ntimezone: {tz}\n---\n'}
+            f'---\nbastet: role\nrole: systemd\napplies_to: "[[{applies_to}]]"\nlocale: {tz}\n---\n'}
 
 
 def test_without_a_note_the_os_default_value_wins(tmp_path, monkeypatch):
     with_value(monkeypatch)
     applied = systemd(lab(tmp_path), "arch1")
-    assert applied.values["timezone"] == "UTC" and applied.origins["timezone"] == "OS default (arch)"
+    assert applied.values["locale"] == "UTC" and applied.origins["locale"] == "OS default (arch)"
 
 
 def test_lab_group_and_host_notes_each_override_the_os_default(tmp_path, monkeypatch):
     with_value(monkeypatch)
     applied = systemd(lab(tmp_path, note("Homelab", "Europe/Paris", "lab")), "arch1")
-    assert applied.values["timezone"] == "Europe/Paris" and applied.origins["timezone"] == "lab"
+    assert applied.values["locale"] == "Europe/Paris" and applied.origins["locale"] == "lab"
     assert [s.label for s in sorted(applied.sources, key=lambda s: s.rank)] == ["OS default (arch)", "lab"]
     applied = systemd(lab(tmp_path, note("boxes", "Asia/Tokyo", "groups/boxes")), "arch1")
-    assert applied.values["timezone"] == "Asia/Tokyo" and applied.origins["timezone"] == "group boxes"
+    assert applied.values["locale"] == "Asia/Tokyo" and applied.origins["locale"] == "group boxes"
     applied = systemd(lab(tmp_path, note("arch1", "America/Chicago", "hosts/arch1")), "arch1")
-    assert applied.values["timezone"] == "America/Chicago" and applied.origins["timezone"] == "host arch1"
+    assert applied.values["locale"] == "America/Chicago" and applied.origins["locale"] == "host arch1"

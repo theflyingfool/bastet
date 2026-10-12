@@ -24,11 +24,10 @@ FILES = {
     "groups/laptops.md": '---\nbastet: group\ngroups:\n  - "[[workstations]]"\n---\n# laptops\n',
     "hosts/hp-13.md": '---\nbastet: host\ntype: computer\nconnection: local\ngroups:\n  - "[[laptops]]"\n---\n# hp-13\n',
     "hosts/pve1.md": "---\nbastet: host\ntype: proxmox\nip: 10.0.10.11\n---\n# pve1\n",
-    "_roles/lab/systemd.md": ('---\nbastet: role\nrole: systemd\napplies_to: "[[Homelab]]"\ntimezone: UTC\nntp: true\n'
-                              "ntp_service: timesyncd\nntp_servers:\n  - 10.0.10.1\n---\n"),
+    "_roles/lab/systemd.md": ('---\nbastet: role\nrole: systemd\napplies_to: "[[Homelab]]"\nlocale: UTC\nkeymap: us\n---\n'),
     "_roles/groups/workstations/packages.md": '---\nbastet: role\nrole: packages\napplies_to: "[[workstations]]"\ninstall:\n  - git\n  - vim\n---\n',
     "_roles/groups/laptops/packages.md": '---\nbastet: role\nrole: packages\napplies_to: "[[laptops]]"\ninstall:\n  - powertop\n  - git\n---\n',
-    "_roles/hosts/hp-13/systemd.md": '---\nbastet: role\nrole: systemd\napplies_to: "[[hp-13]]"\ntimezone: America/Chicago\n---\n',
+    "_roles/hosts/hp-13/systemd.md": '---\nbastet: role\nrole: systemd\napplies_to: "[[hp-13]]"\nlocale: America/Chicago\n---\n',
 }
 
 
@@ -57,15 +56,15 @@ def test_group_distances(tmp_path):
 def test_precedence_and_lists_add_up(tmp_path):
     a = applied(lab(tmp_path), "hp-13")
     s = a["systemd"].values
-    assert s["timezone"] == "America/Chicago" and s["ntp_service"] == "timesyncd" and s["ntp_servers"] == ["10.0.10.1"]
-    assert a["systemd"].origins["timezone"] == "host hp-13" and a["systemd"].origins["ntp_servers"] == "lab"
+    assert s["locale"] == "America/Chicago" and s["keymap"] == "us"
+    assert a["systemd"].origins["locale"] == "host hp-13" and a["systemd"].origins["keymap"] == "lab"
     assert [p["name"] for p in a["packages"].values["install"]] == ["git", "vim", "powertop"]
 
 
 def test_the_proxmox_type_adds_no_baseline_roles(tmp_path):
     a = applied(lab(tmp_path), "pve1")
-    assert a["systemd"].values["ntp_service"] == "timesyncd" and a["systemd"].values["timezone"] == "UTC"
-    assert a["systemd"].origins["ntp_service"] == "lab"
+    assert a["systemd"].values["keymap"] == "us" and a["systemd"].values["locale"] == "UTC"
+    assert a["systemd"].origins["keymap"] == "lab"
     assert "packages" not in a and "proxmox" not in a
 
 
@@ -74,16 +73,16 @@ def test_sibling_groups_conflict_and_priority(tmp_path):
         "groups/a.md": "---\nbastet: group\n---\n# a\n",
         "groups/b.md": "---\nbastet: group\n---\n# b\n",
         "hosts/x.md": '---\nbastet: host\ntype: vm\nip: 10.0.10.30\ngroups:\n  - "[[a]]"\n  - "[[b]]"\n---\n# x\n',
-        "_roles/groups/a/systemd.md": '---\nbastet: role\nrole: systemd\napplies_to: "[[a]]"\ntimezone: UTC\n---\n',
-        "_roles/groups/b/systemd.md": '---\nbastet: role\nrole: systemd\napplies_to: "[[b]]"\ntimezone: Europe/Paris\n---\n',
+        "_roles/groups/a/systemd.md": '---\nbastet: role\nrole: systemd\napplies_to: "[[a]]"\nlocale: UTC\n---\n',
+        "_roles/groups/b/systemd.md": '---\nbastet: role\nrole: systemd\napplies_to: "[[b]]"\nlocale: Europe/Paris\n---\n',
     }
     inv = lab(tmp_path, extra)
     with pytest.raises(ConflictError) as e:
         resolve(inv, inv.get("x"), TYPES, ROLES)
-    assert "group a" in str(e.value) and "group b" in str(e.value) and "timezone" in str(e.value)
+    assert "group a" in str(e.value) and "group b" in str(e.value) and "locale" in str(e.value)
     extra["groups/b.md"] = "---\nbastet: group\npriority: 10\n---\n# b\n"
     inv = lab(tmp_path, extra)
-    assert applied(inv, "x")["systemd"].values["timezone"] == "Europe/Paris"
+    assert applied(inv, "x")["systemd"].values["locale"] == "Europe/Paris"
 
 
 def test_secret_conflict_hides_values(tmp_path):
@@ -173,7 +172,7 @@ def test_non_numeric_group_priority(tmp_path):
         "Homelab.md": "---\nbastet: lab\n---\n",
         "groups/a.md": "---\nbastet: group\npriority: high\n---\n",
         "hosts/x.md": '---\nbastet: host\ntype: vm\nip: 10.0.10.30\ngroups:\n  - "[[a]]"\n---\n',
-        "_roles/groups/a/systemd.md": '---\nbastet: role\nrole: systemd\napplies_to: "[[a]]"\ntimezone: UTC\n---\n',
+        "_roles/groups/a/systemd.md": '---\nbastet: role\nrole: systemd\napplies_to: "[[a]]"\nlocale: UTC\n---\n',
     }
     for rel, text in files.items():
         (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)

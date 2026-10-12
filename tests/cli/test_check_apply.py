@@ -77,7 +77,7 @@ def test_unmanaged_types_are_not_role_managed(runner, box, inventory, monkeypatc
     (inventory / "hosts" / f"{host}.md").write_text(f"---\nbastet: host\ntype: {host_type}\nip: 10.10.0.3\n---\n# {host}\n")
     lab = inventory / "_roles" / "lab"
     lab.mkdir(parents=True)
-    (lab / "systemd.md").write_text('---\nbastet: role\nrole: systemd\napplies_to: "[[Homelab]]"\ntimezone: UTC\n---\n')
+    (lab / "systemd.md").write_text('---\nbastet: role\nrole: systemd\napplies_to: "[[Homelab]]"\nlocale: en_US.UTF-8\n---\n')
 
     def connect(ctx, doc, tmp, yes):
         assert doc.name != host, f"{host_type} hosts must not be connected to by check"

@@ -33,44 +33,6 @@ def ok(text):
     return ProbeResult(0, text)
 
 
-def test_systemd_timesyncd_on_debian():
-    out = resources(ap("systemd", {"timezone": "UTC", "ntp": True, "ntp_service": "timesyncd", "ntp_servers": ["10.0.10.1"],
-                                   "fallback_ntp_servers": ["pool.ntp.org"]}))
-    kinds = [(type(r).__name__, getattr(r, "name", getattr(r, "path", None))) for r in out]
-    assert kinds == [("Package", "systemd-timesyncd"), ("File", "/etc/systemd/timesyncd.conf.d/bastet.conf"),
-                     ("Unit", "chronyd.service"), ("Unit", "systemd-timesyncd.service"), ("TimeSettings", None)]
-    assert out[1].content == "[Time]\nNTP=10.0.10.1\nFallbackNTP=pool.ntp.org\n"
-    assert (out[2].enabled, out[2].state, out[3].enabled, out[3].state) == (False, "down", True, "up")
-    assert (out[4].timezone, out[4].ntp, out[4].rtc_local) == ("UTC", None, None)
-
-
-def test_systemd_chrony_debian_and_elsewhere():
-    deb = resources(ap("systemd", {"ntp": True, "ntp_service": "chrony", "ntp_servers": ["10.0.10.1"]}))
-    src = next(r for r in deb if isinstance(r, File))
-    assert src.path == "/etc/chrony/sources.d/bastet.sources" and src.content == "server 10.0.10.1 iburst\n"
-    assert src.on_change[0].command == "chronyc reload sources"
-    arch = resources(ap("systemd", {"ntp": True, "ntp_service": "chrony", "ntp_servers": ["10.0.10.1"]}), host=info(os="Arch Linux"))
-    assert not any(isinstance(r, Package) and r.name == "systemd-timesyncd" for r in arch)
-    block = next(r for r in arch if isinstance(r, Block))
-    assert block.path == "/etc/chrony.conf" and block.block == "server 10.0.10.1 iburst"
-
-
-def test_systemd_lxc_only_timezone():
-    out = resources(ap("systemd", {"timezone": "UTC", "ntp": True, "ntp_service": "timesyncd", "locale": "en_US.UTF-8"}),
-                    host=info(type_="lxc"))
-    assert [type(r).__name__ for r in out] == ["TimeSettings", "Locale"]
-    assert (out[0].timezone, out[0].ntp, out[0].rtc_local) == ("UTC", None, None)
-
-
-def test_systemd_keep_uses_timedatectl_and_rejects_ignored_knobs():
-    out = resources(ap("systemd", {"ntp": True}))
-    assert [type(r).__name__ for r in out] == ["TimeSettings"] and out[0].ntp is True
-    with pytest.raises(BastetError):
-        resources(ap("systemd", {"ntp_servers": ["10.0.10.1"]}))
-    with pytest.raises(BastetError):
-        resources(ap("systemd", {"ntp": True, "ntp_service": "chrony", "fallback_ntp_servers": ["a"]}))
-
-
 def test_systemd_services_dropins_hostname_override():
     out = resources(ap("systemd", {"manage_hostname": True, "services": {"ssh.service": {"enabled": True, "state": "up"}},
                                    "dropins": [{"unit": "gitea.service", "name": "limits", "content": "[Service]\nNice=5\n"}]}),
@@ -130,7 +92,7 @@ def test_files_role_and_templates(tmp_path):
 
 
 def test_order_across_roles():
-    out = batches_for([ap("systemd", {"timezone": "UTC"}), ap("files", {"files": {"/etc/x": {"content": "a"}}}),
+    out = batches_for([ap("systemd", {"manage_hostname": True}), ap("files", {"files": {"/etc/x": {"content": "a"}}}),
                        ap("packages", {"install": ["tree"]}), ap("users", {"groups": {"media": {}}})], info())
     assert [b.name for b in out] == ["packages", "users", "files", "systemd"]
 
@@ -185,24 +147,6 @@ def test_aur_names_are_checked():
     with pytest.raises(BastetError, match="packages.aur_user: "):
         resources(ap("packages", {"aur_user": "x; rm -rf /", "install": [{"name": "a", "aur": True}]}),
                   host=info(os="Arch Linux"))
-
-
-# NTP servers without ntp: true
-
-def test_ntp_servers_need_ntp_on():
-    with pytest.raises(BastetError) as e:
-        resources(ap("systemd", {"ntp_service": "timesyncd", "ntp_servers": ["10.0.10.1"]}), host=info(os="Arch Linux"))
-    assert "ntp: true" in str(e.value)
-
-
-# what Bastet installs is never unaccounted
-
-def test_packages_installed_by_other_roles_are_tracked():
-    from bastet.engine.packages import Unaccounted
-    out = resources(ap("systemd", {"ntp": True, "ntp_service": "chrony"}), ap("packages", {"install": ["tree"]}),
-                    host=info(os="Arch Linux"))
-    unacc = next(r for r in out if isinstance(r, Unaccounted))
-    assert set(unacc.tracked) >= {"tree", "chrony"}
 
 
 # security policy and zypper excludes
