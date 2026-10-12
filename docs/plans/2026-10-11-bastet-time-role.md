@@ -1,55 +1,129 @@
-# The `time` role: time zone and time sync as a Markdown role — Implementation Plan
+# Contract hardening and the `time` role — Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax. In this repo, the `bastet-run-plan` skill supplies the Bastet-specific parts; the `bastet-new-role` skill holds the role checklist.
 
-**Goal:** time zone and time sync become a straight-Markdown role, `time`, that calls the `systemd` and `files` blocks. **The role covers every system for the time zone, and picks the sync daemon by OS (owner, 2026-10-11): Arch uses systemd-timesyncd (built); Proxmox/Debian will use chrony (not built yet).** It is the first role to prove the contract on real work (VPS apps, step 2). The time options leave the Python `systemd` role.
+**Status:** revised 2026-10-11 after an independent audit of the contract code (`src/bastet/roles/*.py`, `src/bastet/engine/{run,model,systemd,files}.py`) and the owner's decisions. **Awaiting owner review; no code is written yet.**
 
-**Architecture:** `src/bastet/data/roles/time/time role.md` (no `os:` limit) with flat options named after upstream, the way pacman and apt do: `timezone`; `ntp` (bool, no default); and the timesyncd keys `ntp_servers` (`NTP`), `ntp_fallback_servers` (`FallbackNTP`), `root_distance_max_sec`, `poll_interval_min_sec`, `poll_interval_max_sec`, `connection_retry_sec`, `save_interval_sec`, each with `key:` and `section: Time` and `requires: {ntp: true}`. Entries: `systemd` `kind: time` (time zone only; every system), and inside a `sections:` group with `when: host.arch_like and not host.container` a `files` entry (`edit: ini` on the new drop-in `/etc/systemd/timesyncd.conf.d/bastet.conf`; it creates the file with a `[Time]` section and a managed block) and a `systemd` `kind: unit` for `systemd-timesyncd.service` (enabled and up when `ntp: true`, disabled and down when `false`). No `packages:` entry: timesyncd ships in Arch's `systemd` package. `checks:` (decision 9) stop or warn where sync is asked for and cannot be applied. Four contract additions come first (Tasks 1 to 4).
+**Goal:** finish the Markdown role contract now so the next role is boring to write (options, supported systems, compose blocks, conditions, docs, tests), then write the `time` role on it as the first real proof. Preserve the architecture: Markdown roles over Python blocks, blocks do the work and report changes, the contract only describes and sequences.
 
-**Tech Stack:** Python ≥3.12, pydantic, PyYAML, Jinja2 (the existing sandbox), pytest, ruff.
+**Tech Stack:** Python ≥3.12, pydantic, PyYAML, Jinja2 (existing sandbox), pytest, ruff.
 
-**Spec:** `docs/specs/2026-10-10-bastet-roles-architecture-design.md`; user docs `src/bastet/data/docs/writing_roles.md`; models `roles/pacman/pacman role.md`, `roles/apt/apt role.md`. The behaviour to keep is the time part of `_systemd` in `src/bastet/roles/builtin.py`.
+**Spec / docs:** `docs/specs/2026-10-10-bastet-roles-architecture-design.md`; `src/bastet/data/docs/writing_roles.md`; models `roles/pacman/pacman role.md`, `roles/apt/apt role.md`.
 
 ## Global Constraints
 
-- **Unit tests** never touch the real inventory, `~/.config/bastet`, `~/.local/share/bastet`, `~/.ssh`, the real `~/.cache` or `$XDG_RUNTIME_DIR`; no network; `tmp_path` only; placeholder data only (10.1.x.x addresses, host names like pve1/media01).
+- **Unit tests** never touch the real inventory, `~/.config/bastet`, `~/.local/share/bastet`, `~/.ssh`, the real `~/.cache` or `$XDG_RUNTIME_DIR`; no network; `tmp_path` only; placeholder data only (10.1.x.x addresses, host names like pve1/media01). Tests are focused on behaviour; no padding.
 - **Test file basenames unique across `tests/`** (no `__init__.py`).
 - Every message goes through `bastet.ui.out`; no `typer.echo` in `src/`; no "spec §"/"Task N" references in `src/`.
 - The version is written only in `pyproject.toml`.
-- `docs/roles.md` is generated; regenerate with `uv run python scripts/gen_roles_doc.py` (a repo test checks it).
-- `ruff check src tests` and `scripts/privacy-check` must pass before the final commit.
-- New `edit:` types, systemd kinds or block features are added only if this role truly needs them, with their own tests, and written in the roadmap. Expectation: none are needed.
-- Commit messages end with `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>`.
+- `docs/roles.md` is generated (`uv run python scripts/gen_roles_doc.py`); a repo test checks it.
+- `ruff check src tests` and `scripts/privacy-check` pass before the final commit.
+- Nothing in Bastet deletes notes, records or host files yet; this plan adds no deletion.
+- A role is data: no Python in a role without a very good reason (the time zone list tooling is repo tooling, not role code).
+- Commit messages end with `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>` and the `Claude-Session:` line.
 
-## Decisions for the owner (defaults used if not changed)
+## Owner decisions (2026-10-11, supersede earlier plan text)
 
-1. **Move, not copy.** The time options (`timezone`, `ntp`, `ntp_service`, `ntp_servers`, `fallback_ntp_servers`, `rtc_local`) are removed from the `systemd` role's `role.yml` (the user-facing surface only; the `systemd` block and its `kind: time` entry, which is what calls `timedatectl`, are unchanged) (which keeps hostname, locale, keymap, services, drop-ins). A note that still sets them gets the normal "unknown option" error naming the key. Cost if wrong: a one-time edit of any note using them. The roadmap says the time part "moves out of the `systemd` role".
-2. **`systemd-timesync` account belongs to the `time` role's `accounts:`** (owner, 2026-10-11, as in the account-defaults plan). Consequence, documented in three places (the `users` role's description, the `systemd` role's description and the `time` role's body): `time` is not an OS default, so an Arch host without the `time` role lists `systemd-timesync` in the unaccounted-users report. The note tells how to fix it: apply the `time` role to the host, or list the account in the `users` role's `allowed`.
-3. **Not an OS default.** Arch hosts do not get `time` automatically (a default would have to change nothing anyway); you add it to a lab, group or host note.
-4. **Flat options, no daemon choice.** `ntp: true|false` replaces `ntp`, `ntp_service`, `ntp_servers` and `fallback_ntp_servers`; the timesyncd keys are flat options with `key:`/`section:` because `edit: ini` only reads top-level options (a grouped `ntp_settings` object could not feed it; owner agreed 2026-10-11). The role is opinionated and the OS decides the daemon: Arch uses systemd-timesyncd; Proxmox/Debian will use chrony, not built yet. `ntp` has no default (unset leaves sync alone; `false` stops and disables the unit; `true` enables and starts it, after the block compares the unit's current state, as every block does). Every timesyncd key `requires: {ntp: true}` (Task 1). The old `ntp_service` choice and its `keep` mode go.
+1. **Strict time zone validation** with `choices_from:`; the list is regenerated from `timedatectl list-timezones` at version bumps (Task 7), not per commit or run.
+2. **`systemd-timesync` stays in the `systemd` role's `accounts:`** (an OS-provided account is recognised whether or not an optional role is applied). Recognised accounts (OS file, role `accounts:`, `allowed`) stay distinct from accounts Bastet manages (`User` entries); the audit found both already represented (A-17). No notes about unaccounted users are needed.
+3. **NTP:** `ntp` unset = leave sync alone; `true` = write applicable settings and enable/start; `false` = stop/disable only. Disabling never deletes or rewrites managed config. No file-removal feature is invented here.
+4. **Reload classes are separate:** `daemon-reload` only for unit definitions and unit drop-ins; restart/reload for application config; enable/disable and start/stop are the `Unit` resource. `/etc/systemd/timesyncd.conf.d/bastet.conf` needs a service restart, not a daemon-reload.
+5. **Platforms:** Arch = systemd-timesyncd (built). Debian/Proxmox = chrony, one item, **not built**; setting sync options there is an **error**, not a skip. LXC = time sync is delegated to the node: an **info** message, never a warning, and the role never claims it configured sync. The time zone applies wherever `timedatectl` works. An unknown OS is treated like Debian (error), never as supported.
+6. `rtc_local` is dropped from the role (owner has no dual-boot hosts); the `systemd` block keeps the field.
+7. The time options leave the Python `systemd` role (its `role.yml`); the `systemd` block and its `kind: time` entry stay.
 
-5. **Supported systems, written into the role's body as a "Supported systems" section:** the time zone works on every system. Time sync: Arch Linux uses systemd-timesyncd only. Proxmox/Debian will use chrony, one item, not built yet. On a Debian-like host, setting `ntp` or any timesyncd key is an **error** from `checks:` ("this cannot run here"), because the role cannot do what was asked; on an LXC it is a **warning** and the time zone still applies (the node supplies the time). The old Debian handling in `_systemd` (the `systemd-timesyncd` package, `chrony/sources.d`) is dropped here and recorded in the roadmap. `ntp_servers` is optional: unset, timesyncd uses the distro's stock servers (Arch's confirmed by the owner); set, they are tried first and the stock servers stay in place as the fallback (see 6).
-6. **All of timesyncd's settings are exposed**, under their upstream names (rule 2 of `bastet-new-role`), written to `/etc/systemd/timesyncd.conf.d/bastet.conf` section `[Time]`. `timesyncd.conf(5)` has seven keys: `NTP` (`servers`), `FallbackNTP` (`fallback_servers`), `RootDistanceMaxSec`, `PollIntervalMinSec`, `PollIntervalMaxSec`, `ConnectionRetrySec`, `SaveIntervalSec`. The implementer re-checks the list against `man timesyncd.conf` on the dev machine and the ArchWiki page the owner supplied (it stays untracked; never commit it). Only the keys that are set are written. Facts for the docs (ArchWiki): the stock servers are the distro's pool, built in as `FallbackNTP`; per-interface servers (networkd, DHCP) come first, then `NTP=`, and `FallbackNTP=` is used only if none were found, so a drop-in that sets `NTP=` replaces nothing: the stock servers stay as `FallbackNTP` and are used only when none of the `NTP=` ones answer (set `fallback_servers` to change them); the state file `/var/lib/systemd/timesync/clock` is written on every sync and every 60 s and can't be moved, so for SD cards or read-only roots the docs example is `PollIntervalMinSec=1d` with `SaveIntervalSec=infinity`.
-7. **chrony is documented, not built:** the role's body says chrony is for Proxmox/Debian and is not implemented yet, with a visible "needs expanding" note. The roadmap's "Planned additions" gets a row: chrony (all settings, drop-in or block edit per OS) for Proxmox/Debian.
-8. **Starter and drop-ins.** The role note carries `starter: {timezone: UTC, ntp: true}`, so `bastet add role time` writes them into the new note (the user then changes the zone). A `starter:` is only copied into a new note; it is not a default, so a host with the role but no options still changes nothing. timesyncd always gets `/etc/systemd/timesyncd.conf.d/bastet.conf`, never an edit of `timesyncd.conf`.
-9. **Nothing is skipped without a message** (owner guideline, 2026-10-11), unless the setting itself says skip (`ntp: false` is a request, not a skip). Contract addition, Task 2: a role-level `checks:` list of `{when: <expression>, level: warning|error, message: <text>}`, evaluated when the role is built for a host. A `warning` is shown through `bastet.ui.out` and the run goes on; an `error` stops that host with the message (a BastetError naming the role and file). `checks:` is for host facts and combinations a single option cannot express; option-to-option rules stay with `requires`/`conflicts`.
-12. **Entry groups (`sections:`), Task 3.** A role-level `sections:` list of `{when: <expression>, packages: [...], users: [...], files: [...], systemd: [...], commands: [...]}`; the section's `when` is ANDed with each entry's own `when`, and the engine still orders the entries by block. It removes the repeated `when:` and reads as "this part is for Arch". Meant for every role that has per-OS parts.
-13. **Checkable value lists (`choices_from:`), Task 4.** An option may say `choices_from: <file in the role's folder>` (one value per line, blank lines and `#` comments ignored). The values are checked like `choices` (a bad value is refused with its option and file), the file is checked when the role is read (exists, non-empty, no duplicates), and the generated role docs and role page show the list in a collapsed `<details>` block when it is longer than about twenty values. The `time` role uses it for `timezone` with a file `time zones.txt` made once from `timedatectl list-timezones` (a throwaway command, nothing committed, no script). It is a snapshot: a new zone missing from it is refused until the file is updated, and the docs say so.
-14. **Not built:** a `running:` shortcut for unit entries. The unit block already compares the unit's current state before acting; the role just writes `enabled: "{{ ntp }}"` and `state: "{{ 'up' if ntp else 'down' }}"`. Also logged for later: declared per-OS support (`supports:`) and the other candidates in the roadmap.
-10. **`rtc_local` is dropped.** It only exists for dual-booting with Windows (Windows keeps the hardware clock in local time, Linux in UTC); the owner has no such system. Cost: none now; a later role option if a host needs it. The `systemd` block's `kind: time` keeps the field.
-11. **Why Arch has the `systemd` role by default:** only for its accounts (the `systemd-*` system users every Arch install has), not for any setting; with no options it changes nothing. Task 4 writes that into `src/bastet/data/oses/arch.yml` (comment), the `systemd` role's description and the OS-defaults paragraph of `writing_roles.md`.
+## Audit: what the contract does today
+
+Verified by reading the code (not assumed). ✔ implemented and covered by tests in `tests/roles/`; ◐ implemented, thin tests or a flaw; ✗ missing.
+
+| # | Area | Finding |
+|---|---|---|
+| A-1 | Option types | ✔ `string int number bool list map object any`; `required` (object fields, secrets), `default`, `min/max`, `single_line`, `choices`, `shorthand`, `merge_default`; lenient `"yes"/"true"`/numeric text for bool/int/number (`contract._lenient`); unknown options refused with a did-you-mean (`check_values`). |
+| A-2 | Unset vs false | ◐ Unset is `None` (`check_values` skips `None`); `false`, `0`, `""`, `[]` survive. But `when: ntp` is plain truthiness, so authors must write `ntp is not none`. Needs documentation and tests of `false`/`0`/`""`/`[]` through `when:`. Defaults merge before entries are built, so a default is indistinguishable from a note value there (fine, but `requires` must check the pre-default values). |
+| A-3 | `requires` / `conflicts` | ✗ no cross-option validation in Markdown roles; only the Python builders do it (`builtin._systemd`, `_packages`). |
+| A-4 | `choices` | ✔ small enumerations. `choices_from` ✗. |
+| A-5 | Expressions | ✔ sandboxed Jinja; `when:` on packages, users, systemd, files, commands; facts `host.{name,type,os_id,arch_like,debian_like,container,physical,cpu}` and `lab`. Parse time checks syntax and that names are options or `host`/`lab` ✔. ◐ it does **not** check the attribute (`host.arch_likee` fails only when the role is first built for a host). |
+| A-6 | Composition | ✔ entries from several blocks in one role, deterministic order by block slot (`packages, users, files, systemd, commands`) plus `before:`/`after:`. ✗ no way to group entries under one condition (`sections:`). |
+| A-7 | Role-level checks | ✗ no way to warn or stop from a role; the only channel is the engine's `Unsupported` ("skipped with this reason"). |
+| A-8 | Silent drops | ✗ `entries._systemd` silently strips `ntp`/`rtc_local` for `kind: time` on containers and silently emits nothing for `kind: hostname` on containers. Contradicts "never silently ignore". (The Python `builtin._systemd` has its own container handling and is untouched.) |
+| A-9 | Change-triggered actions | ✔ `restart:`/`reload:` unit lists on `files` entries (File, Line, Block and `edit: ini` Settings via `entries.triggers`) become `Resource.on_change` triggers; run once per host after all fixes, de-duplicated, ordered (`daemon-reload` order 10 before restarts 50), only for resources that actually changed, none for failed or skipped items, `restart` has an is-active check with retries, recorded in `run.triggers` and as `trigger_fired` events. `systemd` `kind: dropin` adds `daemon-reload` + restart. ◐ thin tests of ordering/de-duplication/no-op. ✗ no `daemon_reload` flag or generic command trigger on a `files` entry (needed for Quadlet files, sysctl.d, CA certs); `packages`/`commands` entries cannot trigger anything. |
+| A-10 | Trigger semantics | ✗ **flaw:** `restart` and `reload-or-restart` start a unit that is stopped. A trigger running after a `Unit` stop (or for a disabled service) would bring it back up. |
+| A-11 | Unit lifecycle | ✔ enable/disable and start/stop compare current state and are idempotent; a missing unit counts as already disabled/down; no systemd = `Unsupported`. ◐ enabling a missing unit gives a raw `systemctl` failure; the message should say the unit does not exist (package missing?). |
+| A-12 | Failure handling | ✔ after the first failed item the rest of that host is skipped with the reason; triggers of changed items still run. |
+| A-13 | `edit: ini` | ✔ managed block per section, originals commented, idempotent, creates the file and section when absent (read in `Settings.wanted`). ◐ not tested for a **new file in a new directory** (the drop-in case) or for mode/owner (Settings carries none). Only top-level options with `key:`/`section:` feed it, not `object` fields. |
+| A-14 | Value safety | ✔ `single_line`, and `_keyed`/`_entry_values` refuse line breaks in keyed values. |
+| A-15 | Validation timing | ◐ role parsing and note value checks happen at load; entry resolution errors happen at build. Not proven by a test that a bad role stops a run before any host command. |
+| A-16 | Generated docs | ◐ `scripts/gen_roles_doc.py` and `roles/pages.py` render options; they must learn `requires`, `conflicts`, `choices_from` (collapsed long lists), `checks`, `sections`. |
+| A-17 | Accounts | ✔ `accounts:` on roles (recognised) vs `User` entries (managed) vs OS file vs `allowed`; hidden only when the role is applied (`test_role_accounts.py`, `test_expected_accounts.py`). `systemd-timesync` is already in the `systemd` role. |
+| A-18 | Block independence | ✔ blocks are engine classes (`Unit`, `TimeSettings`, `Settings`, …); a Markdown role calls them directly; the Python `systemd` role is not involved. A test must pin that the `time` role builds with no other role applied. |
+| A-19 | File removal | ✗ not implemented; roadmap marks removal deferred. |
+| A-20 | Version bump | ✗ no workflow: the version lives only in `pyproject.toml` ("bump at each milestone, no tags"). |
+
+## Confirmed gaps → changes
+
+| Gap | Change | Task |
+|---|---|---|
+| A-2, A-13, A-15, A-18 | pinning tests for behaviour that exists but is thinly tested | 1 |
+| A-3 | `requires` / `conflicts` option keys | 2 |
+| A-4 | `choices_from:` | 3 |
+| A-5, A-7, A-8 | notes channel + role `checks:` (info/warning/error); container drops become visible notes; parse-time check of `host.<fact>` | 4 |
+| A-6 | `sections:` | 5 |
+| A-9, A-10, A-11 | `daemon_reload` and `on_change` on `files` entries; restart/reload only act on a running unit; clearer missing-unit error | 6 |
+| A-20 | version-bump script that refreshes and validates the time zone list; a test that fails when the list was not refreshed for the version | 7 |
+| A-16 | docs and generators | 9 |
+
+## Forward-looking gap analysis (from `docs/ROADMAP.md`; the role list is not invented)
+
+| Role / area | Expressible after this plan? | Missing shared capability? | Reusable? | Do now? |
+|---|---|---|---|---|
+| base | Yes: packages with `when: host.physical` for microcode, per-OS names via `sections:` | No | – | – |
+| caddy | Yes: package, `files` with `validate:`, `reload:`, unit, `directory` for `conf.d` | Restart semantics (A-10) | yes | Task 6 |
+| forgejo / vaultwarden | Yes: package, `edit: ini` (flat keyed options), systemd drop-in, secrets as whole values | `edit: env` is a **files-block** feature the roadmap already assigns to vaultwarden | block work | with that role |
+| docker / podman | Quadlet files + `daemon-reload` + units: yes once `daemon_reload` exists | `daemon_reload` on files (A-9); rootless **user-scope** units (`systemctl --user`, linger) | daemon_reload yes; user units need block design | daemon_reload now; user units deferred (no near role needs them) |
+| WireGuard (not on the roadmap; judged from your table) | Yes: secret key as whole value, mode `0600`, `wg-quick@` unit, restart on change, sysctl via file + `on_change` | generic command trigger (A-9) | yes | Task 6 |
+| monitoring (grafana, glances, …) | Yes: packages, templates, units, multi-component | A loop over a list option (one file/entry per item) | likely (caddy sites, mounts, fail2ban jails, sudoers) | **owner decision D-1** |
+| Proxmox / LXC | Host-type conditions and info/error checks: yes | JSON `api` block for guest lifecycle is a **block**, not contract | block | later |
+| storage / ZFS | Report-first roles: yes | More host facts (disks) and destructive-operation safeguards: the facts list is extensible (`expr.context`), safeguards are block/design | facts: cheap later | later |
+| fetch / git | A new block needs a new entry list in the contract (`ROLE_NOTE_KEYS`, a `parse_*`, an `entries` builder) | Adding a **block** touches the contract by design; acceptable | – | when the block is built |
+| users / accounts | Yes (A-17) | No | – | – |
+
+## Contract vs blocks (kept)
+
+Contract: option schemas and validation, conditions, composition and sections, ordering, change-trigger *declarations*, messages. Blocks: doing the work, detecting change, idempotency, platform execution, reporting. The additions below only declare or validate; none adds block-specific behaviour.
+
+## The final contract additions
+
+All keys are optional and change nothing for existing roles.
+
+- **`requires` / `conflicts` (option keys).** `requires: [a, b]` (this option set ⇒ `a`, `b` set), `requires: {a: true}` or `{a: [x, y]}` (and `a` has that value), `conflicts: [a]`. "Set" = not `None` in the note's values before defaults, so `false`, `0`, `""`, `[]` count as set. Inside an `object` the names are sibling fields. Refused when the role is read if a name does not exist; the error names role, file and both options.
+- **`choices_from: <file>`.** One value per line in a file in the role's folder; blank lines and `#` comments ignored. Values are checked like `choices`; the file is checked when the role is read (exists, non-empty, no duplicates, not together with `choices`). Generated docs show lists longer than about twenty in a collapsed `<details>`.
+- **`checks:`.** Role-level list of `{name?, when, level: info|warning|error, message}`. `when` sees options and `host`/`lab` facts (**planning-time only; it cannot test remote state**; run-time safeguards remain `validate:`, `unless:` and trigger `check`s). `error` stops that host's build with a message naming role and file; `info` and `warning` become **notes** on the build, shown through `bastet.ui.out` in `bastet run` and the check workflow, once per host and message. `info` = intentionally delegated or informational; `warning` = probably unintended; `error` = cannot be done.
+- **`sections:`.** `sections: [{name?, when?, packages, users, files, systemd, commands}]`. A section's `when` is ANDed with each entry's own `when`; a section without `when` only organises. Several sections and top-level lists coexist; order is still by block then listing; nesting is refused; no new execution semantics.
+- **`files` entry triggers.** Existing `restart:` / `reload:` plus `daemon_reload: true` (unit definitions, Quadlet files) and `on_change: [{name, run}]` (a command run once after the host's fixes when the entry changed something). Triggers only run for entries that changed, are de-duplicated, `daemon-reload` first and then the rest in listing order. `restart:`/`reload:` act only when the unit is running, so they never start a stopped or disabled service.
+
+## The `time` role
+
+`src/bastet/data/roles/time/time role.md`, no `os:` limit, `starter: {timezone: UTC, ntp: true}`, no `accounts:`.
+
+- **Options (flat, upstream names):** `timezone` (string, `choices_from: time zones.txt`); `ntp` (bool, no default); `ntp_servers` → `NTP`, `ntp_fallback_servers` → `FallbackNTP`, `root_distance_max_sec`, `poll_interval_min_sec`, `poll_interval_max_sec`, `connection_retry_sec`, `save_interval_sec` (all seven keys of `timesyncd.conf(5)`; each `key:`, `section: Time`, `single_line`, `requires: {ntp: true}`). The implementer re-checks the key list against `man timesyncd.conf` and the ArchWiki page the owner supplied (untracked; never commit it).
+- **Entries:** `systemd` `kind: time` with `timezone` only (never `ntp` or `rtc_local`), everywhere. A `sections:` group `when: host.arch_like and not host.container`: `files` `edit: ini` on `/etc/systemd/timesyncd.conf.d/bastet.conf` with `when: ntp` and `restart: [systemd-timesyncd.service]`; `systemd` `kind: unit` `systemd-timesyncd.service` with `enabled: "{{ ntp }}"`, `state: "{{ 'up' if ntp else 'down' }}"`, `when: ntp is not none`. So `ntp: false` writes no settings, touches no files and restarts nothing.
+- **Checks:** `info` when container and `ntp is not none` ("time sync on a container is provided by its host; only the time zone is applied"); `error` when not container, not `arch_like` and `ntp is not none` ("time sync is implemented for systemd-timesyncd on Arch only; chrony for Debian/Proxmox is planned").
+- **Docs (role body):** Supported systems (Arch: systemd-timesyncd; Debian/Proxmox: chrony planned, one item, not built, with a visible "needs expanding" note; LXC: delegated); the time zone list is a snapshot refreshed at version bumps; the reload classes in plain words (changing the drop-in restarts the service, no daemon-reload); the stock servers are `FallbackNTP` and stay when `NTP=` is set; `ntp: false` leaves the drop-in in place; the SD-card example `PollIntervalMinSec=1d` with `SaveIntervalSec=infinity`.
+- **Behaviour tests:** no options emits nothing on Arch, Debian and LXC; `timezone` only gives one `TimeSettings(timezone)`; an invalid zone is refused; `ntp: true` gives the drop-in, the restart trigger and the unit enabled/up and **no daemon-reload**; an unchanged drop-in gives no trigger; `ntp: false` gives the unit disabled/down only; a key without `ntp: true` is refused; Debian gives the error, LXC the info plus the zone only; the role builds with no other role applied.
+
+## Version-bump workflow
+
+There is none today. Add `scripts/version-bump X.Y.Z` (repo tooling, Python like `scripts/gen_roles_doc.py`): writes the version in `pyproject.toml`; reads `timedatectl list-timezones`, strips, sorts, refuses empty output, duplicates or names `ZoneInfo` cannot load; rewrites `src/bastet/data/roles/time/time zones.txt` only if the zone lines changed; updates a first-line stamp `# refreshed for bastet X.Y.Z` (the only line that changes when the list is unchanged); prints added and removed zones for review; runs `scripts/gen_roles_doc.py`. `--check` validates without writing. A test fails when the stamp differs from the version in `pyproject.toml`, so a bump without a refresh is caught. Documented in the roadmap's versioning line and a short note in `docs/`.
 
 ## Review Focus
 
-- `choices_from` rejects an unknown time zone with the option and file named, and accepts every name in the file.
-- With no options set, the role emits nothing on any host type (a test builds it empty on Arch, Debian and an LXC).
-- On an LXC, only the time zone is applied: no units or NTP files, and a warning if sync was asked for.
-- A timesyncd key without `ntp: true` is refused by `requires`, naming both options and the file.
-- On a Debian-like host, setting `ntp` or a timesyncd key stops with an error message; on an LXC it only warns. A role whose checks do not match shows nothing.
-- A change to the drop-in restarts `systemd-timesyncd.service`; `ntp: false` stops and disables it.
-- No `TimeSettings` the role builds ever carries `ntp`; sync is only ever the unit.
-- No option value with a line break reaches a config file (`single_line: true` on the server options, or each server as a list item).
-- `docs/roles.md` is current; the `systemd` role no longer lists the moved options; the old tests for them moved to the role, not deleted.
+- Existing roles keep their behaviour except the intended restart-only-if-running fix (A-10) and the container notes (A-8); the existing role tests run unchanged.
+- `requires`/`conflicts` use pre-default values; `false`/`0`/`""`/`[]` count as set.
+- `checks:` and entry skips never fail silently; `info` is not shown as a warning; errors name role and file.
+- Sections combine conditions with AND and never reorder blocks.
+- A trigger never starts a stopped unit, never fires for an unchanged or failed entry, and `daemon-reload` is only used for unit definitions.
+- `ntp: false` writes nothing and leaves the drop-in alone.
+- The version-bump script writes nothing when the zone lines are unchanged apart from the stamp.
 
 ---
 
@@ -57,59 +131,36 @@
 
 | File | Responsibility |
 |---|---|
-| Create `src/bastet/data/roles/time/time role.md` | The role: frontmatter (options, `starter`, `examples`, `checks`, `sections`) and docs body with `## Changes` |
-| Modify `src/bastet/data/roles/systemd/role.yml` | Remove the moved options (six, including `rtc_local`); description says why Arch has it by default |
-| Modify `src/bastet/roles/builtin.py` | `_systemd` drops the time/NTP code; keeps hostname, locale, services, drop-ins |
-| Create `src/bastet/data/roles/time/time zones.txt` | The time zone list (`choices_from`), one name per line |
-| Create `tests/roles/test_option_requires.py`, `test_role_checks.py`, `test_role_sections.py`, `test_choices_from.py` | The four contract additions |
-| Create `tests/roles/test_time_role.py` | Entries per case, neutrality, container, refused mismatches, `when:` skips |
-| Modify existing tests that use the moved options (`grep -rn "ntp\|timezone\|rtc_local" tests`) | Move their cases to the role test or drop the moved options |
-| Modify `docs/roles.md` (generated), `docs/ROADMAP.md` | Tick `time`, update VPS apps step 2 and "Planned additions" |
+| `src/bastet/roles/contract.py`, `declarative.py`, `entries.py`, `expr.py` | `requires`/`conflicts`, `choices_from`, `checks`, `sections`, file triggers, `host.<fact>` check |
+| `src/bastet/engine/systemd.py`, `run.py`, `model.py` | restart/reload only if running, clearer missing-unit error, build notes |
+| `src/bastet/data/roles/time/time role.md`, `time zones.txt` | The role and its list |
+| `src/bastet/data/roles/systemd/role.yml`, `roles/builtin.py` | Remove the moved options and the time branch |
+| `scripts/version-bump`, a note in `docs/` | Version-bump workflow |
+| `src/bastet/data/docs/writing_roles.md`, `docs/roles.md`, `docs/ROADMAP.md`, `scripts/gen_roles_doc.py`, `roles/pages.py` | Documentation |
+| new tests in `tests/roles/` (unique names): `test_contract_pinning.py`, `test_option_requires.py`, `test_choices_from.py`, `test_role_checks.py`, `test_role_sections.py`, `test_file_triggers.py`, `test_time_role.py`, `test_time_zone_list.py` | |
 
-## Tasks
+## Tasks (order and dependencies)
 
-### Task 1: `requires` and `conflicts` on options (contract change, owner-approved 2026-10-11)
+Tasks 2 to 7 are independent of each other after Task 1. Task 8 needs 2 to 7. Task 9 is last.
 
-- [ ] **Step 1: Failing tests** in `tests/roles/test_option_requires.py`. Syntax: `requires: [other]` (if this option is set, `other` must be set), `requires: {other: value-or-list}` (and `other` must have one of those values), `conflicts: [other]` (can't both be set). Inside an `object` option the names are sibling fields; at top level, other top-level options. Cases: each form passes when satisfied and is refused otherwise; an unset option checks nothing; an option set to its default counts as set only if the note set it; the error names both options (with the parent for fields) and the file; `parse_role` refuses a `requires`/`conflicts` that names an unknown option or field, or has the wrong shape.
-- [ ] **Step 2: See them fail**, then implement in `src/bastet/roles/contract.py` (`OPTION_KEYS`, `Option`, `_option`, and the check in `check_values`). Update `src/bastet/data/docs/writing_roles.md` (an "Options that need or exclude each other" section with the example) and the generated docs if they list option keys.
-- [ ] **Step 3:** `uv run pytest tests/roles -q`, `ruff check src tests`, commit by name. ROADMAP: note the feature; `needs`/`uses` (role dependencies) stay reserved.
+1. **Pin existing behaviour** (`test_contract_pinning.py`): `false`/`0`/`""`/`[]` through `when:`; `edit: ini` creating a new file in a new directory; trigger de-duplication, ordering, no trigger when unchanged or failed; the `time` entries build with no other role; a bad role stops before any host command (A-15). Fix what the tests reveal, each fix a failing test first.
+2. **`requires` / `conflicts`.** Tests, implement, document.
+3. **`choices_from`.** Tests, implement, docs rendering (long lists collapsed).
+4. **Notes and `checks:`:** the build notes channel, `info|warning|error`, display in run and check, de-duplication per host and message, container drops (A-8) become notes, `host.<fact>` parse check. If the display hook is large, **stop and report**.
+5. **`sections:`.** Tests, implement, document with the Arch example.
+6. **File triggers** (`daemon_reload`, `on_change`), **restart/reload only if running**, a clearer missing-unit error. Document the four reload classes in `writing_roles.md`.
+7. **Version-bump script and zone list tests.**
+8. **The `time` role**, and removing the time options from the `systemd` role; regenerate docs.
+9. **Documentation and roadmap:** `writing_roles.md` (every new key, `is none` guidance, the reload classes, checks versus runtime protection), generated docs, `docs/ROADMAP.md` (tick `time`, next is `base`, log deferred items with reasons), `scripts/privacy-check`, `ruff`.
 
-### Task 2: `checks:` on roles (contract change, owner-approved 2026-10-11)
+Final: opus review, one fix wave, scoped re-review, the owner runs `uv run pytest -q` and says when it passed, then ask about merging.
 
-- [ ] **Step 1: Failing tests** in `tests/roles/test_role_checks.py`: a role-level `checks:` list of `{when, level, message}` (all required; `level` is `warning` or `error`; `when` is an expression over options and `host`/`lab` facts; `message` may use `{{ }}`); building the role for a host returns the warnings whose `when` is true and raises a BastetError (role, file, message) for a true `error`; nothing when false; a bad entry or unknown name is refused when the role is read, naming file and key; warnings reach the user through `bastet.ui.out` in `bastet run` / check output (find where build results are shown and add the smallest hook; no new output channel).
-- [ ] **Step 2: See them fail**, implement in `src/bastet/roles/contract.py` (`ROLE_NOTE_KEYS`, parse), `declarative.py` / `expr.py` as needed, and the display hook; document in `writing_roles.md` (a short "Stopping or warning instead of skipping silently" section: the guideline, the example).
-- [ ] **Step 3:** `uv run pytest tests/roles -q`, `ruff check src tests`, commit by name. If the display hook turns out to be large, **stop and report**.
+## Owner input needed
 
-### Task 3: `sections:` on roles (contract change, owner-approved 2026-10-11)
+- **D-1: loops over list options** (`each:` on entries: one file or unit per item). Likely reused by caddy sites, mounts, fail2ban jails, sudoers and WireGuard peers, but no role among the next five needs it. Default: **deferred**; say "include" to add it as a task before the time role.
+- **D-2: zone list stamp.** The version-bump script rewrites one stamp line on every bump so the check can pass even when no zone changed. Default: yes.
+- **D-3: trigger semantics change** (restart/reload only act on a running unit) changes behaviour for every role that uses `restart:`/`reload:` today; the covering tests are the ssh, pacman and apt ones. Default: yes, because starting a stopped service is wrong.
 
-- [ ] **Step 1: Failing tests** in `tests/roles/test_role_sections.py`: `sections:` entries with `when` and any of the block lists; an entry inside gets the section's condition ANDed with its own; a false section emits nothing; entries from all sections and the top-level lists are built in block order; unknown keys, a missing `when`, or a bad entry are refused naming file and key; top-level lists keep working.
-- [ ] **Step 2: See them fail**, implement (parse in `contract.py`, build in `declarative.py`), document in `writing_roles.md` with the Arch example.
-- [ ] **Step 3:** tests, `ruff`, commit by name.
+## Deferred (with reasons)
 
-### Task 4: `choices_from:` on options (contract change, owner-approved 2026-10-11)
-
-- [ ] **Step 1: Failing tests** in `tests/roles/test_choices_from.py`: a value in the file is accepted and one not in it is refused (option, file named); lines and comments handled as in decision 13; a missing, empty or duplicate-containing file is refused when the role is read; `choices_from` together with `choices` is refused; it works on a `string` option and on list items; the generated docs show a long list in a `<details>` block and a short one inline.
-- [ ] **Step 2: See them fail**, implement in `contract.py` (`OPTION_KEYS`, `Option`, `check_value`) and the docs generators (`scripts/gen_roles_doc.py`, `roles/pages.py`), document in `writing_roles.md`.
-- [ ] **Step 3:** tests, `ruff`, `uv run python scripts/gen_roles_doc.py`, commit by name.
-
-### Task 5: The `time` role note and its tests
-
-- [ ] **Step 1: Failing tests** in `tests/roles/test_time_role.py` (see the Review Focus). Cases: empty options emit nothing (Arch, Debian, LXC); `timezone` only gives one `TimeSettings(timezone)` and no `ntp`; a time zone not in `time zones.txt` is refused; `ntp: false` gives the unit disabled and down and no files; `ntp: true` with servers and the other keys gives the drop-in `/etc/systemd/timesyncd.conf.d/bastet.conf` (`[Time]`, only the keys set), a restart of `systemd-timesyncd.service`, the unit enabled and up; a timesyncd key without `ntp: true` is refused; a Debian-like host with `ntp` set stops with the error message; an LXC with `ntp` set gets the time zone and the warning only; `parse_role` accepts the note and the `starter`; `accounts` is `['systemd-timesync']`.
-- [ ] **Step 2: See them fail** for the right reason (role not found).
-- [ ] **Step 3: Write the role note** and `time zones.txt` (made once with `timedatectl list-timezones` from `$CLAUDE_JOB_DIR/tmp`). Use the frontmatter keys from `bastet-new-role`. The old `_systemd` time branch in `builtin.py` is the behaviour reference. The body documents the role, has a "Supported systems" section (decision 5), the unaccounted-user note (decision 2), the timesyncd facts (decision 6) and a visible "chrony: needs expanding" note. Use only the contract as extended by Tasks 1 to 4; for anything else **stop and report** (an owner decision).
-- [ ] **Step 4: Tests pass** (`uv run pytest tests/roles -q`), then commit by name.
-
-### Task 6: Take the time options out of the `systemd` role
-
-- [ ] **Step 1: Failing tests:** the `systemd` role refuses `timezone` etc. as unknown options (message names the key); its built batch for hostname, locale, services and drop-ins is unchanged.
-- [ ] **Step 2:** remove the options (including `rtc_local`) and the time branch of `_systemd`, remove `systemd-timesync` from its `accounts:` (it moves to the `time` role), add the unaccounted-user note (decision 2) to the `systemd` and `users` role descriptions, add the "why Arch has this role by default" text (decision 11) to `arch.yml` as a comment, the role description and `writing_roles.md`, move the old time tests to `test_time_role.py` (or delete them where the new test covers the case; say which in the report).
-- [ ] **Step 3:** `uv run python scripts/gen_roles_doc.py`; run `tests/roles` and any test file the grep named; `ruff check src tests`; commit by name.
-
-### Task 7: Docs and roadmap
-
-- [ ] **Step 1:** `docs/ROADMAP.md`: tick `time` in the roles table and in VPS apps step 2, set "Next step" to `base`, remove the `time` row from "Planned additions", add the chrony row from decision 7, log the contract additions (`requires`/`conflicts`, `checks:`, `sections:`, `choices_from:`) and the candidates not built (`supports:`, `running:`), and record anything the work revealed (the LXC `time` check on a real host stays in "Docs and tooling").
-- [ ] **Step 2:** `scripts/privacy-check` clean; commit by name.
-
-## Final steps
-
-Final review (opus), one fix wave, the owner runs `uv run pytest -q` and says when it passed; only then ask about merging.
+File removal (destructive, needs its own design; the roadmap says deferred); `needs`/`uses`/cross-role contributions (roadmap: can wait, each app role drops its own file); user-scope systemd units (no near role needs them); `supports:` (`checks:` covers today's need); a `running:` unit shortcut (the expression is small); chrony and Debian/Proxmox sync (owner: not yet); `edit: env` and `edit: sshd` (files-block work for their roles); more host facts for storage (added when ZFS is designed); `api`/`fetch`/`git` blocks (blocks, not contract).
