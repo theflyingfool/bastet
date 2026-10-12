@@ -14,7 +14,7 @@ from bastet.core.links import link_target
 from bastet.core.osdefaults import defaults_for
 from bastet.core.osinfo import os_id
 from bastet.engine.run import ConflictError
-from bastet.roles.contract import RESERVED, Option, RoleDef, check_values, with_defaults
+from bastet.roles.contract import RESERVED, Option, RoleDef, check_relations, check_values, with_defaults
 
 
 @dataclass
@@ -171,5 +171,7 @@ def resolve(inv: Inventory, host: Document, types: dict[str, HostType], roles: d
             merged = _merge_values(role, merged, combined)
             for key in combined:
                 origins[key] = ", ".join(s.label for s in level if key in s.values)
+        files = [s.doc.path if s.doc else s.file for s in sources if s.values]
+        check_relations(role, merged, name, file=files[-1] if files else None)  # the notes' own values, before defaults
         applied.append(Applied(role, with_defaults(role, merged), sources, origins))
     return sorted(applied, key=lambda a: a.role.name)

@@ -21,7 +21,7 @@ SECRET_PREFIX = "secret:"  # a reference, resolved and re-checked against the op
 RESERVED = {"bastet", "role", "applies_to", "priority", "cssclasses", "tags", "aliases", "rotate_every"}
 OPTION_KEYS = {"type", "description", "default", "choices", "items", "fields", "shorthand", "secret", "required",
                "generate", "source", "rotate_every", "key", "section", "as", "min", "max", "single_line",
-               "format", "path", "marker", "before", "after", "merge_default"}
+               "format", "path", "marker", "before", "after", "merge_default", "requires", "conflicts"}
 API_VERSIONS = (0,)
 OPTION_AS = ("flag", "value", "list", "lines", "text", "entries")
 ENTRY_FORMATS = ("deb822", "ini_section")
@@ -75,6 +75,8 @@ class Option:
     before: str | None = None  # as: entries only: the slot the entries are written before
     after: str | None = None  # as: entries only: the slot the entries are written after
     merge_default: bool = False  # map only: the default entries stay, the given entries merge over them
+    requires: dict[str, tuple | None] = field(default_factory=dict)  # sibling -> allowed values (None: just set)
+    conflicts: tuple[str, ...] = ()  # siblings that must not be set together with this one
 
 
 @dataclass
@@ -114,6 +116,38 @@ def _read_starter(role: RoleDef, value: object, path: Path) -> None:
     if not isinstance(value, dict):
         raise BastetError(f"role {role.name}: starter must be a map of option values", file=path, key="starter")
     role.starter = check_values(role, value, f"role {role.name} starter", file=path)
+
+
+def _relations(where: str, raw: dict, path: Path) -> tuple[dict[str, tuple | None], tuple[str, ...]]:
+    """Read `requires` (a list of names, or a map of name to the value or list of values it must have) and `conflicts`."""
+    requires: dict[str, tuple | None] = {}
+    given = raw.get("requires")
+    if given is not None:
+        if isinstance(given, list) and all(isinstance(n, str) for n in given):
+            requires = dict.fromkeys(given)
+        elif isinstance(given, dict) and all(isinstance(n, str) for n in given):
+            for name, want in given.items():
+                if want is None or isinstance(want, dict):
+                    raise BastetError(f"{where}: requires {name} needs true, a value or a list of values", file=path)
+                requires[name] = tuple(want) if isinstance(want, list) else (want,)
+        else:
+            raise BastetError(f"{where}: requires must be a list of names or a map of name to value", file=path)
+    conflicts = raw.get("conflicts")
+    if conflicts is not None and not (isinstance(conflicts, list) and all(isinstance(n, str) for n in conflicts)):
+        raise BastetError(f"{where}: conflicts must be a list of names", file=path)
+    return requires, tuple(conflicts or ())
+
+
+def _check_relation_names(where: str, siblings: dict[str, Option], path: Path) -> None:
+    """Every name a requires or conflicts rule uses must be a sibling (and not the option itself)."""
+    for name, opt in siblings.items():
+        for kind, named in (("requires", opt.requires), ("conflicts", opt.conflicts)):
+            for other in named:
+                if other == name:
+                    raise BastetError(f"{where}.{name}: {kind} names itself", file=path)
+                if other not in siblings:
+                    raise BastetError(f"{where}.{name}: {kind} names {other!r}, which isn't an option here "
+                                      f"(options: {', '.join(siblings)})", file=path)
 
 
 def _option(where: str, raw: object, path: Path) -> Option:
@@ -156,6 +190,7 @@ def _option(where: str, raw: object, path: Path) -> Option:
             raise BastetError(f"{where}: marker only applies to ini_section", file=path)
         if "before" in raw and "after" in raw:
             raise BastetError(f"{where}: use before or after, not both", file=path)
+    requires, conflicts = _relations(where, raw, path)
     opt = Option(type=raw["type"], description=str(raw.get("description", "")), default=raw.get("default"),
                  choices=tuple(raw["choices"]) if "choices" in raw else None, shorthand=raw.get("shorthand"),
                  secret=bool(raw.get("secret", False)), required=bool(raw.get("required", False)),
@@ -163,13 +198,15 @@ def _option(where: str, raw: object, path: Path) -> Option:
                  key=raw.get("key"), section=raw.get("section"), as_=raw.get("as"), min=raw.get("min"),
                  max=raw.get("max"), single_line=bool(raw.get("single_line", False)),
                  format=raw.get("format"), path=raw.get("path"), marker=raw.get("marker"), before=raw.get("before"),
-                 after=raw.get("after"), merge_default=bool(raw.get("merge_default", False)))
+                 after=raw.get("after"), merge_default=bool(raw.get("merge_default", False)),
+                 requires=requires, conflicts=conflicts)
     if opt.type in ("list", "map"):
         if "items" not in raw:
             raise BastetError(f"{where}: a {opt.type} option needs items", file=path)
         opt.items = _option(f"{where}[]", raw["items"], path)
     if opt.type == "object":
         opt.fields = {k: _option(f"{where}.{k}", v, path) for k, v in (raw.get("fields") or {}).items()}
+        _check_relation_names(where, opt.fields, path)
     return opt
 
 
@@ -182,6 +219,7 @@ def _options_and_examples(name: str, raw: dict, path: Path) -> tuple[dict[str, O
     if not isinstance(options_raw, dict):
         raise BastetError(f"role {name}: options must be a map", file=path, key="options")
     options = {k: _option(f"{name}.{k}", v, path) for k, v in options_raw.items()}
+    _check_relation_names(name, options, path)
     clash = RESERVED & set(options)
     if clash:
         raise BastetError(f"role {name}: option names reserved for role files: {sorted(clash)}", file=path)
@@ -475,6 +513,54 @@ def check_values(role: RoleDef, values: dict, where: str, file: Path | None = No
         except BastetError as exc:
             raise BastetError(exc.message, file=file, key=key) from None
     return out
+
+
+def _has(value: object, allowed: tuple) -> bool:
+    return any(value == a and isinstance(value, bool) == isinstance(a, bool) for a in allowed)
+
+
+def _wanted(allowed: tuple) -> str:
+    if len(allowed) == 1:
+        one = allowed[0]
+        return str(one).lower() if isinstance(one, bool) else str(one)
+    return "one of " + ", ".join(str(a) for a in allowed)
+
+
+def _check_siblings(siblings: dict[str, Option], given: dict, prefix: str, role: str, file: Path | None) -> None:
+    """The requires/conflicts rules of the options (or fields) set in `given`, then those of nested objects."""
+    for name, opt in siblings.items():
+        value = given.get(name)
+        if value is None:  # unset; false, 0, "" and [] count as set
+            continue
+
+        def fail(text: str, name: str = name) -> BastetError:
+            return BastetError(f"{role}: {prefix}{name} {text}", file=file, key=(prefix or name).split(".")[0].split("[")[0])
+
+        for other, allowed in opt.requires.items():
+            have = given.get(other)
+            if have is None or (allowed is not None and not _has(have, allowed)):
+                need = "set" if allowed is None else _wanted(allowed)
+                raise fail(f"needs {prefix}{other} to be {need}")
+        for other in opt.conflicts:
+            if given.get(other) is not None:
+                raise fail(f"can't be set together with {prefix}{other}")
+        _check_nested(opt, value, f"{prefix}{name}", role, file)
+
+
+def _check_nested(opt: Option, value: object, here: str, role: str, file: Path | None) -> None:
+    if opt.type == "object" and isinstance(value, dict):
+        _check_siblings(opt.fields, value, f"{here}.", role, file)
+    elif opt.type == "list" and isinstance(value, list):
+        for i, item in enumerate(value):
+            _check_nested(opt.items, item, f"{here}[{i}]", role, file)
+    elif opt.type == "map" and isinstance(value, dict):
+        for k, item in value.items():
+            _check_nested(opt.items, item, f"{here}.{k}", role, file)
+
+
+def check_relations(role: RoleDef, values: dict, where: str, file: Path | None = None) -> None:
+    """Check the requires and conflicts rules on values as the notes wrote them (merged, before defaults)."""
+    _check_siblings(role.options, values, "", role.name, file)
 
 
 def _merged(default: object, given: object) -> object:

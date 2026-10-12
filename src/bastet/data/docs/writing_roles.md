@@ -47,6 +47,33 @@ runs only when the check fails), and optionally `when` (a condition, see below) 
 and `unless` texts are literal: `{{ }}` in them is not filled in.
 The apt role's `modernize_sources` option uses one to run `apt modernize-sources -y`.
 
+### Options that need or exclude each other
+
+An option can say which other options it depends on:
+- `requires: [a, b]`: if this option is set, `a` and `b` must be set too;
+- `requires: {a: true}` or `{a: [x, y]}`: `a` must also have that value (or be one of those values);
+- `conflicts: [a]`: this option and `a` must not both be set.
+
+"Set" means the note gives the option a value (not null): `false`, `0`, `""` and `[]` count as set. A default never
+counts, because the check looks at what the notes wrote, merged across the lab, group and host notes of one host (a
+lab note and a host note can complete each other), before defaults are added. Inside an `object` option the names are
+the object's sibling fields; at the top they are other top-level options. A rule that names an option or field that
+does not exist is refused when the role is read; a rule that is broken is refused when the values are checked, for
+example `time: ntp_servers needs ntp to be true`.
+
+```yaml
+options:
+  ntp:
+    type: bool
+  ntp_servers:
+    type: list
+    items: {type: string}
+    requires: {ntp: true}
+  ntp_pool:
+    type: string
+    conflicts: [ntp_servers]
+```
+
 ### Accounts, defaults and starters
 
 `accounts:` (top level, a list of account names) lists the accounts a role brings; the unaccounted-users report treats
