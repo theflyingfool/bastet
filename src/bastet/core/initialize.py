@@ -335,7 +335,7 @@ def local_user_setup(run: Runner, tmp_dir: Path, public_key: str) -> list[str]:
     if run(["id", "bastet"]).returncode == 0:
         actions.append("kept the local bastet user")
     else:
-        _require(run, ["sudo", "-n", "useradd", "--create-home", "--shell", "/bin/sh", "bastet"], "creating the local bastet user")
+        _require(run, ["sudo", "-n", "useradd", "--system", "--create-home", "--shell", "/bin/sh", "bastet"], "creating the local bastet user")
         actions.append("created the local bastet user")
 
     identity = _bastet_identity(run)

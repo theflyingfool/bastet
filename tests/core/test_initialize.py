@@ -268,7 +268,7 @@ def test_local_user_setup_on_a_fresh_machine(tmp_path):
     assert fake.sudoers == SUDOERS_LINE
     assert fake.authorized_keys == PUBKEY + "\n"
     useradd_calls = [c for c in fake.calls if c[:3] == ["sudo", "-n", "useradd"]]
-    assert useradd_calls == [["sudo", "-n", "useradd", "--create-home", "--shell", "/bin/sh", "bastet"]]
+    assert useradd_calls == [["sudo", "-n", "useradd", "--system", "--create-home", "--shell", "/bin/sh", "bastet"]]
     assert ["sudo", "-n", "usermod", "-p", "*", "bastet"] in fake.calls
 
 
