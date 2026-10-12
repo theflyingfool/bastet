@@ -5,6 +5,41 @@ engine resources, once the roles format and library work lands.
 
 See [[Using roles]] for how roles are used today.
 
+## The contract at a glance
+
+One line per key; each links to the section that explains it.
+
+Option keys (under `options:`):
+- `type`, `default`, `required`, `choices`, `min`, `max`, `single_line`, `merge_default`: [Markdown roles](#markdown-roles-draft)
+  and [Accounts, defaults and starters](#accounts-defaults-and-starters).
+- `key`, `section`, `as` (plus `format`, `path`, `marker` for `as: entries`): [Markdown roles](#markdown-roles-draft).
+- `choices_from`: a long list of allowed values in a file, [Long lists of allowed values](#long-lists-of-allowed-values-choices_from).
+- `requires`, `conflicts`: [Options that need or exclude each other](#options-that-need-or-exclude-each-other).
+
+Role keys (top level of the role note):
+- `packages`, `users`, `files`, `systemd`, `commands`: [Calling the building blocks](#calling-the-building-blocks).
+- `checks`: info, warning or error from a role, [Stopping or warning instead of skipping silently](#stopping-or-warning-instead-of-skipping-silently).
+- `sections`: [Grouping entries](#grouping-entries-sections).
+- `accounts`, `starter`: [Accounts, defaults and starters](#accounts-defaults-and-starters).
+- `examples`: example values shown in the generated reference ([Markdown roles](#markdown-roles-draft)).
+
+Entry keys (on a `packages`, `users`, `files`, `systemd` or `commands` entry):
+- `when`: [Calling the building blocks](#calling-the-building-blocks) and [Unset, false and empty](#unset-false-and-empty).
+- `before`, `after`: [What a role runs, in order](#what-a-role-runs-in-order).
+- `each`: [One entry per list item](#one-entry-per-list-item-each).
+- `restart`, `reload`, `daemon_reload`, `on_change` (on `files` entries): [Reacting to changes](#reacting-to-changes).
+
+Names an expression (`when:`, `{{ }}`, a check) can use:
+- `options`: every option of the role by its name; an option left unset is `none`.
+- `host.<fact>`: `name`, `type`, `os_id`, `arch_like`, `debian_like`, `container`, `physical`, `cpu`.
+- `lab`: the lab note's data.
+- `applied.origin.<option>`: where the value came from, [Stopping or warning instead of skipping silently](#stopping-or-warning-instead-of-skipping-silently).
+- `item` and `key`: only inside an entry that has `each:`.
+
+Keys in a role note (the values a lab, group, type or host writes):
+- `overrides`: different values on some hosts, [Different values on different hosts](#different-values-on-different-hosts-overrides).
+- `null` as a value: opts out of an inherited value, [Opting a host or group out](#opting-a-host-or-group-out-of-an-inherited-option).
+
 ## Markdown roles (draft)
 
 A Markdown role is one note, "<name> role.md", in a folder named after the role. The frontmatter is the contract:
@@ -46,6 +81,23 @@ A role file can also list `commands:`. Each entry has a `name`, a `run` command 
 runs only when the check fails), and optionally `when` (a condition, see below) and `before` or `after`. The `run`
 and `unless` texts are literal: `{{ }}` in them is not filled in.
 The apt role's `modernize_sources` option uses one to run `apt modernize-sources -y`.
+
+### Unset, false and empty
+
+An option the notes leave out is unset (`none` in an expression). `false`, `0`, `""` and `[]` are values, not unset:
+the role is told "the person said no", not "the person said nothing". A role leaves things alone for an unset option
+and acts on a value, including `false` (`ntp: false` means stop syncing; no `ntp` means don't touch it).
+
+So `when: ntp` is not the same as `when: ntp is not none`. A bare `when: ntp` is plain truthiness: it is false for
+unset and for `false`, `0`, `""` and `[]` alike, so use it for "do this only when it is on". When `false` must also do
+something, test for unset on purpose:
+- `ntp is none`: nothing was said;
+- `ntp is not none`: something was said (`true` or `false`);
+- `ntp is true`, `ntp is false`: exactly that value (unset matches neither).
+
+For example, a unit entry with `when: ntp is not none` and `enabled: "{{ ntp }}"` enables the unit for `true` and
+disables it for `false`, and does nothing when `ntp` is unset. `requires` and `conflicts` use the same idea: they count
+`false`, `0`, `""` and `[]` as set.
 
 ### Options that need or exclude each other
 
@@ -216,9 +268,9 @@ is not needed to make it work); for a nested one, add it under `starter:`.
 
 ### Calling the building blocks
 
-A role file can also list `packages:`, `users:` and `systemd:` entries, which call the blocks of the same names; a role
-that needs several lists several. Blocks never call each other, and the engine runs the entries in block order
-(packages, users, files, systemd), whatever order the role lists them in. Every entry takes `when:`, a condition
+A role file can also list `packages:`, `users:`, `files:`, `systemd:` and `commands:` entries, which call the blocks of
+the same names; a role that needs several lists several. Blocks never call each other, and the engine runs the entries
+in block order (see below), whatever order the role lists them in. Every entry takes `when:`, a condition
 written as a Jinja2 expression over the options and the host and lab facts (`host`, `lab`), and values may contain
 `{{ }}` over the same names.
 
@@ -247,6 +299,25 @@ entry from a secret is hashed on the controller in the host's own scheme.
 
 `bastet doctor <folder>` lints a Markdown role.
 
+### What a role runs, in order
+
+On one host, all the roles applied to it run together, by phase and not role by role. Within a phase the order is
+fixed by block, whatever order a role lists its entries in:
+
+1. `packages`: install, remove, update;
+2. `users`: accounts, groups, keys, sudoers;
+3. `files`: write and edit files;
+4. `systemd`: units (enable, start), drop-ins, hostname, time zone, locale;
+5. `commands`.
+
+Then the triggers run once, at the end: daemon-reload first, then restarts and reloads, then `on_change` commands.
+
+That is the usual workflow written out: install the package, configure it (a file), enable the unit, and reload or
+restart it when its configuration changed. `before:` and `after:` on an entry name a block (`before: files`) and move
+that entry to just before or just after that block's slot; they adjust the order inside this list, they do not add steps
+(a role that configures a package manager sets `provides: package-manager` and runs before packages). Entries from
+`sections:` and `each:` follow the same rule: block first, then listing order.
+
 ### Reacting to changes
 
 When a file changes, the host often has to be told. There are four classes, and each has its own key:
@@ -271,6 +342,11 @@ Known limitation: a unit that was started in this same run is restarted once mor
 
 ### Stopping or warning instead of skipping silently
 
+This is planning-time checking. The role file is checked when it is read (syntax, names, the facts), and a check's
+`when` is judged when a host is planned, from the options and the facts. Run-time protection is something else: it asks
+the host as it is right now. It is `validate:` on a file (a command run on the new file before it replaces the old
+one), `unless:` on a command, and the only-if-running test on restart and reload triggers.
+
 Nothing is skipped without a message, unless the setting itself says to skip. When a role leaves something out, or
 cannot do what a value asks for on this host, say so with `checks:`, a list of `{name?, when, level, message}`:
 
@@ -279,10 +355,9 @@ cannot do what a value asks for on this host, say so with `checks:`, a list of `
 - `error`: stops that host before anything is planned or applied, like any other error in the role.
 
 `when` is an expression and `message` may use `{{ }}`, both over the role's options and the facts `host`, `lab` and
-`applied`; they are checked when the role is read, including `host.<fact>` against the known host facts. A check holds
-or not at planning time, from the options and the facts only: it can't look at the remote host, so protection that
-depends on the host's current state stays with `validate:`, `unless:` and trigger checks. Notes show in both `run -c`
-and `run`, once per host and message.
+`applied`; they are checked when the role is read, including `host.<fact>` against the known host facts. A check can't
+look at the remote host, so protection that depends on the host's current state stays with `validate:`, `unless:` and
+the trigger checks. Notes show in both `run -c` and `run`, once per host and message.
 
 ```yaml
 checks:

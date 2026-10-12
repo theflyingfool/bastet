@@ -7,7 +7,9 @@ description: Use when adding or converting a Bastet role (a Markdown role note u
 
 Roles are data (about 99% straight Markdown) over the Python building blocks. Read first:
 `docs/specs/2026-10-10-bastet-roles-architecture-design.md` and `src/bastet/data/docs/writing_roles.md` (the user
-docs for every key below), and use `src/bastet/data/roles/pacman/pacman role.md` and `.../apt/apt role.md` as models.
+docs for every key below, with a "contract at a glance" list), and use `src/bastet/data/roles/time/time role.md` (written
+on the finished contract, see `docs/plans/2026-10-11-bastet-time-role.md`) as the model, with `.../pacman/pacman role.md`
+and `.../apt/apt role.md` for package managers.
 Write a short plan in `docs/plans/<date>-bastet-<role>-role.md` first and let the owner review it (see
 `bastet-run-plan` to execute it).
 
@@ -18,7 +20,8 @@ Write a short plan in `docs/plans/<date>-bastet-<role>-role.md` first and let th
 - Frontmatter keys: `bastet: role-definition`, `name`, `version` (semver, `1.0.0` for a new role), `api: 0`,
   `description`, optional `os` (a list such as `[arch]`; the role is offered only where it fits, and `bastet add role`
   uses it for compatibility), `provides` (capabilities like `package-manager`), `accounts`, `starter`, `options`,
-  `examples`, and the entry lists `packages`, `systemd`, `users`, `files`, `commands`. Reserved keys do nothing yet.
+  `examples`, `checks`, `sections`, and the entry lists `packages`, `systemd`, `users`, `files`, `commands`. Reserved
+  keys do nothing yet.
 - Only one of a `<name> role.md` note and a `role.yml` may exist in a folder. The old Python roles (`users`, `files`,
   `packages`, `systemd`, plus ssh/base/harden until converted) stay `role.yml` plus a builder in `roles/builtin.py`.
 
@@ -29,7 +32,10 @@ Write a short plan in `docs/plans/<date>-bastet-<role>-role.md` first and let th
    default or a lab note applies it to. Prefer no default. Write a test that builds the role with no options set and
    asserts it emits nothing (see `tests/roles/test_systemd_default_is_neutral.py`).
 2. **Every option is exposed under the upstream name** (`key:`, `section:`, `as: flag|value|list|lines|text|entries`),
-   with `type`, `choices`, `min`/`max`, `single_line` where they apply. A value with a line break is refused.
+   with `type`, `choices`, `min`/`max`, `single_line` where they apply. A value with a line break is refused. Use
+   `choices_from: <file>` (one value per line, in the role's folder) for a long list such as time zones, and
+   `requires:`/`conflicts:` on an option instead of cross-checking in Python. Test `none` on purpose
+   (`when: x is not none`): `false`, `0`, `""` and `[]` are values, and plain `when: x` is false for them.
 3. **Entries** call the blocks, never each other: `packages:` (a name, or a name that resolves to a list), `systemd:`
    (`kind: unit|time|hostname|locale|dropin`), `users:` (`user|group|key|sudoer`; the `bastet` account is refused),
    `files:` (`edit: ini`, `render: apt`, `content`, `template` from the role's own folder, `directory`, `link`, `line`,
@@ -37,7 +43,11 @@ Write a short plan in `docs/plans/<date>-bastet-<role>-role.md` first and let th
    `before:`/`after:` (a block slot, never both). Values may use `{{ option }}`, `host.*` and `lab.*`; an unset option
    used inside text is an error (write the optional part with `{% if option %}`), and a lone `{{ x }}` that is
    unset drops the field. A new `edit:` type, systemd kind or block feature is added only when this role needs it,
-   with its own tests, and recorded in the roadmap.
+   with its own tests, and recorded in the roadmap. A role never needs Python unless a new block is needed.
+   Use `sections:` (with a `when:`) for the parts that differ per OS, and `each: <list or map option>` for one entry
+   per item (`item`, `key`). File reload classes: `daemon_reload: true` for unit definitions and Quadlet files,
+   `restart:`/`reload:` for application config (only a running unit is touched), `on_change:` commands for the rest;
+   enable/disable and start/stop belong to the `Unit` entry.
 4. **Secrets.** Mark a value `secret: true`. A top-level option that is also `required: true` is written into a new
    role note as `secret:<name>` automatically; a nested one needs an explicit `starter:` (for example
    `starter: {users: {root: {password: "secret:root_password"}}}`). Secrets hold plain text when unlocked; hashing,
@@ -45,13 +55,21 @@ Write a short plan in `docs/plans/<date>-bastet-<role>-role.md` first and let th
 5. **Accounts.** A role that brings system accounts lists them in `accounts:` so the unaccounted-users report treats
    them as expected on hosts where the role is applied (pacman: `alpm`). Accounts every host of an OS has go in
    `src/bastet/data/oses/<os>.yml` instead (with default `roles:` if the OS should come with a role).
-6. **Compatibility.** Set `os:` when the role only makes sense on some systems; roles with no `os:` are offered
+6. **Nothing is skipped silently.** When the role leaves something out or cannot do what a value asks, say so with
+   `checks:` (`info` for work delegated elsewhere, `warning` for probably wrong, `error` for cannot be done). Checks run
+   at planning time over options and facts (`host.*`, `lab`, `applied.origin.<option>`); protection against the host's
+   current state is `validate:`, `unless:` and trigger checks. For a lab-wide option that only fits some systems,
+   a note can opt out with `overrides:` (a `when:` over host facts) or `key: null`; the role's checks should name that
+   way out.
+7. **Compatibility.** Set `os:` when the role only makes sense on some systems; roles with no `os:` are offered
    everywhere.
 
 ## Checklist
 
 - [ ] Plan reviewed by the owner (new keys or blocks are decisions, not details).
 - [ ] Role note written; `parse_role` accepts it (`uv run pytest tests/roles -q`).
+- [ ] Checked against the rules: no Python, `checks:` for every skipped or delegated case, `requires`/`conflicts` for
+      option rules, `overrides:`/null documented for lab-wide options, `choices_from` for long lists.
 - [ ] Tests: the entries build what you expect, the no-options case emits nothing, errors name the file and key,
       secrets are marked only where used, `when:` skips cleanly. Test file names are unique across `tests/`.
 - [ ] `uv run python scripts/gen_roles_doc.py` and commit `docs/roles.md` (a repo test checks it is current).
