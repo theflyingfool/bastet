@@ -592,8 +592,8 @@ dropins:
 | ntp_service | string | keep | keep: leave the service alone and let timedatectl turn sync on or off. timesyncd/chrony: install, enable and configure that one, and stop the other (one of keep, timesyncd, chrony) |
 | ntp_servers | list of string |  | NTP servers (timesyncd NTP=, chrony server lines); needs timesyncd or chrony |
 | fallback_ntp_servers | list of string |  | timesyncd FallbackNTP= (timesyncd only) |
-| rtc_local | bool | false | Hardware clock in local time; only for Windows dual-boot |
-| manage_hostname | bool | true | Set the hostname from the host file's hostname: (or the note name) |
+| rtc_local | bool |  | Hardware clock in local time (true) or UTC (false); only for Windows dual-boot. Unset leaves the clock alone |
+| manage_hostname | bool | false | Set the hostname from the host file's hostname: (or the note name); off unless you turn it on |
 | locale | string |  | LANG, e.g. en_US.UTF-8; the locale must exist on the host |
 | keymap | string |  | Console keymap (not supported on Debian yet) |
 | services | map of object |  | Units and the state you want them in, e.g. ssh.service: {enabled: true, state: up} |

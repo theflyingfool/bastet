@@ -38,11 +38,10 @@ def test_systemd_timesyncd_on_debian():
                                    "fallback_ntp_servers": ["pool.ntp.org"]}))
     kinds = [(type(r).__name__, getattr(r, "name", getattr(r, "path", None))) for r in out]
     assert kinds == [("Package", "systemd-timesyncd"), ("File", "/etc/systemd/timesyncd.conf.d/bastet.conf"),
-                     ("Unit", "chronyd.service"), ("Unit", "systemd-timesyncd.service"), ("TimeSettings", None),
-                     ("Hostname", "media01")]
+                     ("Unit", "chronyd.service"), ("Unit", "systemd-timesyncd.service"), ("TimeSettings", None)]
     assert out[1].content == "[Time]\nNTP=10.0.10.1\nFallbackNTP=pool.ntp.org\n"
     assert (out[2].enabled, out[2].state, out[3].enabled, out[3].state) == (False, "down", True, "up")
-    assert (out[4].timezone, out[4].ntp, out[4].rtc_local) == ("UTC", None, False)
+    assert (out[4].timezone, out[4].ntp, out[4].rtc_local) == ("UTC", None, None)
 
 
 def test_systemd_chrony_debian_and_elsewhere():
@@ -65,7 +64,7 @@ def test_systemd_lxc_only_timezone():
 
 def test_systemd_keep_uses_timedatectl_and_rejects_ignored_knobs():
     out = resources(ap("systemd", {"ntp": True}))
-    assert [type(r).__name__ for r in out] == ["TimeSettings", "Hostname"] and out[0].ntp is True
+    assert [type(r).__name__ for r in out] == ["TimeSettings"] and out[0].ntp is True
     with pytest.raises(BastetError):
         resources(ap("systemd", {"ntp_servers": ["10.0.10.1"]}))
     with pytest.raises(BastetError):

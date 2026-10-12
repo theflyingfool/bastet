@@ -41,7 +41,7 @@ def test_table_shows_winner_origin_merged_lists_and_defaults(tmp_path):
     assert "[!warning] Resolved roles" in text and "don't edit" in text.lower()
     assert "| [[systemd role\\|systemd]] | timezone | America/Chicago | host hp-13 |" in text
     assert "| [[systemd role\\|systemd]] | ntp_service | timesyncd | lab |" in text
-    assert "| [[systemd role\\|systemd]] | manage_hostname | true | default |" in text
+    assert "| [[systemd role\\|systemd]] | manage_hostname | false | default |" in text
     assert "| [[packages role\\|packages]] | install | git, jq (version 1.7), tree | group laptops, host hp-13 |" in text
     assert "$6$" not in text and "password_hash: (secret)" in text
     assert not [r for r in rows(text) if "| ntp |" in r]  # unset, no default: not shown

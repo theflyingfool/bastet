@@ -10,8 +10,8 @@ options:
     description: "keep: leave the service alone and let timedatectl turn sync on or off. timesyncd/chrony: install, enable and configure that one, and stop the other"
   ntp_servers: {type: list, items: {type: string}, description: "NTP servers (timesyncd NTP=, chrony server lines); needs timesyncd or chrony"}
   fallback_ntp_servers: {type: list, items: {type: string}, description: "timesyncd FallbackNTP= (timesyncd only)"}
-  rtc_local: {type: bool, default: false, description: "Hardware clock in local time; only for Windows dual-boot"}
-  manage_hostname: {type: bool, default: true, description: "Set the hostname from the host file's hostname: (or the note name)"}
+  rtc_local: {type: bool, description: "Hardware clock in local time (true) or UTC (false); only for Windows dual-boot. Unset leaves the clock alone"}
+  manage_hostname: {type: bool, default: false, description: "Set the hostname from the host file's hostname: (or the note name); off unless you turn it on"}
   locale: {type: string, description: "LANG, e.g. en_US.UTF-8; the locale must exist on the host"}
   keymap: {type: string, description: "Console keymap (not supported on Debian yet)"}
   services:

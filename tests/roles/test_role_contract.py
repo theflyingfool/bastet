@@ -36,8 +36,8 @@ def test_errors_name_the_option(role, values, message):
 
 def test_defaults():
     v = with_defaults(load_roles()["systemd"], {"timezone": "UTC"})
-    assert v["timezone"] == "UTC" and v["ntp_service"] == "keep" and v["manage_hostname"] is True
-    assert v["rtc_local"] is False and v["ntp"] is None and v["services"] is None
+    assert v["timezone"] == "UTC" and v["ntp_service"] == "keep" and v["manage_hostname"] is False
+    assert v["rtc_local"] is None and v["ntp"] is None and v["services"] is None
 
 
 def test_bad_role_definitions(tmp_path):
