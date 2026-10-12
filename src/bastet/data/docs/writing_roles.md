@@ -90,6 +90,27 @@ A bare `key:` with nothing after it is a null, so never write one expecting "no 
 lab or a group set. Shipped starters and `bastet add role` never write one. An option name that does not exist is
 refused even with a null.
 
+### Different values on different hosts (overrides)
+
+Any role note (lab, group, type or host) may carry `overrides:`, a list of entries `{when: <expression>, <option>:
+<value>, ...}`. For a host where `when` is true, the entry's values replace that same note's own values for those
+options, at that note's rank. A higher-ranked note still wins as usual. Entries apply in listing order, so a later
+matching entry wins over an earlier one. A value may be `null`, with the meaning described above.
+
+```yaml
+# the lab's note for the time role
+ntp: true
+overrides:
+  - when: not host.arch_like
+    ntp: null        # blank (unset) on hosts that are not Arch-like
+```
+
+`when` sees only the `host` facts (`name`, `type`, `os_id`, `arch_like`, `debian_like`, `container`, `physical`,
+`cpu`) and `lab`, never the options (the options are what is being decided), so a `when` that names an option is
+refused. Everything is checked when the note is read: the `when` syntax, the fact names, that every other key is an
+option of the role, and each value through that option's normal checks (a `secret:` reference is allowed). An error
+names the note file and the key `overrides`. In the origins, a value that came from an entry reads `lab (override)`.
+
 ### Accounts, defaults and starters
 
 `accounts:` (top level, a list of account names) lists the accounts a role brings; the unaccounted-users report treats

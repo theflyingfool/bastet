@@ -8,7 +8,7 @@ from pathlib import Path
 
 from bastet.core.errors import BastetError
 from bastet.core.osdefaults import defaults_for
-from bastet.core.osinfo import ARCH_LIKE, os_id
+from bastet.core.osinfo import ARCH_LIKE, DEBIAN_LIKE, os_id
 from bastet.engine.command import Command
 from bastet.engine.files import Block, Directory, File, Line, Symlink
 from bastet.engine.model import Trigger
@@ -23,7 +23,6 @@ from bastet.roles.baselines import baseline_for
 from bastet.roles.resolve import Applied
 
 ORDER = ("pacman", "packages", "base", "users", "files", "ssh", "harden", "systemd")  # repositories and pacman.conf before installs
-DEBIAN_LIKE = ("debian", "ubuntu", "proxmox", "raspbian", "mint")
 
 
 @dataclass

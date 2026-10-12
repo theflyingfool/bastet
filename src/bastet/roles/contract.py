@@ -18,7 +18,7 @@ from bastet.roles import expr
 
 TYPES = ("string", "int", "number", "bool", "list", "map", "object", "any")  # any: checked by the role's builder
 SECRET_PREFIX = "secret:"  # a reference, resolved and re-checked against the option's type later
-RESERVED = {"bastet", "role", "applies_to", "priority", "cssclasses", "tags", "aliases", "rotate_every"}
+RESERVED = {"bastet", "role", "applies_to", "priority", "cssclasses", "tags", "aliases", "rotate_every", "overrides"}
 OPTION_KEYS = {"type", "description", "default", "choices", "items", "fields", "shorthand", "secret", "required",
                "generate", "source", "rotate_every", "key", "section", "as", "min", "max", "single_line",
                "format", "path", "marker", "before", "after", "merge_default", "requires", "conflicts"}
@@ -517,6 +517,46 @@ def check_values(role: RoleDef, values: dict, where: str, file: Path | None = No
             out[key] = check_value(role.options[key], value, f"{role.name}.{key}")
         except BastetError as exc:
             raise BastetError(exc.message, file=file, key=key) from None
+    return out
+
+
+def check_overrides(role: RoleDef, overrides: object, where: str, file: Path | None = None) -> list[tuple[str, dict]]:
+    """Validate a note's `overrides:` and return its entries as (when, checked values) pairs, in listing order."""
+
+    def fail(text: str) -> BastetError:
+        return BastetError(f"{where} note: {text}", file=file, key="overrides")
+
+    if overrides is None:
+        return []
+    if not isinstance(overrides, list):
+        raise fail("overrides must be a list of entries like {when: ..., option: value}")
+    out: list[tuple[str, dict]] = []
+    for i, entry in enumerate(overrides):
+        here = f"overrides[{i}]"
+        if not isinstance(entry, dict):
+            raise fail(f"{here} must be a map like {{when: ..., option: value}}")
+        when = entry.get("when")
+        if not isinstance(when, str) or not when.strip():
+            raise fail(f"{here} needs a when (text, an expression over host and lab facts)")
+        try:
+            expr.check_fact_when(when, set(role.options), here)
+        except BastetError as exc:
+            raise fail(exc.message) from None
+        values: dict = {}
+        for key, value in entry.items():
+            if key == "when":
+                continue
+            if key not in role.options:
+                suggestion = did_you_mean(str(key), list(role.options))
+                raise fail(f"{here} names no option {key!r}" + (f"; {suggestion}" if suggestion else f" (options: {', '.join(role.options)})"))
+            if value is None:
+                values[key] = None
+                continue
+            try:
+                values[key] = check_value(role.options[key], value, f"{here}.{key} ({role.name}.{key})")
+            except BastetError as exc:
+                raise fail(exc.message) from None
+        out.append((when, values))
     return out
 
 

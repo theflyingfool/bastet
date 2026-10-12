@@ -8,10 +8,11 @@ from types import SimpleNamespace
 from jinja2 import TemplateError, Undefined, UndefinedError, meta
 
 from bastet.core.errors import BastetError
-from bastet.core.osinfo import ARCH_LIKE
+from bastet.core.osinfo import ARCH_LIKE, DEBIAN_LIKE, os_id
 from bastet.engine.templates import UnsetInText, environment
 
 FACT_NAMES = ("host", "lab")
+HOST_FACTS = ("name", "type", "os_id", "arch_like", "debian_like", "container", "physical", "cpu")
 _ENV = environment(sandbox=True)
 _WHOLE = re.compile(r"^\s*\{\{(?P<expr>(?:(?!\}\}).)+)\}\}\s*$", re.DOTALL)
 
@@ -43,6 +44,17 @@ def check_when(text: str, allowed: set[str], where: str) -> None:
     """Parse-time check of a `when:` condition: valid syntax, and every name an option or a fact."""
     if bad := _unknown(_variables("{{ " + text + " }}", f"{where}: when"), allowed):
         raise BastetError(f"{where}: when names no option: {', '.join(bad)}")
+
+
+def check_fact_when(text: str, options: set[str], where: str) -> None:
+    """Check a `when:` that sees only the host and lab facts (the options are what is being decided)."""
+    named = sorted(_variables("{{ " + text + " }}", f"{where}: when") & options)
+    if named:
+        raise BastetError(f"{where}: when sees only host and lab facts, not options: {', '.join(named)}")
+    check_when(text, set(), where)
+    bad = sorted(set(re.findall(r"\bhost\s*\.\s*(\w+)", text)) - set(HOST_FACTS))
+    if bad:
+        raise BastetError(f"{where}: when names no host fact: {', '.join(bad)} (facts: {', '.join(HOST_FACTS)})")
 
 
 def _reason(exc: Exception) -> str:
@@ -100,12 +112,17 @@ def truthy(text: str | None, ctx: dict) -> bool:
     return True if text is None else bool(_expression(text, ctx))
 
 
+def host_facts(name: str, type_name: str, data: dict, physical: bool) -> SimpleNamespace:
+    """The `host` an expression sees; the one place these facts are built (names in HOST_FACTS)."""
+    osid = os_id(data)
+    return SimpleNamespace(
+        name=name, type=type_name, os_id=osid, arch_like=osid in ARCH_LIKE,
+        debian_like=any(w in str(data.get("os", "")).lower() for w in DEBIAN_LIKE), container=type_name == "lxc",
+        physical=physical, cpu=str(data.get("cpu") or ""))
+
+
 def context(role_options: dict, values: dict, host) -> dict:
     """Every option (None when unset), the host's facts and the lab-wide data."""
-    facts = SimpleNamespace(
-        name=host.name, type=host.type, os_id=host.os_id, arch_like=host.os_id in ARCH_LIKE,
-        debian_like=host.debian_like, container=host.container, physical=host.physical,
-        cpu=str(host.data.get("cpu") or ""))
     ctx = {name: values.get(name) for name in role_options}
-    ctx["host"], ctx["lab"] = facts, host.lab
+    ctx["host"], ctx["lab"] = host_facts(host.name, host.type, host.data, host.physical), host.lab
     return ctx

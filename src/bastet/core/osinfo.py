@@ -6,6 +6,7 @@ import re
 from collections.abc import Mapping
 
 ARCH_LIKE = ("arch", "manjaro", "endeavouros", "cachyos")
+DEBIAN_LIKE = ("debian", "ubuntu", "proxmox", "raspbian", "mint")
 _KNOWN = (  # checked in order against the lowercased PRETTY_NAME
     ("linux mint", "mint"), ("opensuse", "opensuse"), ("endeavouros", "endeavouros"), ("cachyos", "cachyos"),
     ("arch", "arch"), ("debian", "debian"), ("ubuntu", "ubuntu"), ("fedora", "fedora"), ("alpine", "alpine"),

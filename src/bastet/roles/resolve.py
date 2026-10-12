@@ -14,7 +14,8 @@ from bastet.core.links import link_target
 from bastet.core.osdefaults import defaults_for
 from bastet.core.osinfo import os_id
 from bastet.engine.run import ConflictError
-from bastet.roles.contract import RESERVED, Option, RoleDef, check_relations, check_values, with_defaults
+from bastet.roles.contract import RESERVED, Option, RoleDef, check_overrides, check_relations, check_values, with_defaults
+from bastet.roles.expr import host_facts, truthy
 
 
 @dataclass
@@ -25,6 +26,8 @@ class Source:
     values: dict
     doc: Document | None = None
     file: Path | None = None  # for a source that is a shipped file rather than a note (an OS default)
+    overrides: object = None  # the note's raw `overrides:`, checked and applied by resolve()
+    overridden: frozenset[str] = frozenset()  # the options whose value here came from a matching override entry
 
 
 @dataclass
@@ -85,12 +88,14 @@ def sources_for(inv: Inventory, host: Document, types: dict[str, HostType]) -> d
     host_type = types.get(str(host.data.get("type")))
     if host_type is not None:
         for role, values in host_type.roles.items():
-            out.setdefault(role, []).append(Source(role, f"type {host_type.name}", (1,), dict(values or {})))
+            values = dict(values or {})
+            out.setdefault(role, []).append(Source(role, f"type {host_type.name}", (1,), values, overrides=values.pop("overrides", None)))
     os_defaults = defaults_for(os_id(host_data(inv, host, types)))
     if os_defaults is not None:  # below the lab: the lab, the type default, groups and hosts all override it
         for role, values in os_defaults.roles.items():
-            out.setdefault(role, []).append(Source(role, f"OS default ({os_defaults.name})", (-1,), dict(values or {}),
-                                              file=os_defaults.path))
+            values = dict(values or {})
+            out.setdefault(role, []).append(Source(role, f"OS default ({os_defaults.name})", (-1,), values,
+                                              file=os_defaults.path, overrides=values.pop("overrides", None)))
     dist = group_distances(inv, host, types)
     for doc in inv.role_files:
         target = inv.get(link_target(doc.data.get("applies_to")) or "")
@@ -112,7 +117,7 @@ def sources_for(inv: Inventory, host: Document, types: dict[str, HostType]) -> d
             continue
         role = str(doc.data.get("role"))
         values = {k: v for k, v in doc.data.items() if k not in RESERVED}
-        out.setdefault(role, []).append(Source(role, label, rank, values, doc))
+        out.setdefault(role, []).append(Source(role, label, rank, values, doc, overrides=doc.data.get("overrides")))
     return out
 
 
@@ -159,11 +164,35 @@ def _cleared(opt: Option, value):
     return value
 
 
+def _apply_overrides(source: Source, entries: list[tuple[str, dict]], ctx, file: Path | None) -> None:
+    """Let each matching entry (listing order) replace the note's own value of its options, at the note's rank."""
+    changed: set[str] = set()
+    for i, (when, values) in enumerate(entries):
+        try:
+            matches = truthy(when, ctx())
+        except BastetError as exc:
+            raise BastetError(f"{source.label} note: overrides[{i}]: {exc.message}", file=file, key="overrides") from None
+        if matches:
+            source.values.update(values)
+            changed |= set(values)
+    source.overridden = frozenset(changed)
+
+
 def resolve(inv: Inventory, host: Document, types: dict[str, HostType], roles: dict[str, RoleDef]) -> list[Applied]:
     applied: list[Applied] = []
     host_type = types.get(str(host.data.get("type")))
     if host_type is not None and not host_type.managed:
         return applied  # configured elsewhere (e.g. the UniFi controller); roles never reach it
+    facts: dict = {}
+
+    def facts_ctx() -> dict:  # built on the first `overrides:` entry that needs it
+        if not facts:
+            host_type = types.get(str(host.data.get("type")))
+            facts["host"] = host_facts(host.name, str(host.data.get("type", "")), host_data(inv, host, types),
+                                       bool(host_type and host_type.physical))
+            facts["lab"] = dict(inv.lab.data) if inv.lab else {}
+        return facts
+
     for name, sources in sources_for(inv, host, types).items():
         role = roles.get(name)
         if role is None:
@@ -171,7 +200,9 @@ def resolve(inv: Inventory, host: Document, types: dict[str, HostType], roles: d
             raise BastetError(f"unknown role {name!r} (roles: {', '.join(sorted(roles))})",
                               file=src.doc.path if src.doc else src.file, key="role")
         for s in sources:
-            s.values = check_values(role, s.values, s.label, file=s.doc.path if s.doc else s.file)
+            file = s.doc.path if s.doc else s.file
+            s.values = check_values(role, s.values, s.label, file=file)
+            _apply_overrides(s, check_overrides(role, s.overrides, s.label, file=file), facts_ctx, file)
         merged: dict = {}
         origins: dict[str, str] = {}
         for rank in sorted({s.rank for s in sources}):
@@ -186,7 +217,8 @@ def resolve(inv: Inventory, host: Document, types: dict[str, HostType], roles: d
                 combined = _merge_values(role, combined, s.values, clash)
             merged = _merge_values(role, merged, combined)
             for key in combined:
-                origins[key] = ", ".join(s.label for s in level if key in s.values)
+                origins[key] = ", ".join(s.label + (" (override)" if key in s.overridden else "")
+                                         for s in level if key in s.values)
         merged = {k: _cleared(role.options[k], v) for k, v in merged.items() if v is not None}
         origins = {k: v for k, v in origins.items() if k in merged}
         files = [s.doc.path if s.doc else s.file for s in sources if s.values]
