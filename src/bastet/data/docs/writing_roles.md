@@ -155,6 +155,44 @@ sections:
 Install, configure, enable and reload run in block order whatever the order they are written in. An error raised while a
 role is built (an option that resolves to nothing, say) names the entry by its position among all entries of that block.
 
+### One entry per list item (each)
+
+`each: <option>` on a `packages`, `users`, `systemd`, `files` (content, template, directory, link, line or block) or
+`commands` entry, also inside `sections:`, builds the entry once per item of a `list` option, or once per pair of a `map`
+option. In the entry, `item` is the list element (or the map value) and `key` the map key (maps only). `item` and `key`
+are names only inside an entry that has `each`, in its `when:`, its `{{ }}` values and its template; anywhere else they
+are refused when the role is read like any name that is no option. `each` must name an option of type `list` or `map`
+(refused when the role is read otherwise), and is refused on a `files` entry with `edit:` or `render:`, which are built
+from the options as a whole. An unset or empty option builds nothing. In a looped `commands` entry `name`, `run` and
+`unless` can use `{{ }}` too (in other commands they stay literal text).
+
+The entry's `when:` (including a section's) is judged per item, so it may use `item` and `key`. A secret option used as
+`each` makes everything built from it secret. Two items that build the same thing (the same file path, unit, account,
+package or command name) are refused with the role, the entry (like `files[2]`) and both item numbers.
+
+```yaml
+options:
+  sites:
+    type: list
+    items:
+      type: object
+      fields:
+        domain: {type: string}
+        upstream: {type: string}
+files:
+  - path: /etc/caddy/sites/{{ item.domain }}.caddy
+    each: sites
+    content: |
+      {{ item.domain }} {
+          reverse_proxy {{ item.upstream }}
+      }
+    reload: [caddy.service]
+```
+
+There is deliberately no index variable: reordering the list changes nothing that is built. Item numbers appear only in
+error messages. An item that is removed or renamed leaves the file it once built behind, because Bastet does not delete
+files yet; remove it by hand.
+
 ### Accounts, defaults and starters
 
 `accounts:` (top level, a list of account names) lists the accounts a role brings; the unaccounted-users report treats

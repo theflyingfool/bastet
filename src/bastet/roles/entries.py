@@ -26,7 +26,7 @@ from bastet.engine.templates import render_template
 from bastet.engine.users import AuthorizedKey, Group, User, sudoer
 from bastet.roles import expr
 
-COMMON_KEYS = {"when", "before", "after"}
+COMMON_KEYS = {"when", "before", "after", "each"}
 PACKAGE_KEYS = {"name", "state", "version", "aur", "purge"} | COMMON_KEYS
 SYSTEMD_KINDS = {
     "unit": {"name", "enabled", "state"},
@@ -53,6 +53,49 @@ UNIT_STATES = ("up", "down")
 
 def _fail(msg: str, path: Path, key: str) -> BastetError:
     return BastetError(msg, file=path, key=key)
+
+
+def entry_names(entry: dict, options: dict, where: str, path: Path, key: str) -> set[str]:
+    """The names an entry's `when:` and `{{ }}` may use: the options, plus `item` (and `key` for a map) under `each`."""
+    allowed = set(options)
+    if "each" not in entry:
+        return allowed
+    named = entry["each"]
+    option = options.get(named) if isinstance(named, str) else None
+    if option is None:
+        raise _fail(f"{where}: each names no option: {named}", path, key)
+    if option.type not in ("list", "map"):
+        raise _fail(f"{where}: each: {named} must be a list or map option, not {option.type}", path, key)
+    return allowed | {"item"} | ({"key"} if option.type == "map" else set())
+
+
+def each_contexts(entry: dict, ctx: dict):
+    """(item number, context) per item the entry applies to; one plain (None, context) without `each`.
+
+    `when:` is judged per item. The item number only ever appears in error messages."""
+    if "each" not in entry:
+        if expr.truthy(entry.get("when"), ctx):
+            yield None, ctx
+        return
+    value = ctx.get(entry["each"]) or ()
+    pairs = [(None, v) for v in value] if isinstance(value, (list, tuple)) else list(value.items())
+    for n, (key, item) in enumerate(pairs):
+        item_ctx = {**ctx, "item": item, **({"key": key} if key is not None else {})}
+        if expr.truthy(entry.get("when"), item_ctx):
+            yield n, item_ctx
+
+
+def build_each(role, entry: dict, where: str, ctx: dict, make) -> list[Resource]:
+    """What `make(context)` builds for each item of the entry; two items building the same resource are refused."""
+    out: list[Resource] = []
+    seen: dict[str, int] = {}
+    for n, item_ctx in each_contexts(entry, ctx):
+        for resource in make(item_ctx):
+            if n is not None and seen.setdefault(resource.identity, n) != n:
+                raise BastetError(f"{role.name}: {where}: item {seen[resource.identity]} and item {n} (each: {entry['each']}) "
+                                  f"both build {resource.label}")
+            out.append(resource)
+    return out
 
 
 def check_common(entry: dict, allowed: set[str], where: str, path: Path, key: str) -> None:
@@ -133,7 +176,7 @@ def run_checks(role, ctx: dict) -> list[Note]:
 def parse_packages(path: Path, items: object, options: dict) -> list[dict]:
     if not isinstance(items, list):
         raise _fail("packages must be a list", path, "packages")
-    allowed, out = set(options), []
+    out = []
     for i, item in enumerate(items):
         where = f"packages[{i}]"
         entry = {"name": item} if isinstance(item, str) else item
@@ -144,7 +187,7 @@ def parse_packages(path: Path, items: object, options: dict) -> list[dict]:
             raise _fail(f"{where}: needs a name", path, "packages")
         if entry.get("state", "present") not in ("present", "absent"):
             raise _fail(f"{where}: state must be present or absent", path, "packages")
-        check_common(entry, allowed, where, path, "packages")
+        check_common(entry, entry_names(entry, options, where, path, "packages"), where, path, "packages")
         out.append(dict(entry))
     return out
 
@@ -152,7 +195,7 @@ def parse_packages(path: Path, items: object, options: dict) -> list[dict]:
 def parse_systemd(path: Path, items: object, options: dict) -> list[dict]:
     if not isinstance(items, list):
         raise _fail("systemd must be a list", path, "systemd")
-    allowed, out = set(options), []
+    out = []
     for i, entry in enumerate(items):
         where = f"systemd[{i}]"
         if not isinstance(entry, dict):
@@ -168,7 +211,7 @@ def parse_systemd(path: Path, items: object, options: dict) -> list[dict]:
                 raise _fail(f"{where}: {kind}: needs {need}", path, "systemd")
         if entry.get("state") not in (None, "up", "down") and not str(entry["state"]).startswith("{{"):
             raise _fail(f"{where}: state must be up or down", path, "systemd")
-        check_common(entry, allowed, where, path, "systemd")
+        check_common(entry, entry_names(entry, options, where, path, "systemd"), where, path, "systemd")
         out.append(dict(entry))
     return out
 
@@ -176,7 +219,7 @@ def parse_systemd(path: Path, items: object, options: dict) -> list[dict]:
 def parse_users(path: Path, items: object, options: dict) -> list[dict]:
     if not isinstance(items, list):
         raise _fail("users must be a list", path, "users")
-    allowed, out = set(options), []
+    out = []
     for i, entry in enumerate(items):
         where = f"users[{i}]"
         if not isinstance(entry, dict):
@@ -195,14 +238,14 @@ def parse_users(path: Path, items: object, options: dict) -> list[dict]:
         named = (entry.get("user"),) if kind == "key" else (entry.get("name"), entry.get("user"))
         if BASTET_USER in named:
             raise _fail(f"{where}: the bastet account is managed by Bastet itself", path, "users")
-        check_common(entry, allowed, where, path, "users")
+        check_common(entry, entry_names(entry, options, where, path, "users"), where, path, "users")
         out.append(dict(entry))
     return out
 
 
 def placed(resource: Resource, role, entry: dict, secret_options: frozenset = frozenset()) -> Resource:
     """Order and capabilities from the entry; secret when the entry uses a secret-valued option."""
-    secret = bool(expr.names_in(entry) & secret_options)
+    secret = bool((expr.names_in(entry) | {entry.get("each")}) & secret_options)
     return replace(resource, run_before=entry.get("before"), run_after=entry.get("after"), provides=tuple(role.provides),
                    **({"secret": True} if secret else {}))
 
@@ -210,18 +253,18 @@ def placed(resource: Resource, role, entry: dict, secret_options: frozenset = fr
 def _packages(role, ctx: dict, secrets: frozenset) -> list[Resource]:
     out: list[Resource] = []
     for i, entry in enumerate(role.packages):
-        if not expr.truthy(entry.get("when"), ctx):
-            continue
-        fields = {k: expr.resolve(v, ctx) for k, v in entry.items() if k not in COMMON_KEYS}
-        name = fields.pop("name", None)
-        if name is None:
-            raise BastetError(f"{role.name}: packages[{i}]: name resolved to nothing")
-        fields = {k: v for k, v in fields.items() if v is not None}
-        names = name if isinstance(name, list) else [name]
-        if any(n is None for n in names):
-            raise BastetError(f"{role.name}: packages[{i}]: a name in the list resolved to nothing (an unset option?)")
-        for n in names:
-            out.append(placed(Package(name=str(n), **fields), role, entry, secrets))
+        def make(c: dict, entry: dict = entry, i: int = i) -> list[Resource]:
+            fields = {k: expr.resolve(v, c) for k, v in entry.items() if k not in COMMON_KEYS}
+            name = fields.pop("name", None)
+            if name is None:
+                raise BastetError(f"{role.name}: packages[{i}]: name resolved to nothing")
+            fields = {k: v for k, v in fields.items() if v is not None}
+            names = name if isinstance(name, list) else [name]
+            if any(n is None for n in names):
+                raise BastetError(f"{role.name}: packages[{i}]: a name in the list resolved to nothing (an unset option?)")
+            return [placed(Package(name=str(n), **fields), role, entry, secrets) for n in names]
+
+        out += build_each(role, entry, f"packages[{i}]", ctx, make)
     return out
 
 
@@ -247,25 +290,27 @@ def _guard_bastet(role, where: str, kind: str, f: dict) -> None:
 def _users(role, ctx: dict, secrets: frozenset) -> list[Resource]:
     out: list[Resource] = []
     for i, entry in enumerate(role.users):
-        if not expr.truthy(entry.get("when"), ctx):
-            continue
         kind, where = entry["kind"], f"users[{i}]"
-        resolved = {k: expr.resolve(v, ctx) for k, v in entry.items() if k not in COMMON_KEYS | {"kind"}}
-        f = {k: tuple(v) if isinstance(v, list) else v for k, v in resolved.items() if v is not None}
-        _need(role, kind, where, f, USERS_REQUIRED[kind])
-        _guard_bastet(role, where, kind, f)
-        try:
-            if kind == "user":
-                made = User(**f)
-            elif kind == "group":
-                made = Group(**f)
-            elif kind == "key":
-                made = AuthorizedKey(**f)
-            else:
-                made = sudoer(f.pop("name"), **f)
-        except (TypeError, ValueError) as exc:
-            raise BastetError(f"{role.name}: {where}: {exc}") from None
-        out.append(placed(made, role, entry, secrets))
+
+        def make(c: dict, entry: dict = entry, kind: str = kind, where: str = where) -> list[Resource]:
+            resolved = {k: expr.resolve(v, c) for k, v in entry.items() if k not in COMMON_KEYS | {"kind"}}
+            f = {k: tuple(v) if isinstance(v, list) else v for k, v in resolved.items() if v is not None}
+            _need(role, kind, where, f, USERS_REQUIRED[kind])
+            _guard_bastet(role, where, kind, f)
+            try:
+                if kind == "user":
+                    made = User(**f)
+                elif kind == "group":
+                    made = Group(**f)
+                elif kind == "key":
+                    made = AuthorizedKey(**f)
+                else:
+                    made = sudoer(f.pop("name"), **f)
+            except (TypeError, ValueError) as exc:
+                raise BastetError(f"{role.name}: {where}: {exc}") from None
+            return [placed(made, role, entry, secrets)]
+
+        out += build_each(role, entry, where, ctx, make)
     return out
 
 
@@ -276,34 +321,37 @@ CONTAINER_HOSTNAME_NOTE = "hostname: the hostname of a container comes from its 
 def _systemd(role, ctx: dict, host, secrets: frozenset, notes: list[Note]) -> list[Resource]:
     out: list[Resource] = []
     for i, entry in enumerate(role.systemd):
-        if not expr.truthy(entry.get("when"), ctx):
-            continue
-        kind = entry["kind"]
-        f = {k: expr.resolve(v, ctx) for k, v in entry.items() if k not in COMMON_KEYS | {"kind"}}
-        _need(role, kind, f"systemd[{i}]", f, SYSTEMD_REQUIRED.get(kind, ()))
-        if kind == "unit":
-            if f.get("state") not in (None, *UNIT_STATES):
-                raise BastetError(f"{role.name}: systemd[{i}]: state resolved to {f['state']!r}; it must be up or down")
-            if f.get("enabled") not in (None, True, False):
-                raise BastetError(f"{role.name}: systemd[{i}]: enabled resolved to {f['enabled']!r}; it must be true or false")
-            made = [Unit(name=str(f["name"]), enabled=f.get("enabled"), state=f.get("state"))]
-        elif kind == "time":
-            if host.container:  # a container can't set the clock or NTP; only the timezone applies
-                if any(f.get(k) is not None for k in ("ntp", "rtc_local")):
-                    notes.append(Note("info", role.name, CONTAINER_TIME_NOTE))
-                f = {k: v for k, v in f.items() if k not in ("ntp", "rtc_local")}
-            made = [TimeSettings(**f)] if any(v is not None for v in f.values()) else []
-        elif kind == "hostname":
-            if host.container:
-                notes.append(Note("info", role.name, CONTAINER_HOSTNAME_NOTE))
-            made = [] if host.container else [Hostname(name=str(f.get("name") or host.data.get("hostname") or host.name))]
-        elif kind == "locale":
-            made = [Locale(**f)] if any(v is not None for v in f.values()) else []
-        else:
-            restart_unit = True if f.get("restart") is None else bool(f["restart"])  # unset means the default
-            made = [drop_in(str(f["unit"]), str(f["name"]), str(f["content"]), restart_unit=restart_unit)]
-        out += [placed(r, role, entry, secrets) for r in made]
+        out += build_each(role, entry, f"systemd[{i}]", ctx,
+                          lambda c, entry=entry, i=i: _systemd_entry(role, c, host, secrets, notes, entry, i))
     return out
+
+
+def _systemd_entry(role, ctx: dict, host, secrets: frozenset, notes: list[Note], entry: dict, i: int) -> list[Resource]:
+    kind = entry["kind"]
+    f = {k: expr.resolve(v, ctx) for k, v in entry.items() if k not in COMMON_KEYS | {"kind"}}
+    _need(role, kind, f"systemd[{i}]", f, SYSTEMD_REQUIRED.get(kind, ()))
+    if kind == "unit":
+        if f.get("state") not in (None, *UNIT_STATES):
+            raise BastetError(f"{role.name}: systemd[{i}]: state resolved to {f['state']!r}; it must be up or down")
+        if f.get("enabled") not in (None, True, False):
+            raise BastetError(f"{role.name}: systemd[{i}]: enabled resolved to {f['enabled']!r}; it must be true or false")
+        made = [Unit(name=str(f["name"]), enabled=f.get("enabled"), state=f.get("state"))]
+    elif kind == "time":
+        if host.container:  # a container can't set the clock or NTP; only the timezone applies
+            if any(f.get(k) is not None for k in ("ntp", "rtc_local")):
+                notes.append(Note("info", role.name, CONTAINER_TIME_NOTE))
+            f = {k: v for k, v in f.items() if k not in ("ntp", "rtc_local")}
+        made = [TimeSettings(**f)] if any(v is not None for v in f.values()) else []
+    elif kind == "hostname":
+        if host.container:
+            notes.append(Note("info", role.name, CONTAINER_HOSTNAME_NOTE))
+        made = [] if host.container else [Hostname(name=str(f.get("name") or host.data.get("hostname") or host.name))]
+    elif kind == "locale":
+        made = [Locale(**f)] if any(v is not None for v in f.values()) else []
+    else:
+        restart_unit = True if f.get("restart") is None else bool(f["restart"])  # unset means the default
+        made = [drop_in(str(f["unit"]), str(f["name"]), str(f["content"]), restart_unit=restart_unit)]
+    return [placed(r, role, entry, secrets) for r in made]
 
 
 def triggers(entry: dict) -> dict:

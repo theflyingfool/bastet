@@ -187,30 +187,41 @@ def build(role: RoleDef, values: dict, host, secret_options: frozenset = frozens
     ctx = expr.context(role.options, values, host, origins)
     notes = entries.run_checks(role, ctx)  # first, so an error check stops the host before anything is planned
     for i, entry in enumerate(role.entries):
-        if not expr.truthy(entry.get("when"), ctx):
-            continue
-        r = entries.resolved_files_entry(role, entry, i, ctx)
-        if entry.get("backup"):
-            path = r["path"]
-            resources.append(Command(
-                name=f"back up {path}", run=f"cp -p {shlex.quote(path)} {shlex.quote(path + '.bastet-orig')}", run_before="repositories",
-                unless=f"test -e {_sq(path + '.bastet-orig')} || ! test -f {_sq(path)} || "
-                       f"grep -q -e 'Bastet Managed' -e 'Managed by Bastet' {_sq(path)}"))
-        if "edit" in entry or "render" in entry:
-            made = EDITORS[entry["edit"]](role, values, r) if "edit" in entry else RENDERERS[entry["render"]](role, values, r)
-            resources += [replace(_placed(x, role, entry, secret), **entries.triggers(r)) for x in made]
-        else:
-            resources += entries.build_files(role, ctx, entry, i, secret_options, r)
+        resources += entries.build_each(role, entry, f"files[{i}]", ctx,
+                                        lambda c, entry=entry, i=i: _file(role, values, entry, i, c, secret_options))
     resources += _entries(role, values, secret)
     resources += entries.build_entries(role, ctx, host, secret_options, notes)
     resources += _commands(role, ctx)
     return [Batch(role.name, resources, notes)]
 
 
+def _file(role: RoleDef, values: dict, entry: dict, i: int, ctx: dict, secret_options: frozenset) -> list[Resource]:
+    """The resources of one `files` entry (for one item of its `each`)."""
+    secret = bool(secret_options)
+    r = entries.resolved_files_entry(role, entry, i, ctx)
+    out: list[Resource] = []
+    if entry.get("backup"):
+        path = r["path"]
+        out.append(Command(
+            name=f"back up {path}", run=f"cp -p {shlex.quote(path)} {shlex.quote(path + '.bastet-orig')}", run_before="repositories",
+            unless=f"test -e {_sq(path + '.bastet-orig')} || ! test -f {_sq(path)} || "
+                   f"grep -q -e 'Bastet Managed' -e 'Managed by Bastet' {_sq(path)}"))
+    if "edit" in entry or "render" in entry:
+        made = EDITORS[entry["edit"]](role, values, r) if "edit" in entry else RENDERERS[entry["render"]](role, values, r)
+        return out + [replace(_placed(x, role, entry, secret), **entries.triggers(r)) for x in made]
+    return out + entries.build_files(role, ctx, entry, i, secret_options, r)
+
+
 def _commands(role: RoleDef, ctx: dict) -> list[Resource]:
-    """The role's commands whose `when` condition (if any) holds."""
-    return [Command(name=c["name"], run=c["run"], unless=c["unless"], run_before=c.get("before"), run_after=c.get("after"))
-            for c in role.commands if expr.truthy(c.get("when"), ctx)]
+    """The role's commands whose `when` condition (if any) holds, one per item for a looped command."""
+    out: list[Resource] = []
+    for i, c in enumerate(role.commands):
+        def make(item_ctx: dict, c: dict = c) -> list[Resource]:
+            text = {k: str(expr.resolve(c[k], item_ctx)) if "each" in c else c[k] for k in ("name", "run", "unless")}
+            return [Command(**text, run_before=c.get("before"), run_after=c.get("after"))]
+
+        out += entries.build_each(role, c, f"commands[{i}]", ctx, make)
+    return out
 
 
 def _placed(resource: Resource, role: RoleDef, entry: dict, secret: bool = False) -> Resource:

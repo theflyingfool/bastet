@@ -35,7 +35,7 @@ FILE_EDITS = ("ini",)
 FILE_RENDERS = ("apt",)
 FILE_FORMS = ("edit", "render", "content", "template", "directory", "link", "line", "block")
 EDIT_RENDER_KEYS = {"path", "edit", "render", "mode", "owner", "group", "validate", "before", "after", "backup", "when", "restart", "reload"}
-FILE_KEYS = EDIT_RENDER_KEYS | {"content", "template", "directory", "link", "line", "match", "unique", "block", "marker", "comment"}
+FILE_KEYS = EDIT_RENDER_KEYS | {"content", "template", "directory", "link", "line", "match", "unique", "block", "marker", "comment", "each"}
 FORM_KEYS = {
     "content": {"mode", "owner", "group", "validate", "restart", "reload", "backup"},
     "template": {"mode", "owner", "group", "validate", "restart", "reload", "backup"},
@@ -44,7 +44,7 @@ FORM_KEYS = {
     "line": {"match", "unique", "validate", "restart", "reload"},
     "block": {"marker", "comment", "validate", "restart", "reload"},
 }
-COMMAND_KEYS = {"name", "run", "unless", "when", "before", "after"}
+COMMAND_KEYS = {"name", "run", "unless", "when", "before", "after", "each"}
 SECTION_BLOCKS = ("packages", "users", "files", "systemd", "commands")
 SECTION_KEYS = {"name", "when", *SECTION_BLOCKS}
 GENERATE_KINDS = ("password", "token")
@@ -303,7 +303,9 @@ def _file_entry(path: Path, entry: object, options: dict[str, Option], index: in
         raise BastetError("files entry needs exactly one of edit, render, content, template, directory, link, line or block",
                           file=path, key="files")
     form = forms[0]
-    allowed = EDIT_RENDER_KEYS if form in ("edit", "render") else FORM_KEYS[form] | {"path", form, "when", "before", "after"}
+    if "each" in entry and form in ("edit", "render"):
+        raise BastetError(f"files entry: each doesn't apply to {form} (it is built from the options as a whole)", file=path, key="each")
+    allowed = EDIT_RENDER_KEYS if form in ("edit", "render") else FORM_KEYS[form] | {"path", form, "when", "before", "after", "each"}
     for key in sorted(set(entry) - allowed):
         raise BastetError(f"files entry: {key} doesn't apply to {form}", file=path, key=key)
     for kind, allowed in (("edit", FILE_EDITS), ("render", FILE_RENDERS)):
@@ -332,11 +334,12 @@ def _file_entry(path: Path, entry: object, options: dict[str, Option], index: in
         role_entries.refuse_bastet_path(entry["path"], where)
     except BastetError as exc:
         raise BastetError(exc.message, file=path, key="path") from None
+    names = role_entries.entry_names(entry, options, where, path, "each")
     if form == "template":
-        _check_template(path, entry["template"], set(options), f"{where}.template ({entry['template']})")
+        _check_template(path, entry["template"], names, f"{where}.template ({entry['template']})")
     # edit/render keep their long-standing before/after (any name); only the new forms need a block slot
     checked = {k: v for k, v in entry.items() if k not in ("before", "after")} if form in ("edit", "render") else entry
-    role_entries.check_common(checked, set(options), f"files[{index}]", path, "files")
+    role_entries.check_common(checked, names, f"files[{index}]", path, "files")
     return dict(entry)
 
 
@@ -349,16 +352,20 @@ def _command_entry(path: Path, entry: object, options: dict[str, Option]) -> dic
     for key in ("name", "run", "unless"):
         if not isinstance(entry.get(key), str) or not entry[key].strip():
             raise BastetError(f"commands entry needs a {key}", file=path, key="commands")
-    for key in ("when", "before", "after"):
+    for key in ("when", "before", "after", "each"):
         if key in entry and not isinstance(entry[key], str):
             raise BastetError(f"commands entry: {key} must be text", file=path, key="commands")
     if "before" in entry and "after" in entry:
         raise BastetError("commands entry: use before or after, not both", file=path, key="commands")
-    if "when" in entry:
-        try:
-            expr.check_when(entry["when"], set(options), "commands entry")
-        except BastetError as exc:
-            raise BastetError(exc.message, file=path, key="commands") from None
+    names = role_entries.entry_names(entry, options, "commands entry", path, "commands")
+    try:
+        if "when" in entry:
+            expr.check_when(entry["when"], names, "commands entry")
+        if "each" in entry:  # text in a looped command is filled in per item
+            for key in ("name", "run", "unless"):
+                expr.check_text(entry[key], names, f"commands entry: {key}")
+    except BastetError as exc:
+        raise BastetError(exc.message, file=path, key="commands") from None
     return entry
 
 
