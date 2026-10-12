@@ -611,6 +611,14 @@ Users, groups, SSH keys and sudoers rules.
 
 ### Examples
 
+**Root's password from a secret (then run `bastet secret set <host> users root_password` and type the password; the secret holds plain text and Bastet hashes it for the host)**
+
+```yaml
+users:
+  root:
+    password: "secret:root_password"
+```
+
 **Report accounts nothing manages, except a few**
 
 ```yaml
