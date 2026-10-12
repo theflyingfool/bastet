@@ -118,7 +118,13 @@ def check_zone_file(text: str, version: str) -> list[str]:
         return problems
     if zones != sorted(zones):
         problems.append("the zones are not sorted")
-    dups = sorted({z for z in zones if zones.count(z) > 1})
+    seen: set[str] = set()
+    repeated: set[str] = set()
+    for z in zones:
+        if z in seen:
+            repeated.add(z)
+        seen.add(z)
+    dups = sorted(repeated)
     if dups:
         problems.append("duplicate zones: " + ", ".join(dups))
     bad = _unloadable(zones)
