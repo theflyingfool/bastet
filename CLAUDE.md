@@ -5,9 +5,11 @@
   (a reversed one is marked superseded, never deleted). Ending a session: the `bastet-end-session` skill.
 - Writing or changing tests: read `docs/testing.md` first (one layer per behaviour, parametrize, no sleeps, a small
   budget per feature).
-- Running a plan: the `bastet-run-plan` skill. Adding or converting a role: the `bastet-new-role` skill.
+- Running a plan: the `bastet-run-plan` skill. Adding or converting a role: the `bastet-new-role` skill. Checking
+  behaviour on a real host before writing it down: the `bastet-host-check` skill.
 - Git: no lasting worktrees. Work on a plain branch in the real checkout or on `main`. A background session that
-  cannot edit the checkout may use a temporary worktree (pushed branch, removed after). The owner runs the full test
+  cannot edit the checkout may use a temporary worktree (pushed branch, removed after). A background session cannot
+  merge or push to `main`: it pushes its branch and opens a draft PR, and the owner merges. The owner runs the full test
   suite himself and says when it passed.
 - Tracked files use the example data in `docs/ROADMAP.md` ("Example data"), never real lab details;
   `scripts/privacy-check` enforces it.
@@ -30,6 +32,10 @@
   nothing with no options. A role lists the accounts it brings in
   `accounts:`; accounts every host of an OS has go in `src/bastet/data/oses/<os>.yml`, which can also make an OS come
   with a role. `bastet add role` writes a role's `starter:` and required secret references into the new note.
+- Collectors: a role with `collects: {proxy: <list option>}` (the `caddy` role) receives the `proxy` exposures other
+  hosts' roles declare, routed by its `serves` option or an explicit `via`; design in
+  `docs/specs/2026-10-14-bastet-caddy-and-collectors-design.md`. A role that creates accounts through a package lists
+  them in `accounts:` (D-040 plans to derive them).
 - Lint: `ruff check src tests` (config in `pyproject.toml`) must pass; run it before committing.
 - Conventions: every message goes through `bastet.ui.out` (`tests/test_no_raw_echo.py` forbids `typer.echo` in `src/`);
   test file names must be unique across `tests/` (no `__init__.py`); the version is written only in `pyproject.toml` and bumped with `scripts/version-bump` (it refreshes the time zone list and records role hashes; `--check` verifies both, and a changed role needs a bump);

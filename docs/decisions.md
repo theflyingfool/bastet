@@ -8,6 +8,8 @@ Status: **active** · **superseded by D-xxx** · **deferred** (decided to do lat
 
 | ID | Date | Decision | Status |
 |---|---|---|---|
+| D-040 | 2026-10-14 | Accounts created by packages Bastet installs on purpose should be accepted automatically; until that is built each role lists its accounts | deferred |
+| D-039 | 2026-10-14 | `allow` lists match on `client_ip`, so a Caddy behind a trusted proxy sees the real visitor | active |
 | D-038 | 2026-10-14 | The AUR stays out for now; the open problem is validating build files, and a reviewed local `PKGBUILD` is a possible later replacement for the `xcaddy` build | active |
 | D-037 | 2026-10-14 | DNS-challenge Caddy is built on the host with `xcaddy` (sandboxed build unit, pacman hook plus guarded command, systemd drop-in), latest plugin by default | active |
 | D-036 | 2026-10-14 | `caddy` collects its sites from other roles' `proxy` options by default and keeps a manual `sites:` list; per-site knobs inherit `site_defaults` | active |
@@ -83,6 +85,10 @@ Reconstructed from documents after the fact, ordered by date (not interleaved wi
 | B-037 | 2026-09-30 | Role-managed state is not gathered; identical items merge, conflicting ones error | `docs/specs/2026-09-30-bastet-design.md` (section 9.0) | active |
 
 ## Entries
+
+**D-040 · 2026-10-14 · Package-created accounts should be accepted automatically.** The unaccounted-users report flagged `git` (made by the Arch `git` package that `base` installs) and would flag `caddy`. The owner wants the accounts of packages Bastet installs on purpose accepted by Bastet itself, not by hand-kept `accounts:` lines; if that is a lot of work it goes on the roadmap. It did: the row "Accepted users from packages" in `docs/ROADMAP.md` (sketch: read the `sysusers.d` files of the installed packages on Arch). Until then `base` lists `git` and `caddy` lists `caddy`.
+
+**D-039 · 2026-10-14 · `allow` matches on `client_ip`.** The owner wants real client addresses once the home lab is up. `client_ip` equals `remote_ip` when visitors connect directly and sees the real visitor behind a proxy listed in `trusted_proxies`. Source: `docs/specs/2026-10-14-bastet-caddy-and-collectors-design.md` (section 3).
 
 **D-038 · 2026-10-14 · The AUR stays out for now.** D-013 removed it; the reason is not "never" but that build files which cannot all be read by hand have no validation yet. A `PKGBUILD` kept in a role folder (reviewed once, checksums pinned, built by an unprivileged user, installed with `pacman -U`) is a possible later replacement for the `xcaddy` build (D-037); it needs a "local package" building block and its own spec. Clarifies D-013, does not reverse it.
 
@@ -226,3 +232,7 @@ Open or deferred items that are not decisions yet; the work itself is in `docs/R
 - Contract tests: Debian is not a concern for now (`test_roles_contract` fails on both users). The Arch contract image has no systemd and no network, so the three `pacman` contract tests (reflector timer) and `test_arch_updates_reported` fail there; fix the tests or the image, not the roles.
 - `full_upgrade` without `install:` is an error; on Arch it is now redundant (`-Syu` is the default), so it could become a no-op there.
 - Reflector configuration; unaccounted services and files; the SSH port field.
+- Caddy review leftovers (2026-10-14, none block): the collector scan catches only `BastetError` (another exception would break every host's planning and the refresh); a manual site name is not normalised for case or a trailing dot in the site address; `build install` and the first-apply order need a systemd test (the owner's host checks cover them); `via` accepts only a host/role link, not a bare role link; `upstream` has no line-break check.
+- Provider details the owner does not validate: Linode's token scope and Namecheap's account prerequisites stay documented as unverified in the `caddy` role.
+- After the 0.4.0 merge the owner's full-suite run had failures; the same head gave 2088 passed on the dev box, so they depend on the owner's machine or setup. The failing test names are still unknown.
+- The `bastet-run-plan` Finish section merges with `git push origin <branch>:main`; a background session cannot push to `main`, so it opens a draft PR and the owner merges (see the skill proposals in the session report).
