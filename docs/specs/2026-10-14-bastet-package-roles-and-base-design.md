@@ -1,6 +1,6 @@
 # Package roles and the `base` role
 
-**Status:** DRAFT, not finalized. Design agreed in conversation 2026-10-14 and still under the owner's review; open questions are in section 14. Nothing is built, and no plan exists yet. Plans follow once this is approved.
+**Status:** approved by the owner 2026-10-14. Open questions are in section 14. Nothing is built; the plan is `docs/plans/2026-10-14-bastet-base-role.md`. CLAUDE.md and the skills were amended 2026-10-14 (section 15).
 
 **Relationship to earlier documents:** builds on `2026-10-10-bastet-roles-architecture-design.md` (roles are Markdown over Python building blocks; a host runs by phase across all roles). It supersedes the roadmap's old wording for "VPS apps, step 3" and the old `packages` role design. `ssh` and `harden` are removed from `src/` in this round and rebuilt as Markdown later (section 12).
 
@@ -149,7 +149,7 @@ Answered 2026-10-14 and removed: shared option key names (same as `packages`), t
 
 **Bastet is opinionated, but it tries to respect users choosing their own defaults most of the time.** Some roles install software or change settings just by being there; these are deliberate, the role's documentation says exactly what they do, and a note can turn them off. Listed here: `base` (tool list and `microcode: auto`), reflector's timer on Arch, optional dependencies on, `etc/pacman.d/mirrorlist` in `NoExtract`, always `-Syu` on Arch. Every other role waits for an option.
 
-When this design is approved:
+Done 2026-10-14:
 - CLAUDE.md's role paragraph (today: "must change nothing with no options") is rewritten around that principle.
 - **Skills to change (checked against `.claude/skills/`):**
   - `bastet-new-role`, rule 1 ("Unset means leave alone, and a default applied to every host must change nothing"): rewritten to the opinionated-defaults principle (an opinionated default is allowed when the role's documentation lists exactly what it does and a note can turn it off; the no-options test then asserts exactly that documented behaviour, not "emits nothing"). Its test pointer (`test_systemd_default_is_neutral.py`) stays for roles that do wait for an option.

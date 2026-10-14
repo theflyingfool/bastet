@@ -20,8 +20,11 @@
   `commands`, `reports`. Planned: JSON state (APIs), power control. The `users`, `files`, `packages` and `systemd` roles
   are the special ones that stay Python. Anything that belongs to one package manager, repositories included, is that
   manager's own role (`apt`, `pacman`, and each future manager), not part of `packages`.
-- Roles: a role leaves things alone unless an option is set, and anything applied to every host by default (an OS
-  default role, a default entry) must change nothing with no options. A role lists the accounts it brings in
+- Roles: Bastet is opinionated, but tries to respect users choosing their own defaults most of the time. A role leaves
+  things alone unless an option is set, except where its own documentation lists exactly what it does with no
+  options (for example `base`'s tool list and microcode, `pacman`'s reflector timer); a note can always turn such a
+  default off. Anything else applied to every host by default (an OS default role, a default entry) must change
+  nothing with no options. A role lists the accounts it brings in
   `accounts:`; accounts every host of an OS has go in `src/bastet/data/oses/<os>.yml`, which can also make an OS come
   with a role. `bastet add role` writes a role's `starter:` and required secret references into the new note.
 - Lint: `ruff check src tests` (config in `pyproject.toml`) must pass; run it before committing.

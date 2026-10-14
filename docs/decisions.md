@@ -118,7 +118,7 @@ Reconstructed from documents after the fact, ordered by date (not interleaved wi
 
 **D-016 · 2026-10-14 · Manager roles come with each OS through the OS file** (`pacman` with Arch, the way `systemd` does). A new host has none until its first gather.
 
-**D-015 · 2026-10-14 · Bastet is opinionated but respects users' defaults.** A role may do something with no options when its own docs list exactly what; a note can turn it off. Supersedes the old rule that a default must change nothing (CLAUDE.md and the `bastet-new-role` skill are amended in the plan's Task 1).
+**D-015 · 2026-10-14 · Bastet is opinionated but respects users' defaults.** A role may do something with no options when its own docs list exactly what; a note can turn it off. Supersedes the old rule that a default must change nothing (CLAUDE.md, `bastet-new-role` and `bastet-run-plan` were amended 2026-10-14).
 
 **D-014 · 2026-10-14 · `packages` is the building block.** Building blocks are roles too, the special ones that stay Python (`packages`, `users`, `files`, `systemd`); every other role is Markdown. There is no separate "packages block" and "packages role".
 

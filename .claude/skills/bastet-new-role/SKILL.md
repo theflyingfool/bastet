@@ -1,6 +1,6 @@
 ---
 name: bastet-new-role
-description: Use when adding or converting a Bastet role (a Markdown role note under src/bastet/data/roles/<name>/ that hands entries to the building blocks) — the checklist for the frontmatter, neutral defaults, secrets, accounts, tests, generated docs and the roadmap row. Use before writing the time, base, caddy, forgejo, vaultwarden, harden or ssh roles.
+description: Use when adding or converting a Bastet role (a Markdown role note under src/bastet/data/roles/<name>/ that hands entries to the building blocks) — the checklist for the frontmatter, defaults, secrets, accounts, tests, generated docs and the roadmap row. Use before writing the time, base, caddy, forgejo, vaultwarden, harden or ssh roles.
 ---
 
 # Adding a Bastet role
@@ -22,15 +22,19 @@ Write a short plan in `docs/plans/<date>-bastet-<role>-role.md` first and let th
   uses it for compatibility), `provides` (capabilities like `package-manager`), `accounts`, `starter`, `options`,
   `examples`, `checks`, `sections`, and the entry lists `packages`, `systemd`, `users`, `files`, `commands`. Reserved
   keys do nothing yet.
-- Only one of a `<name> role.md` note and a `role.yml` may exist in a folder. The old Python roles (`users`, `files`,
-  `packages`, `systemd`, plus ssh/base/harden until converted) stay `role.yml` plus a builder in `roles/builtin.py`.
+- Only one of a `<name> role.md` note and a `role.yml` may exist in a folder. Only the building-block roles (`users`,
+  `files`, `packages`, `systemd`) stay Python: `role.yml` plus a builder in `roles/builtin.py`. The old Python `ssh`,
+  `harden` and `base` are moved to `refs/` and rebuilt as Markdown (`docs/decisions.md` D-026; `base` first).
 
 ## The rules that matter
 
-1. **Unset means leave alone, and a default applied to every host must change nothing.** A bool that defaults to
-   `true` or a value that defaults to something forces it on every host the role reaches, including ones an OS
-   default or a lab note applies it to. Prefer no default. Write a test that builds the role with no options set and
-   asserts it emits nothing (see `tests/roles/test_systemd_default_is_neutral.py`).
+1. **Unset means leave alone, unless the role documents an opinionated default.** Bastet is opinionated but respects
+   users' defaults (`docs/decisions.md` D-015). A default that changes a host (a bool that defaults to `true`, a tool
+   list, a timer) is allowed only when the role's body lists exactly what it does with no options and a note can turn
+   it off; it applies to every host the role reaches, including ones an OS default or a lab note applies it to, so
+   keep such defaults few. Every other option has no default. Write a test that builds the role with no options and
+   asserts either that it emits nothing (see `tests/roles/test_systemd_default_is_neutral.py`) or exactly the
+   documented defaults.
 2. **Every option is exposed under the upstream name** (`key:`, `section:`, `as: flag|value|list|lines|text|entries`),
    with `type`, `choices`, `min`/`max`, `single_line` where they apply. A value with a line break is refused. Use
    `choices_from: <file>` (one value per line, in the role's folder) for a long list such as time zones, and
@@ -65,13 +69,20 @@ Write a short plan in `docs/plans/<date>-bastet-<role>-role.md` first and let th
 7. **Compatibility.** Set `os:` when the role only makes sense on some systems; roles with no `os:` are offered
    everywhere.
 
+8. **Overriding another role's option (planned).** `supersedes: <role>.<option>` on an option names the option of
+   another role it overrides (`docs/plans/2026-10-14-bastet-base-role.md`, Tasks 4 and 5); it does not exist until
+   that plan has landed. Rank first, a tie goes to the role with `supersedes`.
+9. **Default role notes (planned).** The lab gets `packages` and `base` notes, every group and host a `base` note
+   (`docs/decisions.md` D-034); a new role that should reach every host is added to the lists in `roles/notes.py`
+   once that plan has landed.
+
 ## Checklist
 
 - [ ] Plan reviewed by the owner (new keys or blocks are decisions, not details).
 - [ ] Role note written; `parse_role` accepts it (`uv run pytest tests/roles -q`).
 - [ ] Checked against the rules: no Python, `checks:` for every skipped or delegated case, `requires`/`conflicts` for
       option rules, `overrides:`/null documented for lab-wide options, `choices_from` for long lists.
-- [ ] Tests: the entries build what you expect, the no-options case emits nothing, errors name the file and key,
+- [ ] Tests (follow `docs/testing.md`): the entries build what you expect, the no-options case emits nothing or exactly the documented defaults, errors name the file and key,
       secrets are marked only where used, `when:` skips cleanly. Test file names are unique across `tests/`.
 - [ ] `uv run python scripts/gen_roles_doc.py` and commit `docs/roles.md` (a repo test checks it is current).
 - [ ] `ruff check src tests` passes; `scripts/privacy-check` is clean (copy the ignored `.privacy-patterns` into a

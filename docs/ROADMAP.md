@@ -19,7 +19,7 @@ work in `docs/plans/`. Update this file whenever a plan lands.
 
 ## Now
 
-**Next session starts here (2026-10-14):** the spec (`docs/specs/2026-10-14-bastet-package-roles-and-base-design.md`, approved) and the plan (`docs/plans/2026-10-14-bastet-base-role.md`, 12 tasks) are written and on `main`; the owner has not yet given the go to run the plan. Decisions are in `docs/decisions.md` (priority: D-032; default role notes: D-034). Nothing is built. First command: run the plan with the `bastet-run-plan` skill (new branch from `main`; Task 1 amends CLAUDE.md and the skills), then plan `caddy`, `forgejo`, `vaultwarden`.
+**Next session starts here (2026-10-14):** the spec (`docs/specs/2026-10-14-bastet-package-roles-and-base-design.md`, approved) and the plan (`docs/plans/2026-10-14-bastet-base-role.md`, 12 tasks) are on `main`. Task 1 (CLAUDE.md and the skills) is already done, so start at **Task 2** (move `ssh`, `harden` and the old `base` to `refs/`). Run the plan with the `bastet-run-plan` skill on a new branch from `main`; the owner gives the go. Decisions: `docs/decisions.md` (priority D-032, default role notes D-034, leave working code alone D-031). Nothing in `src/` is built yet. After the plan: `caddy`, `forgejo`, `vaultwarden`, each its own short plan.
 
 **Run logs were pulled forward ahead of the roles redesign** (decided 2026-10-10): you need to see what a run did, in order, before more roles land, and the event tests give the roles work a regression net. The design is `docs/specs/2026-10-10-bastet-console-output-design.md`, built as three plans:
 1. **Console primitives:** done and merged (colour, width-fitting tables, coloured diffs, plain when piped).

@@ -43,6 +43,7 @@ Decisions already made: <rulings, user decisions>
 
 Rules:
 - TDD: failing tests first, see them fail for the right reason, then implement.
+- Follow `docs/testing.md` (one layer per behaviour, parametrize, no sleeps, a few focused tests per task).
 - Tests never touch the real inventory, ~/.config/bastet, ~/.local/share/bastet, ~/.ssh, real ~/.cache or
   $XDG_RUNTIME_DIR; no network; tmp_path only; placeholder data only (see "Example data" in docs/ROADMAP.md: 10.1.x.x addresses,
   host names like pve1/media01, user admin).
@@ -99,9 +100,9 @@ Return only: status, commit hash(es), one-line test summary, concerns.
 - Read the `src/` diff for the task (`git diff <base>..<head> -- src/`).
 - Check the brief's behaviour against that diff, especially the plan's Review Focus items.
 - Check the tests prove the behaviour, not the mock, and that a new default has a test that can fail.
-- **Anything applied to every host by default must be neutral:** with no options set it changes nothing (the Arch
-  default `systemd` role once would have renamed every host and forced the RTC). Look at what the builder emits with
-  empty values.
+- **A default applied to every host either changes nothing or is a documented opinionated default:** with no options
+  set the role emits nothing, or exactly what its docs list (`docs/decisions.md` D-015). The Arch default `systemd`
+  role once would have renamed every host and forced the RTC. Look at what the builder emits with empty values.
 - `ps -eo pid,etime,cmd | grep -E "until|sleep|pytest"`: no leftover loops from the agent.
 - `ruff check src tests` passes; `scripts/privacy-check` shows nothing new (a fresh worktree has no
   `.privacy-patterns`: copy it from the main checkout, run the check, delete the copy).
