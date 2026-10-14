@@ -330,6 +330,8 @@ def dashboard(
     recent: list[str],
     drift: dict[str, list[str]] | None = None,
     secrets_summary: list[str] | None = None,
+    sites: list[dict] | None = None,
+    site_problems: list[str] | None = None,
 ) -> str:
     hosts = inv.of_kind("host")
     hardware = inv.of_kind("hardware")
@@ -375,6 +377,16 @@ def dashboard(
         for scope, domain in domains.items():
             out.append(f"| {_cell(scope)} | {_cell(domain)} |\n")
 
+    if sites or site_problems:
+        out.append("\n## Sites\n\n| Site | Scope | Served by | Upstream | From |\n|---|---|---|---|---|\n")
+        for s in sites or []:
+            host, _, role = str(s["proxy"]).partition("/")
+            upstream = ", ".join(map(str, s["upstream"])) if isinstance(s["upstream"], list) else s["upstream"] or ""
+            origin = "by hand" if s["from"] == "by hand" else f"[[{s['from']}]]"
+            out.append(f"| {_cell(s['name'])} | {_cell(s['scope'])} | [[{host}]] ({_cell(role)}) | {_cell(upstream)} | {origin} |\n")
+        if site_problems:
+            out.append("\n### Not collected\n\n" + "".join(f"- {_cell(p)}\n" for p in site_problems))
+
     if recent:
         out.append("\n## Recent changes\n\n" + "".join(f"- {r}\n" for r in recent))
     out.append(RUNS_SECTION)
@@ -386,6 +398,17 @@ def dashboard(
         if (inv.root / health.AUDIT_PATH).exists():
             out.append(f"\n![[{health.AUDIT_PATH[len('_bastet/'):-3]}]]\n")
     return _note({}, "".join(out))
+
+
+def site_listing(inv: Inventory, types: dict[str, HostType], roles: dict | None = None) -> tuple[list[dict], list[str]]:
+    """The sites every collecting role (the Caddy) serves, and what kept some out; never raises, a refresh must not fail on it."""
+    from bastet.roles.collect import Collector  # lazy: roles builds on core
+    from bastet.roles.contract import load_roles
+
+    try:
+        return Collector(inv, types, load_roles() if roles is None else roles).listing()
+    except BastetError as exc:
+        return [], [exc.message]
 
 
 def _hosts_table(inv: Inventory, types: dict[str, HostType], hosts: list[Document]) -> str:
@@ -666,7 +689,9 @@ def generated_changes(
         for message in messages:
             if message not in dashboard_warnings[name]:
                 dashboard_warnings[name].append(message)
-    want(root / DASHBOARD_PATH, dashboard(inv, types, dashboard_warnings, _recent(repo), drift_by_host, secrets_summary))
+    sites, site_problems = site_listing(inv, types)
+    want(root / DASHBOARD_PATH, dashboard(inv, types, dashboard_warnings, _recent(repo), drift_by_host, secrets_summary,
+                                          sites=sites, site_problems=site_problems))
     old_guide = root / GUIDE_PATH
     if old_guide.exists():
         changes.append(Change(old_guide, old_guide.read_text(encoding="utf-8"), None))

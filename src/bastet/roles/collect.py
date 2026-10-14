@@ -40,6 +40,7 @@ class _Caddy:
 @dataclass
 class _Scan:
     sites: dict[tuple[str, str], list[dict]] = field(default_factory=dict)  # (host, role) -> collected sites
+    manual: dict[tuple[str, str], list[dict]] = field(default_factory=dict)  # (host, role) -> the sites written by hand that were kept
     errors: list[tuple[set[str], BastetError]] = field(default_factory=list)  # (hosts it concerns, error)
     warnings: dict[str, list[tuple[str, str]]] = field(default_factory=dict)  # exposing host -> (role, message)
 
@@ -117,6 +118,21 @@ class Collector:
         self._raise_for(None)
         return {key: list(sites) for key, sites in self.scan().sites.items()}
 
+    def listing(self) -> tuple[list[dict], list[str]]:
+        """Every site of every collecting role, written by hand or collected, as display rows; and what kept others out.
+
+        Never raises: a bad exposure or a host that cannot be resolved is a problem line, not a failure."""
+        scan = self.scan()
+        rows = []
+        for (host, role), sites in scan.manual.items():
+            rows += [{"name": s["name"], "scope": "", "proxy": f"{host}/{role}", "upstream": s.get("upstream"), "from": "by hand"}
+                     for s in sites]
+        for (host, role), sites in scan.sites.items():
+            rows += [{"name": s["name"], "scope": s.get("scope", ""), "proxy": f"{host}/{role}", "upstream": s["upstream"],
+                      "from": s["host"]} for s in sites]
+        problems = list(dict.fromkeys(error.message for _, error in scan.errors))
+        return sorted(rows, key=lambda r: (r["name"], r["proxy"])), problems
+
     # -- the scan ---------------------------------------------------------------------------------------------
 
     def _run(self) -> _Scan:
@@ -154,9 +170,9 @@ class Collector:
             seen = taken.setdefault(caddy.key, {})
             for i, site in enumerate(caddy.applied.values.get(caddy.target) or []):
                 name = self._clean(site.get("name")) if isinstance(site, dict) else None
-                if name:
-                    self._claim(scan, caddy, seen, name, f"{caddy.label} {caddy.target}[{i}]",
-                                _note_file(caddy.applied, caddy.target), {caddy.host}, caddy.target)
+                if name and self._claim(scan, caddy, seen, name, f"{caddy.label} {caddy.target}[{i}]",
+                                        _note_file(caddy.applied, caddy.target), {caddy.host}, caddy.target):
+                    scan.manual.setdefault(caddy.key, []).append({**site, "name": name})
         for doc, data, applied, i, item in exposing:
             self._route(scan, domains, caddies, taken, doc, data, applied, i, item)
         for sites in scan.sites.values():
@@ -247,7 +263,8 @@ class Collector:
             upstream = upstream_given or f"{SELF if caddy.host == doc.name else address}:{item['port']}"
             source = f"{doc.name}/{applied.role.name} proxy[{i}]"
             if self._claim(scan, caddy, taken[caddy.key], name, source, file, {doc.name}, "proxy"):
-                scan.sites[caddy.key].append({**item, "name": name, "upstream": upstream, "host": doc.name, "source": source})
+                scan.sites[caddy.key].append({**item, "name": name, "scope": scope, "upstream": upstream, "host": doc.name,
+                                              "source": source})
 
 
 def collect(inv: Inventory, host: Document, types: dict[str, HostType], roles: dict[str, RoleDef],
