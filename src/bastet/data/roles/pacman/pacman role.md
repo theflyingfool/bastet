@@ -1,7 +1,7 @@
 ---
 bastet: role-definition
 name: pacman
-version: 1.0.0
+version: 0.1.0
 api: 0
 description: 'pacman''s own settings: every [options] setting in /etc/pacman.conf (Arch-based hosts; aim it at [[arch]]). Unset = leave pacman''s setting as it is. Settings you give are written in a Bastet block right after [options], and the original lines are commented out with `#bastet: `. Repositories are written in pacman''s own format (a block in /etc/pacman.conf, marked `bastet repo <name>`).'
 os:
@@ -263,4 +263,4 @@ pacman's own settings: every [options] setting in /etc/pacman.conf (Arch-based h
 
 ## Changes
 
-- 1.0.0: converted from role.yml
+- 0.1.0: converted from role.yml

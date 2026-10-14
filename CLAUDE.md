@@ -22,5 +22,5 @@
   with a role. `bastet add role` writes a role's `starter:` and required secret references into the new note.
 - Lint: `ruff check src tests` (config in `pyproject.toml`) must pass; run it before committing.
 - Conventions: every message goes through `bastet.ui.out` (`tests/test_no_raw_echo.py` forbids `typer.echo` in `src/`);
-  test file names must be unique across `tests/` (no `__init__.py`); the version is written only in `pyproject.toml` and bumped with `scripts/version-bump` (it refreshes the time zone list; `--check` verifies);
+  test file names must be unique across `tests/` (no `__init__.py`); the version is written only in `pyproject.toml` and bumped with `scripts/version-bump` (it refreshes the time zone list and records role hashes; `--check` verifies both, and a changed role needs a bump);
   nothing in Bastet deletes notes or records yet (removal is deferred).

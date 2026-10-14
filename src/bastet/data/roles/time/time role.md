@@ -1,7 +1,7 @@
 ---
 bastet: role-definition
 name: time
-version: 1.0.0
+version: 0.1.0
 api: 0
 description: 'The time zone (every system) and, on Arch, time sync with systemd-timesyncd: servers and poll settings go in a drop-in at /etc/systemd/timesyncd.conf.d/bastet.conf. On other systems the sync settings are ignored with a note and only the time zone applies. Unset = leave things as they are.'
 starter:
@@ -220,5 +220,5 @@ with `ntp_servers needs ntp to be true`.
 
 ## Changes
 
-- 1.0.0: first version; replaces the time options of the `systemd` role. Sync settings are ignored, with a note, on
+- 0.1.0: first version; replaces the time options of the `systemd` role. Sync settings are ignored, with a note, on
   systems other than Arch.
