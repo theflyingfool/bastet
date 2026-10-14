@@ -35,7 +35,7 @@ Done when: every item has a one-line finding; the owner sees any change to the s
 Files (expected): `src/bastet/roles/{contract,resolve,expr,declarative,builtin}.py`, `src/bastet/cli/run.py`, `src/bastet/data/docs/writing_roles.md`, tests under `tests/roles/`.
 
 - [ ] Parse `collects: {proxy: <list option>}` in a role file; the target must be a `list` option; refuse unknown source names; `docs`/`pages` show it.
-- [ ] A function `collect(inv, proxy_role_note, types, roles)` (in `roles/`), used by `plan_for`: resolve every other host (cached for the run), take each applied role's `proxy` option value, keep the ones whose domain's `proxy:` link (lab note, overridable by group/host) points at this host's role, and return exposure dicts with `host` and `address` added.
+- [ ] A function `collect(inv, proxy_role_note, types, roles)` (in `roles/`), used by `plan_for`: resolve every other host (cached for the run), take each applied role's `proxy` option value, keep the ones whose domain's `proxies:` link (lab note, overridable by group/host) points at this host's role, and return exposure dicts with `host` and `address` added.
 - [ ] `plan_for` passes the collected list into `HostInfo`/`builtin.batches_for` so that `declarative.build` appends it to the `sites` option before `expr.context()`.
 - [ ] Errors: duplicate name on one domain (both files named), a secret field in `proxy`, an exposure with no address and no `upstream:`. A `checks:`-style warning on the exposing host when its domain has no proxy.
 - [ ] Tests: collects from two hosts, filters by `proxies:` link, group override of the proxy, duplicate name, unmanaged host still scanned, nothing collected leaves `sites` as the manual list, no `collects` leaves everything unchanged (regression).
