@@ -4,7 +4,7 @@
 
 **Relationship to earlier documents:** builds on `2026-10-10-bastet-roles-architecture-design.md` (roles are Markdown over Python building blocks; a host runs by phase across all roles). It supersedes the roadmap's old wording for "VPS apps, step 3" and the old `packages` role design. `ssh` and `harden` are removed from `src/` in this round and rebuilt as Markdown later (section 12).
 
-**Scope of this round (owner, 2026-10-14): only what is needed to build the Markdown roles.** Everything else is deferred and is in the roadmap. In: the cleanup and AUR removal, shipped default roles (`packages`, `base`), Arch `-Syu` with the `refresh: false` warning (the lock check is deferred), `supersedes` as a contract feature, reflector with the mirrorlist `NoExtract` (both wanted right away), the `base` role, and groups copied into a user folder. Deferred: all Debian-based changes (`debian.yml`, the `apt` role's options and optional dependencies, Debian-only notes), optional dependencies as dependencies, moving options between `packages` and the manager roles (they stay as they are), `init` generating groups, and the gather prompt that asks and remembers a "no".
+**Scope of this round (owner, 2026-10-14): only what is needed to build the Markdown roles.** Everything else is deferred and is in the roadmap. In: the cleanup and AUR removal, shipped default roles (`packages`, `base` through the type files), Arch `-Syu` with the `refresh: false` warning (the lock check is deferred), `supersedes` as a contract feature, reflector with the mirrorlist `NoExtract` (both wanted right away), the `base` role, and groups copied into a user folder. Deferred: all Debian-based changes (`debian.yml`, the `apt` role's options and optional dependencies, Debian-only notes), optional dependencies as dependencies, moving options between `packages` and the manager roles (they stay as they are), `init` generating groups, and the gather prompt that asks and remembers a "no".
 
 **Vocabulary.** A *building block* is a role too, one of the special ones: the only place with real code (Python). Every other role is Markdown data that the blocks act on. There is no separate "block" and "role" for the same name: `packages` is one thing, a role, and it is the building block.
 
@@ -19,8 +19,8 @@
 
 ## 2. Decisions (owner, 2026-10-14)
 
-1. **`base`** is a Markdown role applied to every host by default (a shipped default, section 3). Lab, group and host notes each add to it. Bastet is opinionated, so `base` keeps the old role's defaults (tool list, `microcode: auto`) (section 15).
-2. **`packages`** is applied by default as a lab-wide role (a shipped default, section 3) and is not offered anywhere else. It stays Python (it is a building block) and holds the manager-neutral settings.
+1. **`base`** is a Markdown role applied to every host by default (through the host type files, section 3). Lab, group and host notes each add to it. Bastet is opinionated, so `base` keeps the old role's defaults (tool list, `microcode: auto`) (section 15).
+2. **`packages`** is applied to every managed host through the host type files (section 3), so it acts as the lab-wide role, and is not offered anywhere else. It stays Python (it is a building block) and holds the manager-neutral settings.
 3. **Manager roles** (`pacman` and `apt` exist already; later ones are new) come with each OS the way `systemd` comes with Arch today (OS files, `src/bastet/data/oses/<os>.yml`). This round: `pacman` is added to `arch.yml`; `debian.yml` and `apt` changes are deferred.
 4. **A manager role can supersede `packages` settings.** On the manager role the shared options exist, are **unset by default** (so they override nothing), and are **shown** (effective value and where it came from) so nobody has to jump between roles to understand a host.
 5. **Precedence stays one rule (enforced and documented):** note rank first (lab < group < host, host always wins), a role's own `overrides:` (like `time` on Debian) last. The only new rule: **at equal rank the manager role beats `packages`**. Because `packages` lives at the lab and managers come in at the OS level or above, the manager wins in every ordinary case.
@@ -35,7 +35,7 @@
 
 Existing ranks (`roles/resolve.py:sources_for`): OS default (−1), lab note (0), type default (1), group (2), host (3). Nothing ships as an "every host" default today.
 
-- **`packages` and `base`** are **shipped default roles** (owner): a new file `src/bastet/data/defaults.yml` lists the roles every managed host gets, with no options, below even the OS defaults (rank −2, shown as `Bastet default`). Lab, group and host notes then add to them as usual, and nobody has to run `bastet init` again. `bastet init` is not touched.
+- **`packages` and `base`** reach every managed host through the **host type files**, the way `arch.yml` brings `systemd` to Arch (owner: no new mechanism, no `defaults.yml`): each managed type file in `src/bastet/data/types/` (`computer`, `lxc`, `proxmox`, `server`, `undefined`, `vm`, `vps`) gets `roles: {packages: {}, base: {}}`. `sources_for` already reads a type's `roles:` (rank 1, shown as `type <name>`). The values are empty, so they never override a lab, group or host note. Unmanaged types (`other`, `unifi`) get nothing. `bastet init` is not touched.
 - **Managers** come from the OS file: `pacman` is added to the existing `arch.yml` the same way `systemd` is, with no options. `apt` needs a new `debian.yml` (only `arch.yml` exists today; Proxmox is Debian underneath): **deferred**.
 - **Where the OS comes from.** OS defaults are shipped inside Bastet (`data/oses/arch.yml`) and picked by the host's `os` value (`osinfo.os_id`; any Arch-like name maps to `arch`, `osdefaults.defaults_for`). That value is a gathered fact, so a brand-new host has **no OS defaults, and no manager role, until its first `bastet run -g`**.
 - **Generated groups exist, but in the wrong place.** `core/render.py` generates one group note per OS seen and one per host type seen, under `_bastet/groups/` (for example `arch.md` with `match: {os: arch}`, `vps.md` with `match: {type: vps}`), refreshed when facts are gathered. A role note with `applies_to: "[[arch]]"` reaches every Arch host, so **to adjust all Arch hosts you write a role note for the `arch` group** (group rank); a lab note with `overrides: [{when: host.arch_like, ...}]` also works, as `time` does. **Change (owner):** `_bastet/` is not editable by the user, so these groups move into a **user folder** (`groups`) where they can be edited. A user's own group note of the same name wins over a generated one.
@@ -122,7 +122,7 @@ Markdown, no Python (it is not a building block). `bastet init` and `bastet add 
 **In this round**
 1. **Cleanup:** `ssh`, `harden` and the old `base` moved to `refs/` and pulled; AUR removed.
 2. **Contract:** `supersedes` (with the typo check), the manager-wins tie rule (enforced and documented), the display of shared values, and the CLAUDE.md amendment (section 15).
-3. **Arch installs and pacman:** shipped default roles; `-Syu` and the `refresh: false` warning; `pacman` brought by the Arch OS file; reflector timer and the mirrorlist `NoExtract`; groups copied to a user folder.
+3. **Arch installs and pacman:** `packages` and `base` brought by the type files; `-Syu` and the `refresh: false` warning; `pacman` brought by the Arch OS file; reflector timer and the mirrorlist `NoExtract`; groups copied to a user folder.
 4. **`base`** in Markdown.
 5. **`caddy`, `forgejo`, `vaultwarden`.**
 

@@ -10,7 +10,8 @@ Status: **active** · **superseded by D-xxx** · **deferred** (decided to do lat
 |---|---|---|---|
 | D-032 | 2026-10-14 | First get to writing Markdown roles for the VPS; cleanup and destructive features come after | active |
 | D-031 | 2026-10-14 | Remove nothing that still works; only move the old roles to `refs/` and remove the AUR | active |
-| D-030 | 2026-10-14 | `packages` and `base` are shipped default roles | active |
+| D-033 | 2026-10-14 | `packages` and `base` reach every managed host through the type files | active |
+| D-030 | 2026-10-14 | `packages` and `base` are shipped default roles | superseded by D-033 |
 | D-029 | 2026-10-14 | Bastet assumes SSH port 22 for now | active |
 | D-028 | 2026-10-14 | Debian and apt changes are deferred | deferred |
 | D-027 | 2026-10-14 | The pacman lock check is deferred | deferred |
@@ -82,7 +83,9 @@ Reconstructed from documents after the fact, ordered by date (not interleaved wi
 
 **D-031 · 2026-10-14 · Remove nothing that still works.** Apart from moving the unconverted roles to `refs/` and removing the AUR, working code is left alone; leftovers are listed in the roadmap as cleanup debt, not deleted. If a change needs a removal, ask first.
 
-**D-030 · 2026-10-14 · `packages` and `base` are shipped default roles.** A new `data/defaults.yml` lists the roles every managed host gets, with no options, at a rank below the OS defaults (`Bastet default`). Lab, group and host notes add to them. Not `bastet init`: the owner re-initialises their own lab and does not want to rerun it. Spec section 3.
+**D-033 · 2026-10-14 · `packages` and `base` reach every managed host through the host type files' `roles:`,** the way the Arch OS file brings `systemd`. Existing mechanism, empty values (they never override a note), unmanaged types get nothing. Replaces D-030.
+
+**D-030 · 2026-10-14 · `packages` and `base` are shipped default roles.** *Superseded by D-033:* the owner did not want a new `defaults.yml`. Original text: a new file listed the roles every managed host gets, at a rank below the OS defaults.
 
 **D-029 · 2026-10-14 · Bastet assumes SSH port 22 for now.** With the `ssh` role gone, nothing else tells Bastet a host's port. A host-note `ssh_port` field, which the rebuilt `ssh` role would write sshd's `Port` from so the two cannot disagree, is a roadmap item.
 
