@@ -27,12 +27,12 @@ Three roles already exist: `packages` (Python, `roles/builtin.py:_packages`; ins
 Existing ranks (`roles/resolve.py:sources_for`): OS default (−1), lab note (0), type default (1), group (2), host (3). Nothing ships as an "every host" default today.
 
 - **`packages` and `base`** are lab notes (`_roles/lab/packages.md`, `_roles/lab/base.md`) that **`bastet init` writes** from each role's `starter:`. The owner re-initializes the lab folder; no migration is written.
-- **Managers** come from the OS file (`pacman` added to the existing `arch.yml`; `apt` needs a new `debian.yml`, since only `arch.yml` exists today), with no options, as `systemd` does. Which OS names `debian.yml` covers (Debian, Ubuntu, Proxmox) is for the plan.
+- **Managers** come from the OS file (`pacman` added to the existing `arch.yml`; `apt` needs a new `debian.yml`, since only `arch.yml` exists today), with no options, as `systemd` does. `debian.yml` covers Debian-based hosts; Proxmox is Debian underneath, which is the owner's only non-Arch OS today. Ubuntu and others later.
 - **Where the OS comes from, and the generated groups.** OS defaults are shipped inside Bastet (`data/oses/arch.yml`) and picked by the host's `os` value (`osinfo.os_id`; any Arch-like name maps to `arch`, `osdefaults.defaults_for`). That value is a gathered fact, so a brand-new host has **no OS defaults, and no manager role, until its first `bastet run -g`**.
 - **The groups already exist, but in the wrong place.** `core/render.py` generates one group note per OS seen and one per host type seen, under `_bastet/groups/` (for example `arch.md` with `match: {os: arch}`, `vps.md` with `match: {type: vps}`), refreshed when facts are gathered. A role note with `applies_to: "[[arch]]"` reaches every Arch host, so **to adjust all Arch hosts you write a role note for the `arch` group** (group rank); a lab note with `overrides: [{when: host.arch_like, ...}]` also works, as `time` does. **Change (owner):** `_bastet/` is not editable by the user, so these groups move into a **user folder** where they can be edited. A user's own group note of the same name wins over a generated one.
-- **Gather offers, the user can say no.** On `bastet run -g`, when a host's OS or type has no group yet, gather **asks** whether to create it, instead of creating it silently. A "no" is remembered in the **config folder** (`~/.config/bastet/`) so it is not asked again and a deleted group is not regenerated. With `-y` the plan decides between create and skip (a non-interactive run must not hang).
+- **Gather offers, the user can say no.** On `bastet run -g`, when a host's OS or type has no group yet, gather **asks** whether to create it, instead of creating it silently. A "no" is remembered in the **config folder** (`~/.config/bastet/`) so it is not asked again and a deleted group is not regenerated. With `-y`, gather **generates** the groups without asking.
 - **`bastet add group` (new).** Groups are also made by hand, for anything else (for example mail servers): `bastet add group <name>` writes a group note with a `match:` rule or a plain member list.
-- **Arch derivatives:** for now the generated `arch` group covers them (EndeavourOS and the other Arch-like ids `osinfo.ARCH_LIKE` knows), though `match` is exact on the OS id today. This may change.
+- **Arch derivatives:** the owner runs only Arch proper and Proxmox, so derivatives are not handled in this round (`match` is exact on the OS id). This may change.
 - **To check when planning:** that `bastet init` can write more than one lab role note, and what a lab with an OS that has no OS file gets (no manager role: the host's `packages` entries run, but no manager-specific options apply).
 
 ## 4. The `packages` role (thin)
@@ -47,7 +47,7 @@ Keeps the manager-neutral options: `install`, `remove`, `updates`, `updates_excl
 
 - **`apt`:** `default_release`, `allow_change_held`, `dpkg_options`, repositories (already), `install_recommends` (optional deps, section 9).
 - **`pacman`:** `pacman.conf` settings (already), the `-Syu` behaviour and `refresh`, optional deps, reflector (section 8).
-- **Shared options (decision 4).** Each manager role lists the `packages` options it may override (`updates`, `updates_exclude`, `reboot`, `reboot_timeout`, `report_unaccounted`, `allowed`), unset by default. Proposed contract key: an option declares `shared: packages` (same name as the `packages` option). Resolution: rank first; at equal rank the manager role wins (enforced by the resolver and also written in `writing_roles.md`); a set value overrides, an unset one does nothing. The key name and the exact merge go into the contract plan.
+- **Shared options (decision 4).** Each manager role lists the `packages` options it may override (`updates`, `updates_exclude`, `reboot`, `reboot_timeout`, `report_unaccounted`, `allowed`), unset by default. **The shared options keep the same key names as in `packages`** (owner), so `reboot` in `pacman.md` is the same setting as `reboot` in the lab's `packages.md`; the origin shown for each value names the role and the note it came from. The manager role marks which of its options are the shared ones (a short list under one contract key; the key's spelling is for the contract plan). Resolution: rank first; at equal rank the manager role wins (enforced by the resolver and also written in `writing_roles.md`); a set value overrides, an unset one does nothing. The key name and the exact merge go into the contract plan.
 - **Display.** `bastet show` and the resolved table list the effective value of each shared option and its origin (for example `reboot ask (lab, packages)` or `reboot auto (OS default, pacman)`), shown on the manager role's page too. Nothing is hidden by the override.
 - **List merging reminder:** list options **merge as a union** across levels (`resolve._merge`), so a host's list adds to the lab's. A scalar set at two notes of the same rank that disagree is a clash, as today.
 
@@ -59,7 +59,7 @@ Keeps the manager-neutral options: `install`, `remove`, `updates`, `updates_excl
 
 `-Syu` on a host that is far behind can run longer than a fix command is allowed (`FIX_TIMEOUT` is 1800 s in `engine/run.py`), and a timeout kills the ssh session while `pacman` may still be running (seen on the VPS, 2026-10-14). Decided for now, with no permanent fix:
 
-- **Lock check:** before a pacman install or upgrade, if `/var/lib/pacman/db.lck` exists, check whether a `pacman` process is running. If one is, report that and stop. If none is, say the lock is stale and **ask** before removing it (never removed silently; with `-y` it is still refused unless the owner passes an explicit flag, to be named in the plan).
+- **Lock check:** before a pacman install or upgrade, if `/var/lib/pacman/db.lck` exists, check whether a `pacman` process is running. If one is, report that and stop. If none is, say the lock is stale and **ask** before removing it (never removed silently when interactive; **`-y` alone is enough to remove a stale lock**, no extra flag).
 - **Timeout:** the message says a timed-out `pacman` may still be running or have left a lock. Making the limit settable, or running upgrades detached, is parked.
 
 ## 7. AUR removal
@@ -70,7 +70,7 @@ Remove `aur`, `aur_user`, `aur_helper`, the yay bootstrap, `PACKAGE_KEYS["aur"]`
 
 For now: install `reflector` and enable and start `reflector.timer` (a `Unit` entry), nothing else. Its own configuration (`/etc/xdg/reflector/reflector.conf`: countries, age, protocols, number, sort) is **noted as a fix for later**; until then reflector runs with its package defaults. It is on by default (an opinionated default, section 15). A dead mirror is a separate failure from a stale database; reflector is the answer to it.
 
-**Mirrorlist protection (opinionated default):** `etc/pacman.d/mirrorlist` is added to `NoExtract` in `pacman.conf` (the `no_extract` option of the `pacman` role), so an update of `pacman-mirrorlist` cannot overwrite the list reflector wrote. Whether it applies only when reflector is on is for the plan.
+**Mirrorlist protection (opinionated default):** `etc/pacman.d/mirrorlist` is added to `NoExtract` in `pacman.conf` (the `no_extract` option of the `pacman` role), so an update of `pacman-mirrorlist` cannot overwrite the list reflector wrote.  **It applies only when reflector is on** (owner), and reflector is on by default.
 
 ## 9. Optional dependencies as dependencies
 
@@ -80,7 +80,7 @@ One setting in both managers, **on by default** (candidate name: `install_recomm
 
 Markdown, no Python. Options: `tools` (list of package names, **union** across lab, group and host), `microcode` (`auto` or `never`; unset = leave alone). `bastet init` and `bastet add role base` write a starter with a basic tool list. What it does with no options is decided at the owner's review, once the old role is looked at again (the old Python `base` defaulted to a tool list and `microcode: auto`).
 
-- **`extra_tools` stays** (owner, 2026-10-14). Eventually `tools` becomes the baseline list for `base` (shipped baselines per host kind, **not editable** by notes), and `extra_tools` holds everything that is not baseline. Until baselines exist, both options are plain lists that union across levels, `tools` carrying the starter list.
+- **`extra_tools` stays** (owner, 2026-10-14). Eventually `tools` becomes the baseline list for `base` (shipped baselines per host kind, **not editable** by notes), and `extra_tools` holds everything that is not baseline. Until baselines exist, both options are plain lists that union across levels, `tools` carrying the starter list. Baselines will likely differ by host kind (the owner expects different tools on LXCs than elsewhere); how they are chosen is undecided and not part of this round.
 - **Microcode** (`auto`): physical hosts only, package by OS and CPU vendor (Arch `intel-ucode`/`amd-ucode`; Debian `intel-microcode`/`amd64-microcode`). Everything the old Python raised as an error becomes a `checks:` error: no CPU fact (name `bastet run -g`), unknown vendor, no package known for this OS. A virtual host gets an info note. On Debian an info note says the `non-free-firmware` component is needed.
 - The old Python `base` (`roles/system.py:base`, `data/roles/base/role.yml`) is replaced by this role; its copy goes to `refs/`.
 
@@ -107,16 +107,14 @@ Found in the code: `Unaccounted` (packages: explicit packages minus system packa
 
 ## 14. Open questions
 
-1. Name and merge details of the shared-option key (`shared:`), and whether it also covers `install`/`remove` lists (they union, so it probably does not need to).
-2. How the shipped baselines for `tools` are chosen per host kind, and when `tools` stops being editable (later, not in this round).
-3. Whether `base` does anything with no options, after the owner reviews the old role (section 10).
-4. Groups: the name of the user folder, the format of the remembered "no" in the config folder, `-y` behaviour, how `match` learns that Arch derivatives belong to `arch`, and the `add group` rule syntax (section 3).
-5. Which systems `debian.yml` covers (Debian, Ubuntu, Proxmox) (section 3).
-6. Whether the `mirrorlist` `NoExtract` entry applies only when reflector is on (section 8); the reflector configuration itself is a later fix.
-7. The explicit flag that lets `-y` remove a stale pacman lock, if any (section 6).
-8. Where unaccounted items reach a host note today, and how unit presets tell OS-default services from others (section 11).
-9. That `bastet init` can write more than one lab role note (`packages`, `base`) (section 3).
-10. The wording of the CLAUDE.md and skill amendment (section 15), once the design is approved.
+Answered 2026-10-14 and removed from this list: shared option key names (same names as `packages`), `-y` for groups (generates) and for the pacman lock (removes it), the `debian.yml` scope, `NoExtract` only with reflector, Arch derivatives (not this round), unaccounted reports (they work; not touched), the number of lab notes (a plan detail).
+
+1. The spelling of the contract key that marks a manager option as a shared one (contract plan).
+2. How the shipped baselines for `tools` are chosen per host kind (for example LXC against the rest), and when `tools` stops being editable. Not this round.
+3. Whether `base` does anything with no options, after the owner reviews the old role (section 10). **In progress.**
+4. Groups: the name of the user folder, the format of the remembered "no" in the config folder, and the `add group` rule syntax (section 3).
+5. The wording of the CLAUDE.md and skill amendment (section 15), once the design is approved.
+6. Reflector's own configuration (countries, age, and so on): a later fix, noted in section 8.
 
 ## 15. Opinionated defaults (a change to a CLAUDE.md rule)
 
