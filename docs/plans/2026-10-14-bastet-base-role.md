@@ -62,18 +62,21 @@
 - Modify: `src/bastet/roles/builtin.py`, `src/bastet/cli/common.py`, `src/bastet/data/docs/using_roles.md`, `docs/roles.md` (regenerated)
 - Delete or trim tests (below); Create `tests/roles/test_removed_roles_unknown.py`
 
-**Interfaces:** Produces: `BUILDERS = {"systemd", "packages", "users", "files"}`; `ORDER = ("pacman", "packages", "users", "files", "systemd")`; `HostInfo` without `ssh_ports`; `ssh_ports(ctx, doc) -> list[int]` returns `[22]` (kept so `cli/run.py` and `cli/gather.py` need no change; a comment says port support returns with the `ssh_port` field in the roadmap).
+**Rule (owner): remove nothing that still works.** Only the three roles themselves move to `refs/` (their folders, `system.py`, their `BUILDERS` entries and imports, and the tests of those roles), and the AUR code goes in Task 3. Everything else that mentions them but still works is left alone and listed in the roadmap as cleanup debt.
+
+**Interfaces:** Produces: `BUILDERS = {"systemd", "packages", "users", "files"}`. `ORDER`, `HostInfo.ssh_ports`, the `ssh` lookup in `batches_for` and `cli/common.py`'s port functions stay as they are: with no `ssh` role they do nothing harmful, and `ssh_port()` already answers 22 when no `ssh` role applies.
 
 What depends on the old roles (checked in the code):
 
 | Dependency | Where | Decision |
 |---|---|---|
 | Python builders and helpers | `roles/system.py` | Copy to `refs/`, delete |
-| `BUILDERS`, `ORDER`, `HostInfo.ssh_ports`, the `ssh` lookup in `batches_for` | `roles/builtin.py:24,36,211,216` | Remove |
+| `BUILDERS` entries and the `system` import | `roles/builtin.py:211` | Remove (they would not import once `system.py` is gone) |
+| `ORDER` names, `HostInfo.ssh_ports`, the `ssh` lookup in `batches_for` | `roles/builtin.py:24,36,216` | **Leave alone** (harmless dead code); roadmap cleanup debt |
 | Role definitions | `data/roles/{base,ssh,harden}/role.yml` | Copy to `refs/`, `git rm` |
-| Port Bastet connects on | `cli/common.py` `ssh_port`, `_role_ports`, `ssh_ports` | `ssh_ports` returns `[22]`; delete `ssh_port` and `_role_ports` |
+| Port Bastet connects on | `cli/common.py` `ssh_port`, `_role_ports`, `ssh_ports` | **Leave alone**: no `ssh` role means the lookup finds nothing and the port is 22. A host that still has an `ssh` note gets the existing "roles couldn't be read; connecting on port 22" warning, which is accurate. Roadmap cleanup debt |
 | Role-only tests | `tests/roles/test_harden_role.py`, `test_ssh_role.py`; `base`/`ssh`/`harden` cases in `test_system_roles.py`, `test_builtin.py` | Delete or trim; `packages`/`users` cases stay |
-| Port tests | `tests/cli/test_ssh_port.py` | Keep only the "default is 22" case |
+| Port tests | `tests/cli/test_ssh_port.py` | Keep the "default is 22" case; move the tests that write an `ssh` role note (they test the removed role) to `refs/` |
 | Container contract tests | `tests/contract/test_contract.py`: `test_base_contract`, `test_ssh_contract`, `test_harden_contract`, `test_arch_harden_reports_contract` | Delete |
 | Tests using the names as example data | `tests/cli/test_add_role.py`, `test_common.py`, `test_secret_leaks.py`, `tests/core/test_inventory.py`, `test_render.py`, `test_pages.py` | Grep each; switch to a surviving role (`packages`, `files`, `time`, `pacman`); leave unrelated words alone (ssh the command, Obsidian "Bases") |
 | Type and OS default roles | `data/types/*.yml`, `oses/arch.yml` | None name them (verified) |
@@ -104,9 +107,9 @@ def test_a_note_naming_a_removed_role_fails_that_host_only(tmp_path):
 Fill in the second test from `tests/roles/test_resolve.py`'s inventory helper; it must be complete, not a stub. `base` is not asserted missing here because it returns in Task 11.
 - [ ] **Step 2: See them fail** (`uv run pytest tests/roles/test_removed_roles_unknown.py -q`).
 - [ ] **Step 3: Copy first.** `mkdir -p refs/removed-2026-10-14 && cp -r src/bastet/data/roles/{base,ssh,harden} src/bastet/roles/system.py tests/roles/test_harden_role.py tests/roles/test_ssh_role.py tests/cli/test_ssh_port.py refs/removed-2026-10-14/ && git show HEAD:tests/contract/test_contract.py > refs/removed-2026-10-14/test_contract.py`, then `ls refs/removed-2026-10-14` to confirm. `refs/` is git-ignored, so this is the only working reference (sysctl, fail2ban and sshd logic for the later rebuilds).
-- [ ] **Step 4: Remove and edit** per the table: `git rm -r` the three role folders and `system.py`; edit `builtin.py` and `cli/common.py`; trim or delete tests; regenerate `docs/roles.md`; edit `using_roles.md`.
+- [ ] **Step 4: Remove and edit** per the table: `git rm -r` the three role folders and `system.py`; edit `builtin.py` (only the `BUILDERS` entries and the import); do **not** touch `cli/common.py`; trim or delete the tests of the removed roles; regenerate `docs/roles.md`; edit `using_roles.md`.
 - [ ] **Step 5: Run** `uv run pytest tests/roles tests/cli tests/core tests/engine -q -x`, `uv run python -c "import bastet.roles.builtin"`, `ruff check src tests`. Expected: pass.
-- [ ] **Step 6: Commit** `Move ssh, harden and the old base to refs/; Bastet assumes SSH port 22 (Task 2, not reviewed yet)`.
+- [ ] **Step 6: Commit** `Move ssh, harden and the old base to refs/ (Task 2, not reviewed yet)`.
 
 ---
 

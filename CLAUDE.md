@@ -1,6 +1,8 @@
 # Bastet
 
 - Status and what's next: `docs/ROADMAP.md`. Design: `docs/specs/`. Plans: `docs/plans/`.
+- Decisions: `docs/decisions.md`. Add an entry whenever the owner decides something that is not obvious from the code
+  (a reversed one is marked superseded, never deleted). Ending a session: the `bastet-end-session` skill.
 - Writing or changing tests: read `docs/testing.md` first (one layer per behaviour, parametrize, no sleeps, a small
   budget per feature).
 - Running a plan: the `bastet-run-plan` skill. Adding or converting a role: the `bastet-new-role` skill.
