@@ -267,7 +267,7 @@ def load_inventory(root: Path, types: dict[str, HostType]) -> Inventory:
     # Check that group names don't conflict with type names (type groups are automatic) -- Bastet's
     # own generated type/OS group notes are exempt; only a user's own note is a conflict.
     for doc in inv.of_kind("group"):
-        if doc.name in types and not _generated(root, doc.path):
+        if doc.name in types and not _generated(root, doc.path) and doc.data.get("match") != {"type": doc.name}:
             _add(inv, "error", f"'{doc.name}' is a host type; type groups are automatic, so rename this group", doc)
 
     # Index facts notes before checking hosts, so a host's stale-fact-key check below can see what its
