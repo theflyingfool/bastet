@@ -1,8 +1,10 @@
 ---
 bastet: role-definition
 name: caddy
-version: 0.1.0
+version: 0.1.1
 api: 0
+accounts:
+- caddy
 description: 'The Caddy web server and reverse proxy (Arch): the main Caddyfile, one self-contained file per site in /etc/caddy/conf.d, and sites collected from the proxy option of other hosts'' roles. Every file is validated before it is written, and Caddy is reloaded only after the whole config validates. Unset = leave things as they are, except for the documented defaults in "What it does with no options".'
 os:
 - arch
@@ -554,6 +556,7 @@ Bastet never reloads Caddy without validating first.
 
 ## Changes
 
+- 0.1.1: the `caddy` account that the package creates is an expected account.
 - 0.1.0: first version: the Caddyfile, `conf.d` site files, collected sites, `site_defaults`, `client_ip` for `allow`,
   the DNS challenge (`dns`, `dns_secrets`) with a Caddy built on the host, validation before every write, reload and
   restart.

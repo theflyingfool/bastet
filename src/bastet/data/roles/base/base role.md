@@ -1,8 +1,10 @@
 ---
 bastet: role-definition
 name: base
-version: 0.1.0
+version: 0.1.1
 api: 0
+accounts:
+- git
 description: 'The basics every host gets: a set of admin tools, and CPU microcode on physical machines. With no options it installs vim, zsh, git, htop, tree, gdu, wget and less, plus the microcode package for the host''s CPU if the host is a physical machine (Arch: intel-ucode or amd-ucode; Debian: intel-microcode or amd64-microcode).'
 options:
   tools:
@@ -80,6 +82,9 @@ On every host the role is applied to (a new lab, group or host starts with a `ba
   `non-free-firmware` component enabled; the role does not check that yet.
 - On a virtual machine or container it installs no microcode and says so once (info).
 
+The `git` account that the Arch `git` package creates (the "git daemon user") is an expected account on hosts where this
+role is applied, so the unaccounted-users report does not list it.
+
 Nothing else is changed. Setting `tools` replaces the tool list; `extra_tools` adds on top of whatever list applies, at
 every level; `microcode: never` turns the microcode off.
 
@@ -93,4 +98,5 @@ On a physical host the role stops that host, before anything is changed, when:
 
 ## Changes
 
+- 0.1.1: the `git` account (created by the `git` package) is an expected account.
 - 0.1.0: converted from the Python role; microcode packages come from one table in this file.

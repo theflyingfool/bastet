@@ -42,4 +42,6 @@ def test_shipped_roles_declare_their_accounts():
     assert roles["pacman"].accounts == ("alpm",)
     assert set(roles["systemd"].accounts) == {"systemd-coredump", "systemd-network", "systemd-oom",
                                                "systemd-journal-remote", "systemd-resolve", "systemd-timesync", "systemd-imds"}
+    assert roles["base"].accounts == ("git",)  # the account the git package creates, which base installs by default
+    assert roles["caddy"].accounts == ("caddy",)  # created by the caddy package's sysusers file
     assert roles["packages"].accounts == () and roles["apt"].accounts == ()
