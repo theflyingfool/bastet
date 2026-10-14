@@ -1,7 +1,7 @@
 ---
 bastet: role-definition
 name: apt
-version: 1.0.0
+version: 0.1.0
 api: 0
 description: 'apt''s own settings, written to /etc/apt/apt.conf.d/90-bastet (Debian-based hosts; aim it at [[debian]]). Unset = leave apt''s setting as it is. A curated, incomplete list of options. Repositories are written in apt''s own format (deb822 files in /etc/apt/sources.list.d).'
 os:
@@ -166,4 +166,4 @@ The option list is curated and incomplete: it covers the settings homelabs reach
 
 ## Changes
 
-- 1.0.0: first version
+- 0.1.0: first version

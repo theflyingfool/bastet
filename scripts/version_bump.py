@@ -4,6 +4,7 @@ Run: uv run python scripts/version_bump.py X.Y.Z [--refresh] [--check]
 """
 
 import argparse
+import hashlib
 import re
 import subprocess
 import sys
@@ -13,6 +14,9 @@ from pathlib import Path
 ROOT = Path(__file__).parents[1]
 PYPROJECT = ROOT / "pyproject.toml"
 ZONES_PATH = ROOT / "src" / "bastet" / "data" / "roles" / "time" / "time zones.txt"
+ROLES_DIR = ROOT / "src" / "bastet" / "data" / "roles"
+HASHES_PATH = ROOT / "src" / "bastet" / "data" / "role-hashes.txt"
+HASHES_HEADER = "# role content hashes at the last bump; scripts/version-bump rewrites this file\n"
 STAMP_PREFIX = "# refreshed for bastet "
 VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 LIST_CAP = 40
@@ -171,7 +175,36 @@ def read_system_zones(timeout: int = 30) -> list[str]:
     return result.stdout.splitlines()
 
 
-def run_check(pyproject: Path, zones_path: Path) -> int:
+def role_hashes(roles_dir: Path) -> dict[str, str]:
+    """A short hash of every file (names and bytes) in each shipped role's directory."""
+    out = {}
+    for d in sorted(p for p in roles_dir.iterdir() if p.is_dir() and not p.name.startswith((".", "__"))):
+        h = hashlib.sha256()
+        for f in sorted(p for p in d.rglob("*") if p.is_file() and "__pycache__" not in p.parts):
+            h.update(f.relative_to(d).as_posix().encode() + b"\0" + f.read_bytes() + b"\0")
+        out[d.name] = h.hexdigest()[:12]
+    return out
+
+
+def render_hashes(hashes: dict[str, str]) -> str:
+    return HASHES_HEADER + "".join(f"{name} {h}\n" for name, h in sorted(hashes.items()))
+
+
+def parse_hashes(text: str) -> dict[str, str]:
+    return dict(line.split(" ", 1) for line in text.splitlines() if line.strip() and not line.startswith("#"))
+
+
+def changed_roles(recorded: dict[str, str], current: dict[str, str]) -> list[str]:
+    return sorted(n for n in set(recorded) | set(current) if recorded.get(n) != current.get(n))
+
+
+def check_hashes(hashes_path: Path, roles_dir: Path) -> list[str]:
+    """Names of the roles that changed since the last bump (every role, if there is no record yet)."""
+    recorded = parse_hashes(hashes_path.read_text(encoding="utf-8")) if hashes_path.exists() else {}
+    return changed_roles(recorded, role_hashes(roles_dir))
+
+
+def run_check(pyproject: Path, zones_path: Path, hashes_path: Path = HASHES_PATH, roles_dir: Path = ROLES_DIR) -> int:
     version = read_version(pyproject.read_text(encoding="utf-8"))
     if not zones_path.exists():
         print(f"the zone list is missing: {zones_path}", file=sys.stderr)
@@ -182,11 +215,18 @@ def run_check(pyproject: Path, zones_path: Path) -> int:
             print(f"{zones_path.name}: {p}", file=sys.stderr)
         print(f"run: scripts/version-bump {version} --refresh", file=sys.stderr)
         return 1
-    print(f"time zone list is current for bastet {version}")
+    changed = check_hashes(hashes_path, roles_dir)
+    if changed:
+        print("roles changed since the last bump: " + ", ".join(changed), file=sys.stderr)
+        print("bump the project version (and each changed role's own version): scripts/version-bump X.Y.Z",
+              file=sys.stderr)
+        return 1
+    print(f"time zone list and role hashes are current for bastet {version}")
     return 0
 
 
-def run_bump(new: str, pyproject: Path, zones_path: Path, lines, refresh: bool = False, gen_doc: bool = True) -> int:
+def run_bump(new: str, pyproject: Path, zones_path: Path, lines, refresh: bool = False, gen_doc: bool = True,
+             hashes_path: Path = HASHES_PATH, roles_dir: Path = ROLES_DIR) -> int:
     try:
         text = pyproject.read_text(encoding="utf-8")
         new_text = set_version(text, new, refresh=refresh)
@@ -196,6 +236,10 @@ def run_bump(new: str, pyproject: Path, zones_path: Path, lines, refresh: bool =
         print(f"error: {err}", file=sys.stderr)
         return 1
     pyproject.write_text(new_text, encoding="utf-8")
+    changed = check_hashes(hashes_path, roles_dir)
+    hashes_path.write_text(render_hashes(role_hashes(roles_dir)), encoding="utf-8")
+    if changed:
+        print("roles changed since the last bump: " + ", ".join(changed))
     print(f"version {read_version(text)} -> {new}")
     print(format_changes(added, removed, len(zones)))
     if gen_doc:

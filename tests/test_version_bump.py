@@ -149,15 +149,19 @@ def test_main_check_missing_file_fails(tmp_path, capsys):
 def test_main_check_good_file_passes_and_writes_nothing(tmp_path, capsys):
     pyproject, zones = _project(tmp_path)
     zones.write_text(good())
-    assert vb.run_check(pyproject, zones) == 0
-    assert "time zone list is current for bastet 0.2.0" in capsys.readouterr().out
+    roles = _roles(tmp_path)
+    record = tmp_path / "hashes.txt"
+    record.write_text(vb.render_hashes(vb.role_hashes(roles)))
+    assert vb.run_check(pyproject, zones, record, roles) == 0
+    assert "time zone list and role hashes are current for bastet 0.2.0" in capsys.readouterr().out
     assert zones.read_text() == good()
     assert pyproject.read_text() == PYPROJECT
 
 
 def test_run_bump_writes_both_files(tmp_path, capsys):
     pyproject, zones = _project(tmp_path)
-    code = vb.run_bump("0.3.0", pyproject, zones, lines=["UTC", "Europe/Berlin"], refresh=False, gen_doc=False)
+    code = vb.run_bump("0.3.0", pyproject, zones, lines=["UTC", "Europe/Berlin"], refresh=False, gen_doc=False,
+                       hashes_path=tmp_path / "hashes.txt", roles_dir=_roles(tmp_path))
     assert code == 0
     assert vb.read_version(pyproject.read_text()) == "0.3.0"
     assert vb.parse_zone_file(zones.read_text()) == ("# refreshed for bastet 0.3.0", ["Europe/Berlin", "UTC"])
@@ -166,7 +170,8 @@ def test_run_bump_writes_both_files(tmp_path, capsys):
 
 def test_run_bump_bad_zones_leaves_pyproject(tmp_path):
     pyproject, zones = _project(tmp_path)
-    code = vb.run_bump("0.3.0", pyproject, zones, lines=[], refresh=False, gen_doc=False)
+    code = vb.run_bump("0.3.0", pyproject, zones, lines=[], refresh=False, gen_doc=False,
+                       hashes_path=tmp_path / "hashes.txt", roles_dir=_roles(tmp_path))
     assert code == 1
     assert pyproject.read_text() == PYPROJECT
     assert not zones.exists()
@@ -174,3 +179,34 @@ def test_run_bump_bad_zones_leaves_pyproject(tmp_path):
 
 def test_real_zone_path_constant():
     assert vb.ZONES_PATH == ROOT / "src" / "bastet" / "data" / "roles" / "time" / "time zones.txt"
+
+
+def _roles(tmp_path):
+    roles = tmp_path / "roles"
+    (roles / "a").mkdir(parents=True)
+    (roles / "a" / "a role.md").write_text("one\n")
+    (roles / "b").mkdir()
+    (roles / "b" / "role.yml").write_text("two\n")
+    return roles
+
+
+def test_role_hashes_change_with_content_and_ignore_the_record(tmp_path):
+    roles = _roles(tmp_path)
+    first = vb.role_hashes(roles)
+    assert set(first) == {"a", "b"}
+    (roles / "a" / "a role.md").write_text("changed\n")
+    second = vb.role_hashes(roles)
+    assert second["b"] == first["b"] and second["a"] != first["a"]
+
+
+def test_check_hashes_names_changed_roles_until_a_bump_records_them(tmp_path):
+    roles = _roles(tmp_path)
+    record = tmp_path / "hashes.txt"
+    assert vb.check_hashes(record, roles) == ["a", "b"]
+    record.write_text(vb.render_hashes(vb.role_hashes(roles)))
+    assert vb.check_hashes(record, roles) == []
+    (roles / "b" / "role.yml").write_text("edited\n")
+    assert vb.check_hashes(record, roles) == ["b"]
+    (roles / "c").mkdir()
+    (roles / "c" / "role.yml").write_text("new\n")
+    assert vb.check_hashes(record, roles) == ["b", "c"]
