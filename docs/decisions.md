@@ -2,12 +2,13 @@
 
 The owner's decisions about how Bastet works, newest first. One entry per decision: what was decided and why. A reversed decision is marked **superseded** and points at its replacement; entries are never deleted. Specs and plans cite entries by ID (`D-012`).
 
-**Add an entry** whenever the owner decides something that is not obvious from the code: a rule, a scope cut, a naming choice, a deferral. Take the next free ID (they only go up). Keep entries to a few lines; the reasoning that needs pages belongs in a spec. Entries marked *(backfill)* were reconstructed from documents after the fact and may lack the original reason.
+**Add an entry** whenever the owner decides something that is not obvious from the code: a rule, a scope cut, a naming choice, a deferral. Take the next free ID (they only go up). Keep entries to a few lines; the reasoning that needs pages belongs in a spec. `B-` entries were reconstructed from documents after the fact and are in their own table.
 
 Status: **active** · **superseded by D-xxx** · **deferred** (decided to do later; the work is in `docs/ROADMAP.md`).
 
 | ID | Date | Decision | Status |
 |---|---|---|---|
+| D-032 | 2026-10-14 | First get to writing Markdown roles for the VPS; cleanup and destructive features come after | active |
 | D-031 | 2026-10-14 | Remove nothing that still works; only move the old roles to `refs/` and remove the AUR | active |
 | D-030 | 2026-10-14 | `packages` and `base` are shipped default roles | active |
 | D-029 | 2026-10-14 | Bastet assumes SSH port 22 for now | active |
@@ -30,10 +31,19 @@ Status: **active** · **superseded by D-xxx** · **deferred** (decided to do lat
 | D-012 | 2026-10-14 | Test guardrails live in `docs/testing.md` | active |
 | D-011 | 2026-10-14 | Decisions are tracked in this file | active |
 | D-010 | 2026-10-12 | Clean up the unconverted roles before rebuilding them | active |
-| D-009 | 2026-10-11 | VPS apps (vaultwarden, forgejo, caddy) come first *(backfill)* | active |
-| D-008 | 2026-10-10 | Roles are Markdown over Python building blocks *(backfill)* | active |
+
+## Backfilled decisions
+
+Reconstructed from documents after the fact, ordered by date (not interleaved with the `D-` numbers). Each cites its source; the original reason may be missing.
+
+| ID | Date | Decision | Source | Status |
+|---|---|---|---|---|
+| B-002 | 2026-10-11 | VPS apps (vaultwarden, forgejo, caddy) come first; Hugo, a host firewall and backups are held off | `docs/ROADMAP.md` | active |
+| B-001 | 2026-10-10 | Roles are Markdown over Python building blocks; a host runs by phase across all roles | `docs/specs/2026-10-10-bastet-roles-architecture-design.md` | active |
 
 ## Entries
+
+**D-032 · 2026-10-14 · First get to writing Markdown roles so the VPS can run; then clean up and add the destructive features.** The single biggest push is reaching the point where roles can be written in Markdown and the VPS comes up. Afterwards: go back through the current roles, clean up, and start adding the possibly destructive things (removal and the like) before going much further. Work not on that path is deferred or lowest priority.
 
 **D-031 · 2026-10-14 · Remove nothing that still works.** Apart from moving the unconverted roles to `refs/` and removing the AUR, working code is left alone; leftovers are listed in the roadmap as cleanup debt, not deleted. If a change needs a removal, ask first.
 
@@ -78,10 +88,6 @@ Status: **active** · **superseded by D-xxx** · **deferred** (decided to do lat
 **D-011 · 2026-10-14 · Decisions are tracked in this file.**
 
 **D-010 · 2026-10-12 · Clean up the unconverted roles before rebuilding them.** Fewer errors and less to cross-check while building the corrected roles. Recorded in `docs/ROADMAP.md` at the VPS apps step 3. *(Extended by D-026.)*
-
-**D-009 · 2026-10-11 · VPS apps come first** *(backfill)*: vaultwarden, forgejo and caddy on the VPS, ahead of the Proxmox and ZFS work. Hugo, a host firewall and backups are held off. `docs/ROADMAP.md`.
-
-**D-008 · 2026-10-10 · Roles are Markdown over Python building blocks** *(backfill)*: blocks are the only place with real code; a host runs by phase across all roles. `docs/specs/2026-10-10-bastet-roles-architecture-design.md`.
 
 ## Parked
 

@@ -25,6 +25,8 @@
 - Commit messages end with `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>` and the `Claude-Session:` line; first line ends `(Task N, not reviewed yet)`.
 - The owner runs the full suite and says when it passed.
 
+**Priority (owner, D-032):** the biggest push is reaching the point where Markdown roles can be written so the VPS can run; cleanup of the current roles and the destructive features come after. If the round runs long, **Task 10 (groups copy) is the first to drop to the next round**; it is not needed to write roles.
+
 ## Decisions carried from the spec (not to be reopened in the tasks)
 
 1. `ssh` and `harden` are removed now and rebuilt last; **Bastet assumes SSH port 22 everywhere** (no `ssh_port` field). Their code is copied to `refs/` first.
