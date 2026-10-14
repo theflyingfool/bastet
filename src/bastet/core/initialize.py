@@ -173,9 +173,13 @@ def initialize(config_file: Path, options: InitOptions, *, keys_dir: Path) -> In
         lab["domains"] = dict(options.domains)
     if options.recipients and not homelab_existed:
         lab["secrets"] = {"recipients": list(options.recipients)}
+    from bastet.roles.contract import load_roles  # roles build on core, so this is imported when needed
+    from bastet.roles.notes import default_role_notes
+    lab_notes = [] if homelab_existed else default_role_notes("lab", root / "_roles" / "lab", options.lab_name, load_roles())
     files = [
         (".gitignore", GITIGNORE),
         ("Homelab.md", new_document(lab, LAB_BODY.format(name=options.lab_name))),
+        *((c.path.relative_to(root).as_posix(), c.after) for c in lab_notes),
         *VIEWS.items(),
     ]
     if options.snippet:

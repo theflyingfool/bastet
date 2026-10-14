@@ -149,7 +149,7 @@ lines:
 
 ## packages
 
-Packages for apt, pacman, dnf, zypper and apk.
+Packages for apt, pacman, dnf, zypper and apk. A new lab starts with a note for this role at the lab level, so it applies to every host (installs nothing on its own, but reports pending updates, reboot need and packages no role accounts for).
 
 ### Examples
 

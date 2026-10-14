@@ -8,13 +8,12 @@ from bastet.cli.common import finish, handles_errors, load_context, next_hint, p
 from bastet.cli.complete import complete_roles
 from bastet.core.changes import Change
 from bastet.core.errors import BastetError, did_you_mean
-from bastet.core.frontmatter import new_document
 from bastet.core.inventory import load_inventory
-from bastet.core.links import make_link
 from bastet.core.render import lab_embed_changes
 from bastet.core.scaffold import new_host, suggested_ip
 from bastet.core.views import ROLES_SECTION, SECRETS_SECTION, has_roles_section, has_secrets_section
 from bastet.roles.contract import load_roles
+from bastet.roles.notes import default_role_notes, role_note_text
 from bastet.ui import out
 
 add_app = typer.Typer(no_args_is_help=True, help="Add a host to the inventory. Asks for anything not given.")
@@ -106,7 +105,8 @@ def add_host(
     )
     if draft.suggested_ip:
         out.echo(f"Suggested address: {draft.suggested_ip} (next free in {network})")
-    if write_with_confirmation(ctx, [draft.change, *lab_embed_changes(inv)], yes):
+    notes = default_role_notes("host", ctx.root / "_roles" / "hosts" / name, name, load_roles())
+    if write_with_confirmation(ctx, [draft.change, *notes, *lab_embed_changes(inv)], yes):
         finish(ctx, f"add host {name}")
         next_hint(f"bastet run -g {name}", yes=yes)
         if local:
@@ -271,12 +271,7 @@ def add_role(
             out.secho(f"{doc.name} already has the {role} role ({path.relative_to(ctx.root)}); edit it in Obsidian",
                         fg="yellow")
             continue
-        values = known[role].new_note_values()
-        line = ("These entries are listed so you can change them; delete any you do not need." if values
-                else "No values set; this role uses its defaults.")
-        body = f"Docs: [[Using roles]] · Options: ![[{role} role#Options]]\n\n{line}\n"
-        data = {"bastet": "role", "role": role, "applies_to": make_link(doc.name), **values}
-        changes.append(Change(path, None, new_document(data, body)))
+        changes.append(Change(path, None, role_note_text(role, known[role], doc.name)))
         added.append(role)
     if not changes:
         raise BastetError(f"{doc.name} already has {'that role' if len(names) == 1 else 'those roles'}; "
