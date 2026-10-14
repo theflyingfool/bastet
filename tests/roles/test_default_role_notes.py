@@ -45,12 +45,11 @@ def test_a_new_lab_resolves_packages_for_a_host_with_origin_lab(tmp_path):
     assert "packages" in applied and {s.label for s in applied["packages"].sources} == {"lab"}
 
 
-def test_default_role_notes_never_overwrite(tmp_path, monkeypatch):
-    monkeypatch.setattr(notes, "HOST_ROLES", ("packages",))
+def test_default_role_notes_never_overwrite(tmp_path):
     folder = tmp_path / "_roles" / "hosts" / "pve1"
     [change] = notes.default_role_notes("host", folder, "pve1", ROLES)
-    assert change.path == folder / "packages.md" and change.before is None
+    assert change.path == folder / "base.md" and change.before is None
     folder.mkdir(parents=True)
-    (folder / "packages.md").write_text("mine")
+    (folder / "base.md").write_text("mine")
     assert notes.default_role_notes("host", folder, "pve1", ROLES) == []
 

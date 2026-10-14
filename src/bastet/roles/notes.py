@@ -9,9 +9,9 @@ from bastet.core.frontmatter import new_document
 from bastet.core.links import make_link
 from bastet.roles.contract import RoleDef
 
-LAB_ROLES = ("packages",)  # written when the lab is created
-GROUP_ROLES: tuple[str, ...] = ()  # written when a group is copied or created
-HOST_ROLES: tuple[str, ...] = ()  # written when a host is added
+LAB_ROLES = ("packages", "base")  # written when the lab is created
+GROUP_ROLES = ("base",)  # written when a group is copied or created
+HOST_ROLES = ("base",)  # written when a host is added
 
 
 def role_note_text(role_name: str, role: RoleDef, target_name: str) -> str:

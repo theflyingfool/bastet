@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+import bastet.roles.notes as notes_mod
 from bastet.core.changes import write_changes
 from bastet.core.factsnote import SECURITY_MARKER, facts_path, hardware_facts_path, render_facts, render_hardware_facts
 from bastet.core.frontmatter import parse_document
@@ -97,7 +98,8 @@ def add_hw_facts(root: Path, item: str, extra: dict) -> None:
 
 
 @pytest.fixture
-def repo(tmp_path) -> GitRepo:
+def repo(tmp_path, monkeypatch) -> GitRepo:
+    monkeypatch.setattr(notes_mod, "GROUP_ROLES", ())  # a copied group's default notes are tested in test_group_copy
     for rel, text in FILES.items():
         p = tmp_path / rel
         p.parent.mkdir(parents=True, exist_ok=True)

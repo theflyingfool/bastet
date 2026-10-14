@@ -8,7 +8,6 @@ from bastet.core.gitrepo import GitRepo
 from bastet.core.hosttypes import load_host_types
 from bastet.core.inventory import load_inventory
 from bastet.core.render import generated_changes
-from bastet.roles import notes
 
 TYPES = load_host_types()
 FILES = {
@@ -74,10 +73,9 @@ def test_a_user_group_named_like_a_type_with_another_match_still_errors(root):
     assert [p for p in inv.problems if "host type" in str(p)]
 
 
-def test_a_copied_group_gets_the_default_group_notes(root, monkeypatch):
-    monkeypatch.setattr(notes, "GROUP_ROLES", ("packages",))
+def test_a_copied_group_gets_the_default_group_notes(root):
     refresh(root)
-    note = root / "_roles" / "groups" / "arch" / "packages.md"
+    note = root / "_roles" / "groups" / "arch" / "base.md"
     assert 'applies_to: "[[arch]]"' in note.read_text()
     note.write_text("mine")
     refresh(root)

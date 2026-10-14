@@ -5,6 +5,7 @@ Every role Bastet ships. Put values in a role file's properties (`_roles/lab/<ro
 | Role | What it does |
 |---|---|
 | [apt](#apt) | apt's own settings, written to /etc/apt/apt.conf.d/90-bastet (Debian-based hosts; aim it at `debian`) |
+| [base](#base) | The basics every host gets: a set of admin tools, and CPU microcode on physical machines |
 | [files](#files) | Files, directories, links, and blocks or lines inside other files |
 | [packages](#packages) | Packages for apt, pacman, dnf, zypper and apk |
 | [pacman](#pacman) | pacman's own settings: every [options] setting in /etc/pacman.conf (Arch-based hosts; aim it at `arch`) |
@@ -73,6 +74,42 @@ repositories:
 | repositories[].trusted | bool |  |  |
 | repositories[].signed_by | string |  | A key file path, or the armored key text |
 | modernize_sources | bool | false | Run `apt modernize-sources` to convert leftover legacy .list files to .sources; does nothing when there is nothing to convert. Where apt cannot work out Signed-By it prints a warning and the new file has none |
+
+## base
+
+The basics every host gets: a set of admin tools, and CPU microcode on physical machines. With no options it installs vim, zsh, git, htop, tree, gdu, wget and less, plus the microcode package for the host's CPU if the host is a physical machine (Arch: intel-ucode or amd-ucode; Debian: intel-microcode or amd64-microcode).
+
+### Examples
+
+**Everywhere (put in the lab note)**
+
+```yaml
+extra_tools:
+  - jq
+```
+
+**Only these tools**
+
+```yaml
+tools:
+  - vim
+  - git
+```
+
+**A machine that should not get microcode**
+
+```yaml
+microcode: never
+```
+
+### Options
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| tools | list of string | ["vim", "zsh", "git", "htop", "tree", "gdu", "wget", "less"] | Admin tools to install; setting this replaces the default list (use extra_tools to add to it) |
+| extra_tools | list of string |  | More tools on top of `tools`, at every level (lab, group, host) |
+| microcode | string | auto | auto: install the CPU microcode package on physical hosts (never on VMs or containers); never: install none (one of auto, never) |
+| baseline | string |  | Reserved for a later round; has no effect |
 
 ## files
 

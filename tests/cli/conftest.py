@@ -10,6 +10,7 @@ import bastet.cli.add as add_mod
 import bastet.cli.run as run_mod
 import bastet.cli.secret as secret_mod
 import bastet.roles.builtin as builtin_mod
+import bastet.roles.notes as notes_mod
 from bastet.roles.contract import load_roles
 
 STATIC_PRIVATE_KEY = (
@@ -58,6 +59,9 @@ def inventory(tmp_path, monkeypatch, _template_inventory) -> Path:
     # `connect()` creates its SSH control-socket directory for real (core/remote.py:control_path);
     # keep it under tmp_path instead of the real $XDG_RUNTIME_DIR or ~/.cache.
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
+    # copied groups would get a `base` note, which changes what a second refresh writes and what a host runs;
+    # the tests that are about those notes (test_group_copy, test_default_role_notes) use the real constants
+    monkeypatch.setattr(notes_mod, "GROUP_ROLES", ())
     return root
 
 
