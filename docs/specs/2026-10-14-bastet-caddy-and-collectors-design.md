@@ -50,7 +50,7 @@ proxy:
 - **The name.** `subdomain` + `.` + `lab.domains[<scope>]`. With `domains: {public: example.com}` in the lab note, `subdomain: vault` is `vault.example.com`. A multi-label `subdomain` (`vault.apps`) works.
 - **The scope is optional when the lab's `domains:` has exactly one entry** (that one is used). With two or more it is required, and leaving it out is an error listing the scopes. A scope that is not in `domains:` is an error naming the exposing note and listing the available scopes.
 - **Same name in every scope (split-horizon).** `domains:` may map several scopes to the same domain: `{public: example.com, internal: example.com}`. An exposure with `domain: internal` is then `vault.example.com` too. An app exposed to both writes two entries, and each Caddy that serves one of those scopes builds the same hostname.
-- **Default upstream:** the exposing host's address and `port`; when the Caddy that receives it is on the *same* host, `127.0.0.1:port`. An exposure without an address (an unmanaged or unaddressed host) and no `upstream:` is an error naming the file.
+- **Default upstream:** the exposing host's address (its `ip`, or its `address` when `ip` is `dhcp`/unset) and `port`; when the Caddy that receives it is on the *same* host, `127.0.0.1:port`. An exposure without an address (an unmanaged or unaddressed host) and no `upstream:` is an error naming the file.
 - `proxy` holds no secret field (the collector refuses one).
 
 ### 2.3 Which Caddy receives an exposure
@@ -146,8 +146,12 @@ A site file is a fragment, not a whole Caddyfile, and the files block's `validat
 
 1. **Generated site files are self-contained** (no `import`): Bastet resolves `site_defaults` itself, so a generated file needs nothing from the main Caddyfile. Each is validated alone with `validate: caddy validate --adapter caddyfile --config %s`, so a bad file never lands on disk. (Snippets exist for hand-written files; those are their owner's to validate.)
 2. **The reload is gated on the whole config.** The engine runs triggers after all fixes, once per host, de-duplicated, for changed items only, and a failed trigger fails the run and stops the later triggers (`engine/run.py`). So the role does not use the `reload:` unit trigger; every file entry that should reload Caddy carries the same `on_change:` command, which the engine runs once:
-   `systemctl is-active --quiet caddy.service || exit 0; <validator> validate --adapter caddyfile --config /etc/caddy/Caddyfile && systemctl reload caddy.service`
-   where `<validator>` is `caddy`, or `caddy-bastet` when `dns` is set (with the DNS env file loaded for the check, if validation needs it, 6). If validation fails, the reload is never attempted, the trigger fails, and the run reports it with Caddy's own error. The restart for a changed unit or drop-in is gated the same way (`... && systemctl try-restart caddy.service`), because a restart with a bad config is an outage, not a rejected reload.
+   ```sh
+   systemctl is-active --quiet caddy.service || exit 0
+   <validator> validate --adapter caddyfile --config /etc/caddy/Caddyfile
+   systemctl reload caddy.service
+   ```
+   The engine runs a trigger as a script under `sh -e` as root, so a failing validation stops the script before the reload and the trigger exits non-zero. Triggers are de-duplicated by value (label and command), so every entry must carry the **same** `name:` and `run:` text for it to run once. Here `<validator>` is `caddy`, or `caddy-bastet` when `dns` is set (with the DNS env file loaded for the check, if validation needs it, 6). If validation fails, the reload is never attempted, the trigger fails, and the run reports it with Caddy's own error. The restart for a changed unit or drop-in is gated the same way (the same three lines, ending in `systemctl try-restart caddy.service`), because a restart with a bad config is an outage, not a rejected reload.
 3. **A standing check** (`commands:`, read-only) runs the same whole-config validation on every run, so a config that is invalid on disk (a run that failed before, or a hand edit) is reported each time, not only when a file changes. Whether a read-only command can be written so it does not count as a change is verified in Task 1.
 4. Whether `caddy validate` accepts a bare fragment with no global block, and whether validating a config that uses `{env.DNS_...}` needs the variables set, are **unverified** (plan Task 1).
 

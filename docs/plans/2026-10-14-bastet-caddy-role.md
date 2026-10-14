@@ -15,11 +15,21 @@
 - The role is data. A new contract or block feature is added only for something this role needs, with its own tests, and recorded in the roadmap.
 - The AUR is not used (D-013, D-038).
 
+## Verified (repo side, 2026-10-14)
+
+Read from the code; the host-side items are in `caddy-verify.sh` (owner runs it on an Arch host; its output is recorded here when it arrives).
+
+- **Triggers** (`engine/run.py`, `engine/model.py`): run after all fixes, once per host, only for changed items; a `Trigger` is a frozen dataclass, so triggers are de-duplicated by value (label + command + the rest): every file entry must use the **same** `on_change` `name:` and `run:` text. A failed trigger is recorded failed, later triggers stop, and the run counts as failed. `restart`/`reload` unit triggers have an `only_if` running check; `on_change` command triggers (order 60) do not, so the command does its own `is-active` check.
+- **Shell:** a trigger command is a script run as root under `sh -e` through a heredoc (`engine/script.py`), so multi-line commands work and a failing validation stops the script before the reload. `exit 0` skips the rest cleanly.
+- **Templating** (`engine/templates.py`): sandboxed Jinja2 with `StrictUndefined`; `{% for %}`, `{% if x is not none %}` work; an unset option written into text is an error (`reject_none`), so every optional part sits in an `{% if %}`. A dict merge for `site_defaults` is probably `dict(defaults, **site)`; Task 4 tests it.
+- **Secrets:** a secret resource's content is shown as `(secret)` in change text and its command is recorded as hidden (`engine/report.py`, `run._exec_status`); a read's output is never recorded. Secret *values* in trigger commands do not occur (the commands name the env file, not its content).
+- **Host address:** `core/render.py:_address`: the host note's `ip` (unless `dhcp`), else `address`; an unmanaged host's note has the same fields, so a manual `sites:` entry or `upstream:` is needed when neither exists.
+
 ## Tasks
 
 ### Task 1 — Verify the unchecked facts (spec section 6)
 
-Read-only. Write the findings into the top of this plan under "Verified" (and fix the spec if one is wrong). Where a fact needs an Arch host with network, mark it "owner to check" and give the command.
+Read-only. The repo-side items are done (see "Verified"); the host-side items run from `caddy-verify.sh`, and the DNS providers' own prerequisites (Linode scope, Namecheap account) are **not** validated by the owner and stay documented as unverified. Write the findings into the top of this plan under "Verified" (and fix the spec if one is wrong). Where a fact needs an Arch host with network, mark it "owner to check" and give the command.
 
 - [ ] The packaged `caddy.service` on Arch: `ExecStart`, `ExecReload`, `AmbientCapabilities`, user/group, config path (`pacman -Ql caddy`, `systemctl cat caddy`).
 - [ ] `go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest` works inside a `DynamicUser` unit with `GOPATH`/`GOCACHE`/`GOBIN` under the cache directory, `GOTOOLCHAIN=local` and no `HOME`; the resulting `xcaddy build <version> --with <module>@<tag> --output <path>` works there; `caddy list-modules --versions` shows a plugin's version; `go list -m -json <module>@latest` works for the Linode, Cloudflare and Namecheap plugins.
