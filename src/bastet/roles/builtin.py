@@ -11,7 +11,7 @@ from bastet.core.osinfo import ARCH_LIKE, DEBIAN_LIKE, os_id
 from bastet.engine.command import Command
 from bastet.engine.files import Block, Directory, File, Line, Symlink
 from bastet.engine.packages import Package, Reboot, Unaccounted, Updates
-from bastet.engine.run import Batch
+from bastet.engine.run import Batch, Note
 from bastet.engine.security import ServiceExposure
 from bastet.engine.systemd import Hostname, Locale, Unit, drop_in, reload, restart
 from bastet.engine.templates import render_template
@@ -105,7 +105,11 @@ def _packages(v: dict, host: HostInfo) -> list[Batch]:
     packages = [Package(**_kw({**base, **p})) for p in installs]
     if needs_contrib:
         packages.append(Package(name="pacman-contrib"))
-    return [Batch("packages", [*removes, *packages, *extras])]
+    notes = []
+    if v.get("refresh") is False and host.os_id in ARCH_LIKE:
+        notes.append(Note("warning", "packages", "refresh: false installs with plain `pacman -S`; with a stale sync database "
+                          "that can 404 or half-upgrade the system. Drop `refresh: false` unless you know the database is current"))
+    return [Batch("packages", [*removes, *packages, *extras], notes)]
 
 
 BASTET_USER = "bastet"
