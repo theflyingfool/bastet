@@ -8,6 +8,7 @@ Status: **active** · **superseded by D-xxx** · **deferred** (decided to do lat
 
 | ID | Date | Decision | Status |
 |---|---|---|---|
+| D-035 | 2026-10-14 | `.serena/` is git-ignored and local; a new worktree gets a copy, and it is never committed | active |
 | D-034 | 2026-10-14 | Default role notes: `packages` at the lab, `base` at the lab, every group and every host | active |
 | D-033 | 2026-10-14 | `packages` and `base` reach every managed host through the type files | superseded by D-034 |
 | D-032 | 2026-10-14 | First get to writing Markdown roles for the VPS; cleanup and destructive features come after | active |
@@ -79,6 +80,8 @@ Reconstructed from documents after the fact, ordered by date (not interleaved wi
 | B-037 | 2026-09-30 | Role-managed state is not gathered; identical items merge, conflicting ones error | `docs/specs/2026-09-30-bastet-design.md` (section 9.0) | active |
 
 ## Entries
+
+**D-035 · 2026-10-14 · `.serena/` stays git-ignored and local.** `scripts/privacy-check` rejects it when committed. Because a worktree does not have ignored files, CLAUDE.md says to copy `.serena/` (and `.privacy-patterns` when the check is to run) into a new worktree, and never to commit either.
 
 **D-034 · 2026-10-14 · Default role notes.** The lab gets `packages` and `base` role notes; every group (machine type, OS, custom) and every host gets a `base` note. A role is assigned the normal way, as a note in `_roles/`. They are written when the lab, host or copied group is created (`bastet init`, `bastet add host`, the gather group copy), from the role's `starter:`, and never overwrite an existing note. No migration. Replaces D-033 and D-030.
 
@@ -210,4 +213,7 @@ Open or deferred items that are not decisions yet; the work itself is in `docs/R
 
 - How the baseline that fills `base`'s `tools` is selected (for example LXC against the rest).
 - Whether `init` should generate groups for all host types.
+- Tests should derive expectations from the data (a role's accounts, option lists, role sets) instead of copying it as literals; the owner is auditing the testing method. Example: the pinned `systemd` account set in `tests/roles/test_role_accounts.py` needed an edit for every new Arch account.
+- Contract tests: Debian is not a concern for now (`test_roles_contract` fails on both users). The Arch contract image has no systemd and no network, so the three `pacman` contract tests (reflector timer) and `test_arch_updates_reported` fail there; fix the tests or the image, not the roles.
+- `full_upgrade` without `install:` is an error; on Arch it is now redundant (`-Syu` is the default), so it could become a no-op there.
 - Reflector configuration; unaccounted services and files; the SSH port field.
