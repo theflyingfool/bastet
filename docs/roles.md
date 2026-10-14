@@ -170,14 +170,6 @@ allowed:
   - steam
 ```
 
-**An AUR package (Arch; sets up yay on this host only)**
-
-```yaml
-install:
-  - name: visual-studio-code-bin
-    aur: true
-```
-
 **Install a few packages**
 
 ```yaml
@@ -224,7 +216,6 @@ remove:
 | install[].refresh | bool |  |  |
 | install[].full_upgrade | bool |  |  |
 | install[].manager | string |  | Fail unless the host uses this manager (one of apt-get, pacman, dnf, zypper, apk) |
-| install[].aur | bool |  | Arch only: build this package from the AUR (with yay, as the aur_user) |
 | remove | list of object |  | Packages to remove |
 | remove[].name | string |  |  |
 | remove[].purge | bool |  | Also remove config (apt purge, pacman -Rns, apk --purge) |
@@ -233,8 +224,6 @@ remove:
 | remove[].allow_change_held | bool |  |  |
 | remove[].extra_args | list of string |  |  |
 | updates | string | manual | manual: check reports pending updates, apply installs them only with --updates. auto: apply installs them. security: apply installs security updates (apt, dnf, zypper) (one of manual, auto, security) |
-| aur_user | string | bastet-aur | Arch only: the user AUR packages are built as (created when needed). It may run pacman through sudo, so treat it as root-equivalent |
-| aur_helper | string | yay-bin | Arch only: the AUR package that provides yay, installed only on hosts that list AUR packages |
 | reboot | string | ask | After apply, when the host needs a reboot (new kernel, /run/reboot-required): never = only report it; ask = ask (never under -y); auto = reboot and wait for the host. Bastet never reboots the machine it runs on. (one of never, ask, auto) |
 | reboot_timeout | int | 600 | Seconds to wait for the host to come back after a reboot |
 | updates_exclude | list of string |  | Never upgrade these (pacman --ignore, dnf --exclude, …) |

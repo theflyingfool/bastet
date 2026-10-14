@@ -48,14 +48,6 @@ def test_pacman_parallel_downloads_positive():
         batches_for([ap("pacman", {"parallel_downloads": 0})], host(os="Arch Linux"))
 
 
-def test_aur_setup_is_its_own_batch_and_helper_is_tracked():
-    from bastet.engine.packages import Unaccounted
-    batches = batches_for([ap("packages", {"install": [{"name": "foo-bin", "aur": True}]})], host(os="Arch Linux"))
-    assert [b.name for b in batches] == ["packages (AUR setup)", "packages"]
-    unacc = next(r for b in batches for r in b.resources if isinstance(r, Unaccounted))
-    assert "yay-bin" in unacc.tracked
-
-
 def test_pacman_settings_go_in_the_options_section():
     from bastet.engine.files import Settings
     out = [r for b in batches_for([ap("pacman", {"parallel_downloads": 4})], host(os="Arch Linux")) for r in b.resources

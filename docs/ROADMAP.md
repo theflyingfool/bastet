@@ -121,7 +121,7 @@ Generic mechanisms every role is assembled from (roles spec §8). Roles never im
 
 | | Block | What it does | Missing |
 |---|---|---|---|
-| ◐ | packages | Installs, updates, reboot-needed marking. Callable from a Markdown role (each package manager's role owns its repositories; `packages` has no `repositories` option) | `hold` (pinning distro packages), install-method support (`native`/`container`), AUR bootstrap and update/reboot policy as block options (today in the role), `wants: package-manager` |
+| ◐ | packages | Installs, updates, reboot-needed marking. Callable from a Markdown role (each package manager's role owns its repositories; `packages` has no `repositories` option) | `hold` (pinning distro packages), install-method support (`native`/`container`), update/reboot policy as block options (today in the role), `wants: package-manager` |
 | ☑ | users | Users, groups, authorized keys, sudoers drop-ins. Callable from a Markdown role; reports unaccounted accounts, those nothing expects: users the role manages (the default `root` and `bastet` included), accounts an applied role declares (`accounts:`), the OS defaults, and the `allowed` list. `bastet` is a system account on new hosts (the first real run decides what is left) | Roles call it. Blocks do not call each other (the role that needs both calls both), so `users` never calls `systemd` |
 | ◐ | files | Callable from a Markdown role. Whole files, directories, symlinks, lines, blocks; owner/mode; validate before swap; Jinja2 templates (below). Section settings: `edit: ini` writes a managed block per section, originals commented `#bastet: `, off and empty supported, removal deferred; `backup: true` keeps the original once as `<path>.bastet-orig`. Also apt's `render: apt` and `as: entries` (`deb822`, `ini_section`), `before:`/`after:` (`run_before`/`run_after`) | More `edit:` types, added only when a role needs them and listed in the files docs as planned (`env` for vaultwarden, `sshd` for ssh; `sysctl`-style `key = value` later); format checking (YAML, JSON, TOML, INI parsed on the controller; `visudo -cf`, `sshd -t`, `systemd-analyze verify` on the host; a role's own `validate:`); replace-with-check |
 | ◐ | templates (part of files) | Files rendered with Jinja2 (`StrictUndefined`) | The full language; role-folder includes only, `toyaml`/`tojson`/`quote`. The context should see every variable, across hosts too (for cross-host setups); not used by any role yet, so built when a role needs it |
@@ -170,7 +170,7 @@ Rows marked ⏸ (the Proxmox and ZFS infrastructure roles) are set aside until a
 | ☐ | 5 | firewall | nftables, built from the ports other roles contribute | Held: the VPS uses the provider's firewall |
 | ☐ | 6 | podman | Container runtime (Quadlet), rootless where possible | The default runtime |
 | ☐ | 7 | mounts | NFS shares and data disks as `.mount` units | Friendly menu over the systemd block |
-| ☐ | 8 | aur repository | A local, signed pacman repository built with aurutils; reports AUR updates | Design session first. The AUR is out of scope for the first slice and may break on Arch hosts in the new order |
+| ☑ | 8 | aur repository | A local, signed pacman repository built with aurutils; reports AUR updates | Removed 2026-10-14: the AUR handling is gone from `packages`; a repository role would be a new design |
 | ☐ | 9 | docker | Alternative container runtime | Only where docker must stay |
 | ☐ | V1 | caddy | Web server and reverse proxy; Caddyfile importing a `conf.d` directory, automatic TLS | VPS apps, step 5 |
 | ☐ | V2 | vaultwarden | Native package, env file, `ADMIN_TOKEN` secret, Caddy vhost | VPS apps, step 6 |
@@ -185,7 +185,7 @@ One row per building block or role: what we know it still needs. Nothing here is
 
 | Block or role | Planned | Needed by |
 |---|---|---|
-| packages (block) | `hold` (pinning distro packages); install method (`native`/`container`); AUR bootstrap and update/reboot policy as block options (today in the role); `wants: package-manager` | harden, app roles |
+| packages (block) | `hold` (pinning distro packages); install method (`native`/`container`); update/reboot policy as block options (today in the role); `wants: package-manager` | harden, app roles |
 | users (block) | An explicit way to clear a password; the `bastet` account refusal also checking names that come from options; what to do with system accounts the report still lists (after the first real run) | users role, hardening |
 | files (block) | `edit: env` (`KEY=value`, systemd quoting rule); `sysctl`-style `key = value` edits; format checking (YAML, JSON, TOML, INI parsed on the controller; `visudo -cf`, `systemd-analyze verify` on the host); replace-with-check; a secret embedded in a larger string | vaultwarden, ssh, harden |
 | templates (files) | `toyaml`/`tojson`/`quote` filters; cross-host variables in the template context; a place to keep templates next to a role (also for roles under `_roles/`) | the first role that uses a template |

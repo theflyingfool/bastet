@@ -94,23 +94,6 @@ def test_group_key_and_name_validation():
     assert Package(name="tree", version="2.0").label == "tree 2.0"
 
 
-def test_aur_package_installs_with_yay_as_build_user():
-    p = Package(name="yay-test", aur=True)
-    c = cur(p, "pacman", "")
-    cmds = p.fix(p.compare(c), c)
-    assert cmds[-1] == ("runuser -u bastet-aur -- yay -S --noconfirm --needed --answerdiff None --answerclean None "
-                        "-- yay-test")
-
-
-def test_aur_needs_pacman():
-    with pytest.raises(Unsupported, match="AUR packages need pacman"):
-        cur(Package(name="x", aur=True), "apt-get", "")
-
-
-def test_aur_and_repo_packages_never_share_a_command():
-    assert Package(name="a", aur=True).group_key() != Package(name="a").group_key()
-
-
 # every knob works where the manager can do it, and is Unsupported where it can't
 
 def pcur(pkg, manager, query=""):

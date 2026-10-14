@@ -28,7 +28,7 @@ from bastet.engine.users import AuthorizedKey, Group, User, sudoer
 from bastet.roles import expr
 
 COMMON_KEYS = {"when", "before", "after", "each"}
-PACKAGE_KEYS = {"name", "state", "version", "aur", "purge"} | COMMON_KEYS
+PACKAGE_KEYS = {"name", "state", "version", "purge"} | COMMON_KEYS
 SYSTEMD_KINDS = {
     "unit": {"name", "enabled", "state"},
     "time": {"timezone", "ntp", "rtc_local"},

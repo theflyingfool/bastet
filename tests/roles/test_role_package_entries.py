@@ -28,9 +28,14 @@ def built(r, values, secret_options=frozenset(), **host_kw):
 
 
 def test_bare_names_and_maps_become_packages(tmp_path):
-    r = role(tmp_path, ["example-app", {"name": "git", "state": "absent"}, {"name": "yay-bin", "aur": True}])
-    assert [(p.name, p.state, p.aur) for p in built(r, {})] == [("example-app", "present", False), ("git", "absent", False), ("yay-bin", "present", True)]
+    r = role(tmp_path, ["example-app", {"name": "git", "state": "absent"}, {"name": "ripgrep", "purge": True}])
+    assert [(p.name, p.state) for p in built(r, {})] == [("example-app", "present"), ("git", "absent"), ("ripgrep", "present")]
     assert all(isinstance(p, Package) for p in built(r, {}))
+
+
+def test_aur_is_refused_naming_the_key(tmp_path):
+    with pytest.raises(BastetError, match="aur"):
+        built(role(tmp_path, [{"name": "yay-bin", "aur": True}]), {})
 
 
 def test_a_name_that_resolves_to_a_list_expands(tmp_path):
