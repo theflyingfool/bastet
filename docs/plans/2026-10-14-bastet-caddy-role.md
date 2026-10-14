@@ -36,6 +36,8 @@ Read from the code; the host-side items are in `caddy-verify.sh` (owner runs it 
 
 **Host side, round 2 root run (`cadddy-verify2.out`):** `caddy` 2.11.7-1 installed (creates the `caddy` user); the packaged unit and Caddyfile match the package read earlier; validation results as in the non-root run. **Exec probes under `DynamicUser`:** `CacheDirectory=` (`/var/cache`) and `StateDirectory=` (`/var/lib`) fail to execute a file the unit just copied there (mode 755, owned by the dynamic user); `RuntimeDirectory=` (`/run`) and the private `/tmp` execute fine. The build in the private `/tmp` worked (xcaddy v0.4.7, Caddy v2.11.7 with Linode v0.8.0, 1m53s) but peaked at **2.8 GB** (144 MB swap): too heavy for a small VPS. Round 3 (`caddy-verify3.sh`) tests caches on disk plus executables in `/run`, a warm rebuild, a 1 GB-capped rehearsal and the real `private/` path. Not leaving anything behind except the installed `caddy` package (`pacman -Rns caddy` to remove).
 
+**Host side, round 3 (root, `cadddy-verify3.out`):** the split works. Cold build 2m09s, peak 1.1 GB; warm 9s, peak 1 GB; warm under `MemoryMax=1G` with a single job 334 MB. `exec` from `CacheDirectory` fails by the symlink and by the real `private/` path with all directories traversable, so the executables live in `RuntimeDirectory` (59 MB). **Task 1's host-side items are done**; what remains is the Jinja dict merge (Task 4) and the providers' own prerequisites (not validated by the owner, documented as unverified).
+
 ## Tasks
 
 ### Task 1 — Verify the unchecked facts (spec section 6)
