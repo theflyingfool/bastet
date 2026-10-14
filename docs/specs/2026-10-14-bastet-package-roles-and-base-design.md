@@ -4,6 +4,8 @@
 
 **Relationship to earlier documents:** builds on `2026-10-10-bastet-roles-architecture-design.md` (roles are Markdown over Python building blocks; a host runs by phase across all roles). It supersedes the roadmap's old wording for "VPS apps, step 3" and the old `packages` role design. `ssh` and `harden` are removed from `src/` in this round and rebuilt as Markdown later (section 12).
 
+**Scope of this round (owner, 2026-10-14): only what is needed to build the Markdown roles.** Everything else is deferred and is in the roadmap. In: the cleanup and AUR removal, Arch `-Syu` with the lock check and the `refresh: false` warning, `supersedes` as a contract feature, reflector with the mirrorlist `NoExtract` (both wanted right away), the `base` role, and groups copied into a user folder. Deferred: all Debian-based changes (`debian.yml`, the `apt` role's options and optional dependencies, Debian-only notes), optional dependencies as dependencies, moving options between `packages` and the manager roles (they stay as they are), `init` generating groups, and the gather prompt that asks and remembers a "no".
+
 **Vocabulary.** A *building block* is a role too, one of the special ones: the only place with real code (Python). Every other role is Markdown data that the blocks act on. There is no separate "block" and "role" for the same name: `packages` is one thing, a role, and it is the building block.
 
 ## 1. What exists, and what this changes
@@ -19,13 +21,13 @@
 
 1. **`base`** is a Markdown role applied to every host. Lab, group and host notes each add to it. Bastet is opinionated, so `base` keeps the old role's defaults (tool list, `microcode: auto`) (section 15).
 2. **`packages`** is applied at the lab by default and nowhere else. It stays Python (it is a building block) and holds the manager-neutral settings.
-3. **Manager roles** (`pacman` and `apt` exist already; later ones are new) come with each OS the way `systemd` comes with Arch today (OS files, `src/bastet/data/oses/<os>.yml`).
+3. **Manager roles** (`pacman` and `apt` exist already; later ones are new) come with each OS the way `systemd` comes with Arch today (OS files, `src/bastet/data/oses/<os>.yml`). This round: `pacman` is added to `arch.yml`; `debian.yml` and `apt` changes are deferred.
 4. **A manager role can supersede `packages` settings.** On the manager role the shared options exist, are **unset by default** (so they override nothing), and are **shown** (effective value and where it came from) so nobody has to jump between roles to understand a host.
 5. **Precedence stays one rule (enforced and documented):** note rank first (lab < group < host, host always wins), a role's own `overrides:` (like `time` on Debian) last. The only new rule: **at equal rank the manager role beats `packages`**. Because `packages` lives at the lab and managers come in at the OS level or above, the manager wins in every ordinary case.
 6. **Arch installs always use `pacman -Syu`** (never `-Sy` alone). `refresh: false` stays as an explicit opt-out that keeps plain `-S`, with a loud warning on an Arch host (section 6).
 7. **The AUR is removed everywhere**, including roles table item 8.
 8. **Reflector lives in the `pacman` role** and uses the `packages` and `systemd` roles' blocks. For now it only installs reflector and enables and starts its timer; configuring it is a later fix (section 8).
-9. **Optional dependencies as dependencies** is a setting in **both** manager roles (pacman: optional deps installed `--asdeps`; apt: recommends), **on by default**.
+9. **Optional dependencies as dependencies** is a setting in **both** manager roles (pacman: optional deps installed `--asdeps`; apt: recommends), **on by default**. **Deferred.**
 10. **Unaccounted reports** appear in each host's markdown note as one section, with one subsection per kind (packages, users, files, services). They work today and are not touched this round (section 11).
 11. **`ssh` and `harden` are removed from `src/` now** (moved to `refs/`, every use pulled from the code and tests) and **rebuilt as Markdown later**. Until then Bastet assumes every host uses SSH port 22 (section 12).
 
@@ -34,11 +36,10 @@
 Existing ranks (`roles/resolve.py:sources_for`): OS default (−1), lab note (0), type default (1), group (2), host (3). Nothing ships as an "every host" default today.
 
 - **`packages` and `base`** are lab role notes (`_roles/lab/packages.md`, `_roles/lab/base.md`) that **`bastet init` writes** from each role's `starter:`. `init` writes the lab role notes of **every role that applies by default**, not a fixed pair, and is safe to rerun (it never overwrites a note that exists). The owner re-initializes the lab folder; no migration is written.
-- **Managers** come from the OS file (`pacman` added to the existing `arch.yml`; `apt` needs a new `debian.yml`, since only `arch.yml` exists today), with no options, as `systemd` does. `debian.yml` covers Debian-based hosts; Proxmox is Debian underneath, which is the owner's only non-Arch OS today. Ubuntu and others later.
+- **Managers** come from the OS file: `pacman` is added to the existing `arch.yml`, with no options, as `systemd` does. `apt` needs a new `debian.yml` (only `arch.yml` exists today; Proxmox is Debian underneath): **deferred**.
 - **Where the OS comes from.** OS defaults are shipped inside Bastet (`data/oses/arch.yml`) and picked by the host's `os` value (`osinfo.os_id`; any Arch-like name maps to `arch`, `osdefaults.defaults_for`). That value is a gathered fact, so a brand-new host has **no OS defaults, and no manager role, until its first `bastet run -g`**.
 - **Generated groups exist, but in the wrong place.** `core/render.py` generates one group note per OS seen and one per host type seen, under `_bastet/groups/` (for example `arch.md` with `match: {os: arch}`, `vps.md` with `match: {type: vps}`), refreshed when facts are gathered. A role note with `applies_to: "[[arch]]"` reaches every Arch host, so **to adjust all Arch hosts you write a role note for the `arch` group** (group rank); a lab note with `overrides: [{when: host.arch_like, ...}]` also works, as `time` does. **Change (owner):** `_bastet/` is not editable by the user, so these groups move into a **user folder** (`groups`) where they can be edited. A user's own group note of the same name wins over a generated one.
-- **Init and gather both generate (owner is weighing this).** `bastet init` can generate groups for every host type and for the OSes Bastet ships defaults for, so role notes can be written before any host exists; gather then offers the groups for whatever it saw that is still missing. The alternative is gather only. Either way nothing is overwritten.
-- **Gather offers, the user can say no.** On `bastet run -g`, when a host's OS or type has no group yet, gather **asks** whether to create it. A "no" is remembered in the **config folder** (`~/.config/bastet/`; the format does not matter) so it is not asked again and a deleted group is not regenerated. With `-y`, gather **generates** the groups without asking.
+- **Gather copies the groups.** On `bastet run -g`, the generated groups are copied into the user folder, and the user's copy wins over the generated one. **Deferred:** `init` generating the groups (the owner thinks it should generate all types), and the prompt that asks and remembers a "no" in the config folder.
 - **`bastet add group` (to do, out of scope for this design).** Groups are also made by hand, for anything else (for example mail servers). The rule syntax is designed later; it is in the roadmap.
 - **Arch derivatives:** the owner runs only Arch proper and Proxmox, so derivatives are not handled in this round (`match` is exact on the OS id). This may change.
 - **To check when planning:** what a lab with an OS that has no OS file gets (no manager role: the `packages` role still runs, but no manager-specific options apply).
@@ -47,16 +48,17 @@ Existing ranks (`roles/resolve.py:sources_for`): OS default (−1), lab note (0)
 
 `packages` stays Python (`engine/packages.py` for the resources, `roles/builtin.py:_packages` for the role) and is applied at the lab. It keeps the manager-neutral options: `install`, `remove`, `updates`, `updates_exclude`, `reboot`, `reboot_timeout`, `report_unaccounted`, `allowed`.
 
-- **What moves out:** the manager-specific options (apt's `default_release`, `allow_change_held`, `dpkg_options`, and the pacman install behaviour) move to the manager roles (section 5); the AUR is removed (section 7).
-- **What changes inside it:** `-Syu` and the lock check (section 6), optional dependencies as dependencies (section 9).
+- **What changes:** the AUR is removed (section 7), and installs use `-Syu` with the lock check (section 6). **Moving the manager-specific options (apt's `default_release`, `allow_change_held`, `dpkg_options`, the pacman install behaviour) to the manager roles is deferred**; they stay where they are.
 - **Updates:** a value set at a manager role (for example in `pacman.md`) is passed to `packages`, which deals with it.
 - **Unaccounted** lives here today (`_packages` emits `Unaccounted`, `batches_for` fills its tracked list). It works and **is not removed or reworked**; it is noted for a future cleanup. `Reboot` is a building-block resource that is ignored for now.
 
 ## 5. Manager roles
 
-- **`apt`:** `default_release`, `allow_change_held`, `dpkg_options`, repositories (already), `install_recommends` (optional deps, section 9).
-- **`pacman`:** `pacman.conf` settings (already), the `-Syu` behaviour and `refresh`, optional deps, reflector (section 8).
-- **Shared options (decision 4).** Each manager role lists the `packages` options it may override (`updates`, `updates_exclude`, `reboot`, `reboot_timeout`, `report_unaccounted`, `allowed`), unset by default, **with the same key names as in `packages`** (owner), so `reboot` in `pacman.md` and `reboot` in the lab's `packages.md` are the same setting. Each carries **`supersedes: packages.reboot`** (owner's choice): it names the role and option it overrides as `role.option`, so the names may differ, and the same key lets any maintainer override an option in any other role. Type and description are taken from the target when left out. Resolution: rank first; at equal rank the manager role wins (enforced by the resolver and also written in `writing_roles.md`); a set value overrides, an unset one does nothing.
+**This round the split between `packages` and the manager roles is left as it is.** What is built is the contract feature `supersedes` so a manager role (and any other role) can use it, and the first use can come with the first role that needs it. The rest of this section is the design for that use.
+
+- **`apt`** (deferred): `default_release`, `allow_change_held`, `dpkg_options`, repositories (already), `install_recommends`.
+- **`pacman`:** `pacman.conf` settings (already), reflector (section 8); later the `-Syu` behaviour and `refresh`, optional deps.
+- **Shared options (decision 4).** Each manager role lists the `packages` options it may override (`updates`, `updates_exclude`, `reboot`, `reboot_timeout`, `report_unaccounted`, `allowed`), unset by default, **with the same key names as in `packages`** (owner), so `reboot` in `pacman.md` and `reboot` in the lab's `packages.md` are the same setting. Each carries **`supersedes: packages.reboot`** (owner's choice): it names the role and option it overrides as `role.option`, so the names may differ, and the same key lets any maintainer override an option in any other role. Type and description are taken from the target when left out. Resolution: rank first; at equal rank the manager role wins (enforced by the resolver and also written in `writing_roles.md`); a set value overrides, an unset one does nothing. **Checks when a role file is read:** a `supersedes` that names a role or option that does not exist (a typo such as `packages.rebot`) fails the load with a clear message, instead of silently doing nothing. If a host has the manager role but no `packages` note, the manager's value still reaches `packages` (always usable).
 - **Display.** `bastet show` and the resolved table list the effective value of each shared option and its origin (the role and the note), for example `reboot ask (lab, packages)` or `reboot auto (OS default, pacman)`, also on the manager role's page. Nothing is hidden by the override.
 - **List merging:** list options **merge as a union** across levels (`resolve._merge`), so a host's list adds to the lab's. A scalar set at two notes of the same rank that disagree is a clash, as today.
 
@@ -83,7 +85,9 @@ For now: install `reflector` and enable and start `reflector.timer` (a `Unit` en
 
 **Mirrorlist protection (opinionated default):** `etc/pacman.d/mirrorlist` is added to `NoExtract` in `pacman.conf` (the `no_extract` option of the `pacman` role), so an update of `pacman-mirrorlist` cannot overwrite the list reflector wrote. **It applies only when reflector is on**, and reflector is on by default.
 
-## 9. Optional dependencies as dependencies
+## 9. Optional dependencies as dependencies (deferred)
+
+**Deferred by the owner; kept here as the design.**
 
 One setting in both managers, **on by default** (candidate name: `install_recommends`, which `packages` already has for apt; on pacman it means optional deps installed with `--asdeps`). Rules: it can be set per package entry (for packages whose optional deps are alternatives, such as pulseaudio against pipewire); an optional dep that something already installed satisfies is skipped; packages installed `--asdeps` are not "explicit", so they stay out of the unaccounted report (it reads `pacman -Qe`). A role that needs one specific alternative lists it as its own package. The change happens once in `packages`; both manager roles expose it.
 
@@ -92,7 +96,7 @@ One setting in both managers, **on by default** (candidate name: `install_recomm
 Markdown, no Python (it is not a building block). `bastet init` and `bastet add role base` write the lab note. For now it only does what the old role did:
 
 - **`tools`:** list of package names, default `[vim, zsh, git, htop, tree, gdu, wget, less]`. Lists **union** across lab, group and host, but a note that sets `tools` replaces the default list. That is why `extra_tools` stays: it adds on top at every level. Eventually `tools` becomes the shipped, non-editable baseline (selected by a host-kind baseline, for example LXC against the rest) and `extra_tools` holds everything else. A `baseline` option is **reserved**: documented as unused for now.
-- **`microcode`:** `auto` (default) or `never`. Physical hosts only; package by OS and CPU vendor (Arch `intel-ucode`/`amd-ucode`; Debian `intel-microcode`/`amd64-microcode`). Everything the old Python raised as an error becomes a `checks:` error: no CPU fact (name `bastet run -g`), unknown vendor, no package known for this OS. A virtual host gets an info note. On Debian an info note says the `non-free-firmware` component is needed.
+- **`microcode`:** `auto` (default) or `never`. Physical hosts only; package by OS and CPU vendor (Arch `intel-ucode`/`amd-ucode`; Debian `intel-microcode`/`amd64-microcode`). Everything the old Python raised as an error becomes a `checks:` error: no CPU fact (name `bastet run -g`), unknown vendor, no package known for this OS. A virtual host gets an info note. Debian is kept as a straight port (the same role file lists the Debian packages, and the packages role picks the manager on the host); the Debian-only info note about the `non-free-firmware` component is deferred.
 - **It will grow** (owner), but nothing else is added in this round: no firmware, fwupd, smartd or sensors options yet.
 - The old Python `base` (`roles/system.py:base`, `data/roles/base/role.yml`) is moved to `refs/` with the rest of `system.py` (section 12).
 
@@ -118,19 +122,27 @@ Markdown, no Python (it is not a building block). `bastet init` and `bastet add 
 
 ## 13. Order of work
 
+**In this round**
 1. **Cleanup:** `ssh`, `harden` and the old `base` moved to `refs/` and pulled; AUR removed.
-2. **Contract:** `supersedes`, the manager-wins tie rule (enforced and documented), and the display of shared values.
-3. **Package roles:** manager-specific options move from `packages` to `pacman`/`apt`; `-Syu` with the lock check and the `refresh: false` warning; reflector timer and the mirrorlist `NoExtract`; optional deps on by default; `debian.yml`; `bastet init` writes the lab notes; groups move to a user folder; CLAUDE.md amended (section 15).
+2. **Contract:** `supersedes` (with the typo check), the manager-wins tie rule (enforced and documented), the display of shared values, and the CLAUDE.md amendment (section 15).
+3. **Arch installs and pacman:** `-Syu`, the lock check, the `refresh: false` warning, reflector timer and the mirrorlist `NoExtract`; groups copied to a user folder.
 4. **`base`** in Markdown.
 5. **`caddy`, `forgejo`, `vaultwarden`.**
-6. Later: `ssh` and `harden` rebuilt; the roadmap rows (sysctl, groups, `add group`, unaccounted services and files, the test audit).
+
+**Deferred (all in the roadmap)**
+- Debian: `debian.yml`, `apt` options and optional deps, the `non-free-firmware` note.
+- Optional dependencies as dependencies (both managers).
+- Moving options between `packages` and the manager roles.
+- `init` generating groups; the gather prompt with a remembered "no"; `bastet add group`.
+- Reflector configuration; unaccounted services and files; sysctl in the `systemd` block.
+- `ssh` and `harden` rebuilt (last); the SSH port field.
+- `tools` baselines; more `base` options; the test audit.
 
 ## 14. Open questions
 
 Answered 2026-10-14 and removed: shared option key names (same as `packages`), the key (`supersedes`), `-y` behaviour, `debian.yml` scope, `NoExtract` only with reflector, Arch derivatives (not this round), unaccounted reports (untouched), lab role notes (init writes all that apply), what `base` does now (as the old role), the groups folder name, the format of the remembered "no", `add group` syntax (out of scope), the SSH port (22 for now), `sshd -t` (the files `validate:`).
 
-1. Details of `supersedes`: the exact merge when the target role is not applied to the host, and the check that refuses a target that does not exist.
-2. Whether `init` generates the groups as well as gather (section 3).
+1. Nothing about `supersedes` is open: the typo check and the no-`packages`-note case are decided in section 5.
 3. The final wording of the CLAUDE.md and skill amendment (section 15).
 4. How the baseline that fills `tools` is selected. Not this round.
 5. Reflector's configuration (stopgap, section 8).
