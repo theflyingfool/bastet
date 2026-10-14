@@ -314,8 +314,9 @@ applied). For each exposure:
 - The site name is `subdomain` + `.` + the domain the lab note's `domains:` maps the exposure's `domain` (its scope) to.
   The scope may be left out when `domains:` has exactly one entry; with several it must be given. Two scopes may map to
   the same domain.
-- It goes to the collecting roles whose `serves` contains the scope, or to the ones `via` names (`[[vps1/caddy]]`, one
-  or a list: a host and the role on it). Two or more matches with no `via` is an error; no match is a warning on the
+- It goes to the collecting roles whose `serves` contains the scope, or to the ones `via` names (one link, or a list of
+  links, each to a role note on a host, written as the host name, a slash and the role name inside double square
+  brackets, like vps1 slash caddy). Two or more matches with no `via` is an error; no match is a warning on the
   exposing host.
 - The upstream is `upstream` if the exposure has one, else the exposing host's `ip` (or `address`) and `port`, or
   `127.0.0.1` and `port` when the proxy is on the same host. No address and no `upstream` is an error.
