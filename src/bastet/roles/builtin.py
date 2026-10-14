@@ -95,17 +95,19 @@ def _packages(v: dict, host: HostInfo) -> list[Batch]:
         extras = [Updates(policy="security", **common), Updates(policy="manual", rest=True, **common)]
     else:
         extras = [Updates(policy=policy, apply_updates=host.apply_updates, **common)]
-    needs_contrib = (policy in ("auto", "security") and host.os_id in ARCH_LIKE
-                     and "pacman-contrib" not in names  # the pending-update check needs checkupdates
-                     and not any(r.name == "pacman-contrib" for r in removes))  # unless the role removes it itself
+    # the pending-update check needs checkupdates (pacman-contrib), which runs pacman under fakeroot; each is skipped when the
+    # role installs it already, or removes it itself
+    needs_contrib = tuple(
+        n for n in ("pacman-contrib", "fakeroot")
+        if policy in ("auto", "security") and host.os_id in ARCH_LIKE and n not in names and not any(r.name == n for r in removes))
     if not host.container:
         extras.append(Reboot(policy=v.get("reboot") or "ask", timeout=v.get("reboot_timeout") or 600))
     if v.get("report_unaccounted", True):
-        tracked = tuple(p["name"] for p in installs) + (("pacman-contrib",) if needs_contrib else ()) + tuple(str(t) for t in host.data.get("bastet_tools") or ())
+        tracked = tuple(p["name"] for p in installs) + needs_contrib + tuple(str(t) for t in host.data.get("bastet_tools") or ())
         extras.append(Unaccounted(tracked=tracked, allowed=tuple(dict.fromkeys((*(v.get("allowed") or ()), *baseline_for(host))))))
     packages = [Package(**_kw({**base, **p})) for p in installs]
-    if needs_contrib:
-        packages.append(Package(name="pacman-contrib"))
+    # fakeroot is only here for checkupdates, so it is marked as a dependency (pacman --asdeps): it goes when nothing needs it
+    packages += [Package(name=n, **({"extra_args": ("--asdeps",)} if n == "fakeroot" else {})) for n in needs_contrib]
     notes = []
     if v.get("refresh") is False and host.os_id in ARCH_LIKE:
         notes.append(Note("warning", "packages", "refresh: false installs with plain `pacman -S`; with a stale sync database "

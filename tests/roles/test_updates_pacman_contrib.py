@@ -26,10 +26,38 @@ def contrib(values, os="Arch Linux"):
     return [r for r in resources(values, os) if isinstance(r, Package) and r.name == "pacman-contrib"]
 
 
+def fakeroot(values, os="Arch Linux"):
+    return [r for r in resources(values, os) if isinstance(r, Package) and r.name == "fakeroot"]
+
+
 @pytest.mark.parametrize("policy", ["auto", "security"])
 def test_auto_and_security_add_pacman_contrib_on_arch(policy):
     [p] = contrib({"updates": policy})
     assert p.state == "present"
+
+
+@pytest.mark.parametrize("policy", ["auto", "security"])
+def test_checkupdates_runs_pacman_under_fakeroot_so_it_is_installed_too(policy):
+    [p] = fakeroot({"updates": policy})
+    assert p.state == "present"
+    [report] = [r for r in resources({"updates": policy}) if isinstance(r, Unaccounted)]
+    assert "fakeroot" in report.tracked
+
+
+def test_fakeroot_is_installed_as_a_dependency_in_a_command_of_its_own():
+    [p] = fakeroot({"updates": "auto"})
+    [c] = contrib({"updates": "auto"})
+    assert p.extra_args == ("--asdeps",) and c.extra_args == ()
+    assert p.group_key != c.group_key  # so --asdeps never reaches the other packages of the install
+
+
+def test_fakeroot_follows_the_same_rules_as_pacman_contrib():
+    assert fakeroot({"updates": "manual"}) == [] and fakeroot({}) == []
+    assert fakeroot({"updates": "auto"}, os="Debian GNU/Linux 13 (trixie)") == []
+    assert len(fakeroot({"updates": "auto", "install": [{"name": "fakeroot"}]})) == 1  # not duplicated
+    [p] = fakeroot({"updates": "auto", "remove": [{"name": "fakeroot"}]})  # the role's own removal stands
+    assert p.state == "absent"
+    assert len(contrib({"updates": "auto", "install": [{"name": "fakeroot"}]})) == 1  # each is decided on its own
 
 
 def test_manual_does_not_add_it():
