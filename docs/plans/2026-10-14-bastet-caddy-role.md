@@ -34,6 +34,8 @@ Read from the code; the host-side items are in `caddy-verify.sh` (owner runs it 
 
 **Host side, round 2 (a non-root run by the assistant on the owner's Arch host, `verify-user.out`; the root script `caddy-verify2.sh` is still to run):** all of it is recorded in spec section 6 "Verified": fragments validate, snippets alone fail, duplicate hostnames fail the whole config, unset env placeholders pass (no credentials needed to validate), the generic DNS keys go in each site's `tls { }` block, `list-modules --versions` and `go list -m` give the plugin version, a Linode build takes about 1m47s. Still open: the `DynamicUser` exec denial and the directory kind (root probe), the providers' own prerequisites (not validated), the Jinja dict merge (Task 4).
 
+**Host side, round 2 root run (`cadddy-verify2.out`):** `caddy` 2.11.7-1 installed (creates the `caddy` user); the packaged unit and Caddyfile match the package read earlier; validation results as in the non-root run. **Exec probes under `DynamicUser`:** `CacheDirectory=` (`/var/cache`) and `StateDirectory=` (`/var/lib`) fail to execute a file the unit just copied there (mode 755, owned by the dynamic user); `RuntimeDirectory=` (`/run`) and the private `/tmp` execute fine. The build in the private `/tmp` worked (xcaddy v0.4.7, Caddy v2.11.7 with Linode v0.8.0, 1m53s) but peaked at **2.8 GB** (144 MB swap): too heavy for a small VPS. Round 3 (`caddy-verify3.sh`) tests caches on disk plus executables in `/run`, a warm rebuild, a 1 GB-capped rehearsal and the real `private/` path. Not leaving anything behind except the installed `caddy` package (`pacman -Rns caddy` to remove).
+
 ## Tasks
 
 ### Task 1 — Verify the unchecked facts (spec section 6)
