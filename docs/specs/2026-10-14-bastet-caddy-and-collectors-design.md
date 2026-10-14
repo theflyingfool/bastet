@@ -151,9 +151,9 @@ A site file is a fragment, not a whole Caddyfile, and the files block's `validat
    runuser -u caddy -- env XDG_DATA_HOME=/var/lib XDG_CONFIG_HOME=/etc <validator> validate --adapter caddyfile --config /etc/caddy/Caddyfile
    systemctl reload caddy.service
    ```
-   The engine runs a trigger as a script under `sh -e` as root, so a failing validation stops the script before the reload and the trigger exits non-zero. Triggers are de-duplicated by value (label and command), so every entry must carry the **same** `name:` and `run:` text for it to run once. Here `<validator>` is `caddy`, or `caddy-bastet` when `dns` is set (with the DNS env file loaded for the check, if validation needs it, 6). If validation fails, the reload is never attempted, the trigger fails, and the run reports it with Caddy's own error. The restart for a changed unit or drop-in is gated the same way (the same three lines, ending in `systemctl try-restart caddy.service`), because a restart with a bad config is an outage, not a rejected reload.
+   The engine runs a trigger as a script under `sh -e` as root, so a failing validation stops the script before the reload and the trigger exits non-zero. Triggers are de-duplicated by value (label and command), so every entry must carry the **same** `name:` and `run:` text for it to run once. Here `<validator>` is `caddy`, or `caddy-bastet` when `dns` is set. If validation fails, the reload is never attempted, the trigger fails, and the run reports it with Caddy's own error. The restart for a changed unit or drop-in is gated the same way (the same three lines, ending in `systemctl try-restart caddy.service`), because a restart with a bad config is an outage, not a rejected reload.
 3. **A standing check** (`commands:`, read-only) runs the same whole-config validation on every run, so a config that is invalid on disk (a run that failed before, or a hand edit) is reported each time, not only when a file changes. Whether a read-only command can be written so it does not count as a change is verified in Task 1.
-4. Whether `caddy validate` accepts a bare fragment with no global block, and whether validating a config that uses `{env.DNS_...}` needs the variables set, are **unverified** (plan Task 1).
+4. A bare fragment validates (verified), and validation needs no credentials (an unset `{env.…}` passes). **With `dns` set** a site file may contain plugin directives (`tls { propagation_delay … }`), which only `caddy-bastet` accepts; the per-file `validate:` therefore uses `caddy-bastet` when it exists and **skips** when it does not yet (the first apply writes the files before the build command runs), and the gated reload, which runs after the build, validates everything. Without `dns` the per-file validator is the stock `caddy`.
 
 ## 5. The DNS-challenge build (`dns` option)
 
@@ -175,7 +175,7 @@ Unset means none of this exists on the host. `provider` is free-form, so any `ca
 - `secrets` is a map of provider field → secret. Bastet writes them to `/etc/caddy/dns.env` (root-owned, 0600) as `DNS_<FIELD>` (for example `DNS_API_TOKEN`) and the Caddyfile refers to `{env.DNS_API_TOKEN}`; the owner never names environment variables.
 - `settings` is a map of plain provider fields, written literally into the provider block.
 - The Caddyfile gets one global block: `acme_dns <provider> { <field> {env.DNS_<FIELD>} ... <setting> <value> ... }`, only when `dns` is set. A site can still opt out with its own `tls`.
-- The generic keys apply to any provider. `resolvers` matters for split-horizon: without it the lab's Caddy asks its local resolver about the public challenge record. Where these keys sit in the Caddyfile is **unverified** (plan Task 1).
+- The generic keys apply to any provider. `resolvers` matters for split-horizon: without it the lab's Caddy asks its local resolver about the public challenge record. They do **not** go in the global `acme_dns` (it accepts only the provider); the site template writes them in each site's `tls { }` block when any is set, and they merge with the global provider.
 
 **Documented providers** (from each plugin's README, 2026-10-14; the role's body carries this table and each provider as an `examples:` entry):
 
@@ -210,21 +210,24 @@ Unset means none of this exists on the host. `provider` is free-form, so any `ca
 
 Known limits, stated plainly in the role's body: unreviewed upstream plugin code is built whenever its newest release changes (so a host can pin); a rebuild restarts Caddy briefly; a failed build is only reported on the next Bastet run (Bastet has no notification channel yet), and until then the older Caddy keeps serving; the first build needs about 1 GB of memory on a small VPS.
 
-## 6. Verification before the plan's code tasks (not yet checked)
+## 6. Verification status (2026-10-14)
 
-The first plan task checks each and the plan changes if one is wrong:
+**Verified** (read from the code, the Arch package, and a run on the owner's Arch host with Caddy 2.11.7, Go 1.27.2, systemd 262):
 
-- the packaged `caddy.service` lines (`ExecStart`, `ExecReload`, `AmbientCapabilities`), for the drop-in and for "no `setcap` needed";
-- that `go` is in the official repos (the owner says it is) and that `go install ...xcaddy@latest` works inside the sandboxed unit (`GOPATH`, `GOCACHE`, `GOBIN`, `GOTOOLCHAIN=local`, no `HOME`, network allowed);
-- that `caddy list-modules --versions` shows the plugin version and `go list -m -json <module>@latest` works for the three documented plugins;
-- that `caddy validate --adapter caddyfile` accepts a bare site fragment;
-- where the generic ACME DNS keys (`propagation_delay`, `propagation_timeout`, `ttl`, `resolvers`) sit in the Caddyfile;
-- Linode's real token scope and Namecheap's account prerequisites (API access, IP whitelist);
-- that secret entries are fully masked in diffs and logs;
-- that an `on_change:` command with `||`, `&&` and `exit` runs as written (the engine hands the string to a shell), is de-duplicated across entries when identical, and fails the run when it exits non-zero (read in `engine/run.py`; test it);
-- whether validating a config that uses `{env.DNS_...}` fails when the variables are not set (decides whether the validator sources the env file, and whether the build unit's privileged tail has to);
-- what the sandboxed Jinja templating allows for the site defaults (loops, `is not none`), which fixes the syntax in section 3;
-- the exposing host's address field in the inventory, and what an unmanaged host's note holds.
+- the packaged `caddy.service` lines, `AmbientCapabilities` (no `setcap`) and the package's Caddyfile (5.2, 4.1);
+- `go` and `caddy` are in the repo; `go install ...xcaddy@latest` works with an empty `HOME` and `GOTOOLCHAIN=local` (xcaddy v0.4.7); a Caddy build with the Linode plugin takes about 1m47s wall and 4m43s CPU on the dev machine (memory not measured);
+- `list-modules --versions` shows `dns.providers.linode v0.8.0`; `go list -m -json github.com/caddy-dns/linode@latest` returns `v0.8.0`;
+- `caddy validate --adapter caddyfile` accepts a bare site fragment and creates no Caddy storage; a broken one fails; a fragment that imports an undefined snippet fails alone (so generated files must be self-contained); two files with the same hostname fail the whole-config validation with "ambiguous site definition";
+- **validating a config whose `{env.…}` placeholders are unset passes**, also with the DNS plugin and an unset token, so the validators never need the credentials file;
+- **generic DNS keys:** `acme_dns` accepts only the provider (`propagation_delay` there is "unrecognized subdirective"); `propagation_delay`, `propagation_timeout`, `dns_ttl` (written `ttl` in JSON) and `resolvers` go in the site's `tls { }` block and merge with the global `acme_dns` provider (checked with `adapt`). The stock binary rejects `dns <plugin>` ("module not registered"), so a fragment with plugin directives needs `caddy-bastet` to validate;
+- triggers: de-duplicated by value, run as an `sh -e` script as root, a non-zero exit fails the run (`engine/run.py`, `engine/script.py`);
+- secrets are masked in change text and recorded commands; a host's address is its `ip` (not `dhcp`) or `address`.
+
+**Still open** (the first plan task, or the owner's root run of `caddy-verify2.sh`):
+
+- why executing the installed `xcaddy` from `CacheDirectory=` was denied inside a `DynamicUser` unit (not a `noexec` mount) and which directory kind to use;
+- Linode's token scope and Namecheap's account prerequisites (the owner does not validate providers; the role documents them as unverified);
+- what the sandboxed Jinja templating allows for the site defaults (a dict merge such as `dict(defaults, **site)`), which fixes the syntax in section 3.
 
 ## 7. Deferred (roadmap rows)
 

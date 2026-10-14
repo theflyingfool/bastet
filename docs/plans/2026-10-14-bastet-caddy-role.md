@@ -32,6 +32,8 @@ Read from the code; the host-side items are in `caddy-verify.sh` (owner runs it 
 - **Consequences:** the drop-in clears `ExecStartPre=` as well; the role's Caddyfile keeps the admin socket; the gating validator runs as the `caddy` user (for example `runuser -u caddy -- env XDG_DATA_HOME=/var/lib XDG_CONFIG_HOME=/etc <validator> validate ...`) so a root-run validation cannot leave root-owned files under `/var/lib/caddy`.
 - Not yet tested (the host had no `caddy` installed): the packaged unit, `caddy validate` on a fragment, snippets alone, duplicate hostnames, env placeholders, the plugin build and the generic DNS keys. `caddy-verify2.sh` installs `caddy` and covers them.
 
+**Host side, round 2 (a non-root run by the assistant on the owner's Arch host, `verify-user.out`; the root script `caddy-verify2.sh` is still to run):** all of it is recorded in spec section 6 "Verified": fragments validate, snippets alone fail, duplicate hostnames fail the whole config, unset env placeholders pass (no credentials needed to validate), the generic DNS keys go in each site's `tls { }` block, `list-modules --versions` and `go list -m` give the plugin version, a Linode build takes about 1m47s. Still open: the `DynamicUser` exec denial and the directory kind (root probe), the providers' own prerequisites (not validated), the Jinja dict merge (Task 4).
+
 ## Tasks
 
 ### Task 1 — Verify the unchecked facts (spec section 6)
