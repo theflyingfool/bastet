@@ -25,6 +25,11 @@ Read from the code; the host-side items are in `caddy-verify.sh` (owner runs it 
 - **Secrets:** a secret resource's content is shown as `(secret)` in change text and its command is recorded as hidden (`engine/report.py`, `run._exec_status`); a read's output is never recorded. Secret *values* in trigger commands do not occur (the commands name the env file, not its content).
 - **Host address:** `core/render.py:_address`: the host note's `ip` (unless `dhcp`), else `address`; an unmanaged host's note has the same fields, so a manual `sites:` entry or `upstream:` is needed when neither exists.
 
+**Host side, round 1 (owner's Arch host, `caddy-verify.out`):**
+- Verified: `go` is in the repo (1.27.2), `git` is installed, `caddy` is in the repo (2.11.7-1), pacman's `HookDir` is `/etc/pacman.d/hooks/` (the hook path is right). `go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest` runs inside a `DynamicUser` unit with an empty `HOME` and `GOTOOLCHAIN=local` and downloads its modules (xcaddy v0.4.7).
+- **Problem found:** executing the installed `xcaddy` from `CacheDirectory=` failed with "Permission denied". Most likely `/var/cache` (or the unit's view of it) does not allow executing files. Until `caddy-verify2.sh` says which directory does, the spec's build directory (`CacheDirectory`) is **not confirmed**; the fallback is `StateDirectory` (`/var/lib`) or the unit's private `/tmp`. Build memory is not measured yet.
+- Not yet tested (the host had no `caddy` installed): the packaged unit, `caddy validate` on a fragment, snippets alone, duplicate hostnames, env placeholders, the plugin build and the generic DNS keys. `caddy-verify2.sh` installs `caddy` and covers them.
+
 ## Tasks
 
 ### Task 1 — Verify the unchecked facts (spec section 6)
