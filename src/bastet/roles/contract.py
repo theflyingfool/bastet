@@ -21,7 +21,8 @@ SECRET_PREFIX = "secret:"  # a reference, resolved and re-checked against the op
 RESERVED = {"bastet", "role", "applies_to", "priority", "cssclasses", "tags", "aliases", "rotate_every", "overrides"}
 OPTION_KEYS = {"type", "description", "default", "choices", "items", "fields", "shorthand", "secret", "required",
                "generate", "source", "rotate_every", "key", "section", "as", "min", "max", "single_line",
-               "format", "path", "marker", "before", "after", "merge_default", "requires", "conflicts", "choices_from"}
+               "format", "path", "marker", "before", "after", "merge_default", "requires", "conflicts", "choices_from", "supersedes"}
+SUPERSEDES = re.compile(r"^[a-z][a-z0-9_-]*\.[a-z_][a-z0-9_]*$")  # role.option
 API_VERSIONS = (0,)
 OPTION_AS = ("flag", "value", "list", "lines", "text", "entries")
 ENTRY_FORMATS = ("deb822", "ini_section")
@@ -80,6 +81,8 @@ class Option:
     merge_default: bool = False  # map only: the default entries stay, the given entries merge over them
     requires: dict[str, tuple | None] = field(default_factory=dict)  # sibling -> allowed values (None: just set)
     conflicts: tuple[str, ...] = ()  # siblings that must not be set together with this one
+    supersedes: str | None = None  # "role.option": this option overrides that role's option (see load_roles)
+    type_given: bool = True  # False when the role file left the type to the option it supersedes
 
 
 @dataclass
@@ -192,8 +195,16 @@ def _read_choices_file(where: str, name: object, path: Path) -> tuple[str, ...]:
     return tuple(values)
 
 
-def _option(where: str, raw: object, path: Path, as_items: bool = False) -> Option:
-    if not isinstance(raw, dict) or raw.get("type") not in TYPES:
+def _option(where: str, raw: object, path: Path, as_items: bool = False, top: bool = False) -> Option:
+    supersedes = raw.get("supersedes") if isinstance(raw, dict) else None
+    if supersedes is not None:
+        if not top:
+            raise BastetError(f"{where}: supersedes only applies to an option of the role itself, not to fields or items",
+                              file=path, key="supersedes")
+        if not isinstance(supersedes, str) or not SUPERSEDES.match(supersedes):
+            raise BastetError(f"{where}: supersedes must be role.option (lowercase), not {supersedes!r}",
+                              file=path, key="supersedes")
+    if not isinstance(raw, dict) or (raw.get("type") not in TYPES and not (supersedes and "type" not in raw)):
         raise BastetError(f"{where}: an option needs a type ({', '.join(TYPES)})", file=path)
     if as_items:
         for rule in ("requires", "conflicts"):
@@ -247,7 +258,7 @@ def _option(where: str, raw: object, path: Path, as_items: bool = False) -> Opti
             raise BastetError(f"{where}: choices_from only applies to string options and lists or maps of strings",
                               file=path, key="choices_from")
         from_file_values = _read_choices_file(where, from_file, path)
-    opt = Option(type=raw["type"], description=str(raw.get("description", "")), default=raw.get("default"),
+    opt = Option(type=raw.get("type", "any"), type_given="type" in raw, supersedes=supersedes, description=str(raw.get("description", "")), default=raw.get("default"),
                  choices=from_file_values if "choices_from" in raw else (tuple(raw["choices"]) if "choices" in raw else None),
                  choices_file=from_file if "choices_from" in raw else None, shorthand=raw.get("shorthand"),
                  secret=bool(raw.get("secret", False)), required=bool(raw.get("required", False)),
@@ -257,7 +268,7 @@ def _option(where: str, raw: object, path: Path, as_items: bool = False) -> Opti
                  format=raw.get("format"), path=raw.get("path"), marker=raw.get("marker"), before=raw.get("before"),
                  after=raw.get("after"), merge_default=bool(raw.get("merge_default", False)),
                  requires=requires, conflicts=conflicts)
-    if opt.type in ("list", "map"):
+    if opt.type in ("list", "map") and not (supersedes and "items" not in raw):
         if "items" not in raw:
             raise BastetError(f"{where}: a {opt.type} option needs items", file=path)
         opt.items = _option(f"{where}[]", raw["items"], path, as_items=True)
@@ -277,7 +288,7 @@ def _options_and_examples(name: str, raw: dict, path: Path) -> tuple[dict[str, O
     options_raw = raw.get("options") or {}
     if not isinstance(options_raw, dict):
         raise BastetError(f"role {name}: options must be a map", file=path, key="options")
-    options = {k: _option(f"{name}.{k}", v, path) for k, v in options_raw.items()}
+    options = {k: _option(f"{name}.{k}", v, path, top=True) for k, v in options_raw.items()}
     _check_relation_names(name, options, path)
     clash = RESERVED & set(options)
     if clash:
@@ -594,7 +605,29 @@ def load_roles(directory: Path | None = None) -> dict[str, RoleDef]:
             roles[folder.name] = parse_role(note)
         elif legacy.exists():
             roles[folder.name] = _parse_yml_role(legacy)
+    _resolve_supersedes(roles)
     return roles
+
+
+def _resolve_supersedes(roles: dict[str, RoleDef]) -> None:
+    """Check every `supersedes: role.option` against the loaded roles and fill in what the option left out."""
+    for role in roles.values():
+        for name, opt in role.options.items():
+            if opt.supersedes is None:
+                continue
+            target_role, target_name = opt.supersedes.split(".")
+            where = f"role {role.name}: option {name} supersedes {opt.supersedes}"
+            target = roles[target_role].options.get(target_name) if target_role in roles else None
+            if target is None:
+                raise BastetError(f"{where}, which does not exist", file=role.path, key="supersedes")
+            if opt.type_given and opt.type != target.type:
+                raise BastetError(f"{where}, which is a {target.type} option, not {opt.type}", file=role.path, key="type")
+            opt.type = target.type
+            opt.description = opt.description or target.description
+            opt.items = opt.items or target.items
+            opt.fields = opt.fields or target.fields
+            if opt.choices is None:
+                opt.choices, opt.choices_file = target.choices, target.choices_file
 
 
 def _lenient(typ: str, value: object) -> object:

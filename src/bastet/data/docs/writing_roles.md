@@ -15,6 +15,7 @@ Option keys (under `options:`):
 - `key`, `section`, `as` (plus `format`, `path`, `marker` for `as: entries`): [Markdown roles](#markdown-roles-draft).
 - `choices_from`: a long list of allowed values in a file, [Long lists of allowed values](#long-lists-of-allowed-values-choices_from).
 - `requires`, `conflicts`: [Options that need or exclude each other](#options-that-need-or-exclude-each-other).
+- `supersedes`: an option that overrides another role's option, [One role's option overriding another's](#one-roles-option-overriding-anothers-supersedes).
 
 Role keys (top level of the role note):
 - `packages`, `users`, `files`, `systemd`, `commands`: [Calling the building blocks](#calling-the-building-blocks).
@@ -194,6 +195,25 @@ had a value, no note. The note is shown like any note from a `checks:` entry, on
 Everything is checked when the role is read: unknown keys (the options are the only other keys), option names that do
 not exist, each value through the option's normal check, the `when` syntax and names, and the `note` text. An error
 names the role, the role file, the key `overrides` and the entry number (`overrides[0]`, counting from 0).
+
+### One role's option overriding another's (supersedes)
+
+A package manager role often wants to set something a building block already has an option for (`pacman` and the
+`packages` reboot policy, say). `supersedes: <role>.<option>` on one of the role's own options says "my value for this
+is also that role's value". The named role and option must exist (checked when the roles load, with the role file and
+the key `supersedes` named). The option may leave out its `type`, `description`, `items`, `fields` and `choices`: they
+are copied from the target. A `type` it does set must match the target's. It applies to the role's own options only,
+not to fields or list items.
+
+When both roles are on a host and each has a value, the note with the higher rank wins; on a tie the role with
+`supersedes` wins. This happens before the target role's own `overrides:`, so an override can still clear the value.
+The target role does not need a note of its own: it is applied with just that value. An unset superseding option
+changes nothing.
+
+```yaml
+options:
+  reboot: {supersedes: packages.reboot}
+```
 
 ### Long lists of allowed values (choices_from)
 
