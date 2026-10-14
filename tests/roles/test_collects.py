@@ -101,7 +101,7 @@ def test_nothing_collected_leaves_the_manual_list_alone(tmp_path):
 
 
 def test_with_no_collects_anywhere_nothing_is_collected_or_warned(tmp_path):
-    roles = {n: r for n, r in demo_roles(tmp_path).items() if n != "gate"}
+    roles = {n: r for n, r in demo_roles(tmp_path).items() if n not in ("gate", "caddy")}
     inv = lab(tmp_path, None, HOSTS, {"vps1/plain": {"x": "1"}, "nas1/app": {"proxy": [{"subdomain": "media", "port": 8096}]}})
     for host in ("vps1", "nas1"):
         assert collect(inv, inv.get(host), TYPES, roles) == {}

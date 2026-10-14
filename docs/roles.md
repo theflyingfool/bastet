@@ -6,6 +6,7 @@ Every role Bastet ships. Put values in a role file's properties (`_roles/lab/<ro
 |---|---|
 | [apt](#apt) | apt's own settings, written to /etc/apt/apt.conf.d/90-bastet (Debian-based hosts; aim it at `debian`) |
 | [base](#base) | The basics every host gets: a set of admin tools, and CPU microcode on physical machines |
+| [caddy](#caddy) | The Caddy web server and reverse proxy (Arch): the main Caddyfile, one self-contained file per site in /etc/caddy/conf.d, and sites collected from the proxy option of other hosts' roles |
 | [files](#files) | Files, directories, links, and blocks or lines inside other files |
 | [packages](#packages) | Packages for apt, pacman, dnf, zypper and apk |
 | [pacman](#pacman) | pacman's own settings: every [options] setting in /etc/pacman.conf (Arch-based hosts; aim it at `arch`) |
@@ -110,6 +111,66 @@ microcode: never
 | extra_tools | list of string |  | More tools on top of `tools`, at every level (lab, group, host) |
 | microcode | string | auto | auto: install the CPU microcode package on physical hosts (never on VMs or containers); never: install none (one of auto, never) |
 | baseline | string |  | Reserved for a later round; has no effect |
+
+## caddy
+
+The Caddy web server and reverse proxy (Arch): the main Caddyfile, one self-contained file per site in /etc/caddy/conf.d, and sites collected from the proxy option of other hosts' roles. Every file is validated before it is written, and Caddy is reloaded only after the whole config validates. Unset = leave things as they are, except for the documented defaults in "What it does with no options".
+
+### Examples
+
+**A reverse proxy with one site written by hand**
+
+```yaml
+email: admin@example.com
+sites:
+  - name: router.example.com
+    upstream: 10.1.0.1:443
+    tls_skip_verify: true
+    allow:
+      - 10.1.0.0/16
+```
+
+**The Caddy that answers for the public scope (other hosts' roles expose their apps to it with their proxy option)**
+
+```yaml
+serves:
+  - public
+email: admin@example.com
+```
+
+**Behind another proxy, with a snippet for hand-written config**
+
+```yaml
+trusted_proxies:
+  - 10.1.0.0/16
+snippets:
+  security: |
+    header X-Frame-Options DENY
+```
+
+### Options
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| serves | list of string |  | The lab scopes (keys of the lab note's domains) this Caddy answers for: exposures of other roles' proxy option for these scopes become sites here |
+| sites | list of object |  | Sites written by hand (the sites collected from other hosts are added to this list); each becomes /etc/caddy/conf.d/<name>.caddy |
+| sites[].name | string |  | The hostname the site answers for, e.g. router.example.com (letters, digits, dots, dashes and a leading * only) |
+| sites[].upstream | any |  | Where to proxy to: one host:port, or a list of them. A site with none writes no reverse_proxy (use extra for the rest) |
+| sites[].tls_skip_verify | bool |  | Do not verify the backend's certificate (a backend with a self-signed certificate) |
+| sites[].allow | list of string |  | Addresses or networks that may use the site; everyone else gets 403. [] writes no restriction |
+| sites[].headers | map of string |  | Headers added to the request sent to the backend (name: value) |
+| sites[].encode | bool |  | true compresses responses (encode zstd gzip) |
+| sites[].extra | string |  | Raw Caddyfile text added inside the site block |
+| email | string |  | ACME account email, written as the email line of the global block |
+| admin | string |  | The admin endpoint: off, or an address. Unset keeps the package's unix socket |
+| log_level | string |  | Global log level, written as a log block in the global block (one of DEBUG, INFO, WARN, ERROR, PANIC, FATAL) |
+| trusted_proxies | list of string |  | Networks of proxies in front of Caddy whose forwarded headers are trusted (servers / trusted_proxies static) |
+| snippets | map of string |  | Name to raw text, each written as a (name) { ... } block in the Caddyfile, for hand-written config to import |
+| extra | string |  | Raw Caddyfile text added at the end of the global block |
+
+### Collects
+
+- Collects `proxy` exposures from other hosts' roles into `sites`.
 
 ## files
 

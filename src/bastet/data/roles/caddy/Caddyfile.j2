@@ -1,0 +1,34 @@
+# Managed by Bastet (the caddy role); changes made here are overwritten.
+{
+{%- if admin is not none %}
+	admin {{ admin }}
+{%- else %}
+	admin "unix//run/caddy/admin.socket"
+{%- endif %}
+{%- if email is not none %}
+	email {{ email }}
+{%- endif %}
+{%- if log_level is not none %}
+	log {
+		level {{ log_level }}
+	}
+{%- endif %}
+{%- if trusted_proxies %}
+	servers {
+		trusted_proxies static {{ trusted_proxies | join(" ") }}
+	}
+{%- endif %}
+{%- if extra is not none and extra.strip() %}
+{{ extra.strip("\n") | indent("\t", true) }}
+{%- endif %}
+}
+{%- if snippets is not none %}
+{%- for name, text in snippets.items() %}
+
+({{ name }}) {
+{{ text.strip("\n") | indent("\t", true) }}
+}
+{%- endfor %}
+{%- endif %}
+
+import /etc/caddy/conf.d/*
