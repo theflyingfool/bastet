@@ -4,7 +4,7 @@
 
 **Relationship to earlier documents:** builds on `2026-10-10-bastet-roles-architecture-design.md` (roles are Markdown over Python building blocks; a host runs by phase across all roles). It supersedes the roadmap's old wording for "VPS apps, step 3" and the old `packages` role design. `ssh` and `harden` are removed from `src/` in this round and rebuilt as Markdown later (section 12).
 
-**Scope of this round (owner, 2026-10-14): only what is needed to build the Markdown roles.** Everything else is deferred and is in the roadmap. In: the cleanup and AUR removal, Arch `-Syu` with the lock check and the `refresh: false` warning, `supersedes` as a contract feature, reflector with the mirrorlist `NoExtract` (both wanted right away), the `base` role, and groups copied into a user folder. Deferred: all Debian-based changes (`debian.yml`, the `apt` role's options and optional dependencies, Debian-only notes), optional dependencies as dependencies, moving options between `packages` and the manager roles (they stay as they are), `init` generating groups, and the gather prompt that asks and remembers a "no".
+**Scope of this round (owner, 2026-10-14): only what is needed to build the Markdown roles.** Everything else is deferred and is in the roadmap. In: the cleanup and AUR removal, shipped default roles (`packages`, `base`), Arch `-Syu` with the `refresh: false` warning (the lock check is deferred), `supersedes` as a contract feature, reflector with the mirrorlist `NoExtract` (both wanted right away), the `base` role, and groups copied into a user folder. Deferred: all Debian-based changes (`debian.yml`, the `apt` role's options and optional dependencies, Debian-only notes), optional dependencies as dependencies, moving options between `packages` and the manager roles (they stay as they are), `init` generating groups, and the gather prompt that asks and remembers a "no".
 
 **Vocabulary.** A *building block* is a role too, one of the special ones: the only place with real code (Python). Every other role is Markdown data that the blocks act on. There is no separate "block" and "role" for the same name: `packages` is one thing, a role, and it is the building block.
 
@@ -19,8 +19,8 @@
 
 ## 2. Decisions (owner, 2026-10-14)
 
-1. **`base`** is a Markdown role applied to every host. Lab, group and host notes each add to it. Bastet is opinionated, so `base` keeps the old role's defaults (tool list, `microcode: auto`) (section 15).
-2. **`packages`** is applied at the lab by default and nowhere else. It stays Python (it is a building block) and holds the manager-neutral settings.
+1. **`base`** is a Markdown role applied to every host by default (a shipped default, section 3). Lab, group and host notes each add to it. Bastet is opinionated, so `base` keeps the old role's defaults (tool list, `microcode: auto`) (section 15).
+2. **`packages`** is applied by default as a lab-wide role (a shipped default, section 3) and is not offered anywhere else. It stays Python (it is a building block) and holds the manager-neutral settings.
 3. **Manager roles** (`pacman` and `apt` exist already; later ones are new) come with each OS the way `systemd` comes with Arch today (OS files, `src/bastet/data/oses/<os>.yml`). This round: `pacman` is added to `arch.yml`; `debian.yml` and `apt` changes are deferred.
 4. **A manager role can supersede `packages` settings.** On the manager role the shared options exist, are **unset by default** (so they override nothing), and are **shown** (effective value and where it came from) so nobody has to jump between roles to understand a host.
 5. **Precedence stays one rule (enforced and documented):** note rank first (lab < group < host, host always wins), a role's own `overrides:` (like `time` on Debian) last. The only new rule: **at equal rank the manager role beats `packages`**. Because `packages` lives at the lab and managers come in at the OS level or above, the manager wins in every ordinary case.
@@ -35,8 +35,8 @@
 
 Existing ranks (`roles/resolve.py:sources_for`): OS default (−1), lab note (0), type default (1), group (2), host (3). Nothing ships as an "every host" default today.
 
-- **`packages` and `base`** are lab role notes (`_roles/lab/packages.md`, `_roles/lab/base.md`) that **`bastet init` writes** from each role's `starter:`. `init` writes the lab role notes of **every role that applies by default**, not a fixed pair, and is safe to rerun (it never overwrites a note that exists). The owner re-initializes the lab folder; no migration is written.
-- **Managers** come from the OS file: `pacman` is added to the existing `arch.yml`, with no options, as `systemd` does. `apt` needs a new `debian.yml` (only `arch.yml` exists today; Proxmox is Debian underneath): **deferred**.
+- **`packages` and `base`** are **shipped default roles** (owner): a new file `src/bastet/data/defaults.yml` lists the roles every managed host gets, with no options, below even the OS defaults (rank −2, shown as `Bastet default`). Lab, group and host notes then add to them as usual, and nobody has to run `bastet init` again. `bastet init` is not touched.
+- **Managers** come from the OS file: `pacman` is added to the existing `arch.yml` the same way `systemd` is, with no options. `apt` needs a new `debian.yml` (only `arch.yml` exists today; Proxmox is Debian underneath): **deferred**.
 - **Where the OS comes from.** OS defaults are shipped inside Bastet (`data/oses/arch.yml`) and picked by the host's `os` value (`osinfo.os_id`; any Arch-like name maps to `arch`, `osdefaults.defaults_for`). That value is a gathered fact, so a brand-new host has **no OS defaults, and no manager role, until its first `bastet run -g`**.
 - **Generated groups exist, but in the wrong place.** `core/render.py` generates one group note per OS seen and one per host type seen, under `_bastet/groups/` (for example `arch.md` with `match: {os: arch}`, `vps.md` with `match: {type: vps}`), refreshed when facts are gathered. A role note with `applies_to: "[[arch]]"` reaches every Arch host, so **to adjust all Arch hosts you write a role note for the `arch` group** (group rank); a lab note with `overrides: [{when: host.arch_like, ...}]` also works, as `time` does. **Change (owner):** `_bastet/` is not editable by the user, so these groups move into a **user folder** (`groups`) where they can be edited. A user's own group note of the same name wins over a generated one.
 - **Gather copies the groups.** On `bastet run -g`, the generated groups are copied into the user folder, and the user's copy wins over the generated one. **Deferred:** `init` generating the groups (the owner thinks it should generate all types), and the prompt that asks and remembers a "no" in the config folder.
@@ -66,12 +66,9 @@ Existing ranks (`roles/resolve.py:sources_for`): OS default (−1), lab note (0)
 
 `Package.fix_group` (`engine/packages.py`) installs with `pacman -Syu --noconfirm --needed <pkgs>`; `refresh: false` keeps `pacman -S`. The controller's own tool install (`core/tools.py`) gets the same change, the same flaw. `pacman -Sy <pkg>` alone is never used. **`refresh: false` on an Arch host raises a loud warning on every run** (a stale database can 404 or half-upgrade the system). The existing update check (`checkupdates`) must keep failing loudly, not reporting "nothing pending", when the mirror is unreachable; a test pins it. A kernel upgrade that results is already covered by the reboot-needed mark.
 
-### Package database lock and long upgrades
+### Package database lock and long upgrades (deferred)
 
-`-Syu` on a host that is far behind can run longer than a fix command is allowed (`FIX_TIMEOUT` is 1800 s in `engine/run.py`), and a timeout kills the ssh session while `pacman` may still be running (seen on the VPS, 2026-10-14). Decided for now, with no permanent fix:
-
-- **Lock check:** before a pacman install or upgrade, if `/var/lib/pacman/db.lck` exists, check whether a `pacman` process is running. If one is, report that and stop. If none is, say the lock is stale and **ask** before removing it (never removed silently when interactive; **`-y` alone is enough to remove a stale lock**).
-- **Timeout:** the message says a timed-out `pacman` may still be running or have left a lock. Making the limit settable, or running upgrades detached, is parked.
+`-Syu` on a host that is far behind can run longer than a fix command is allowed (`FIX_TIMEOUT` is 1800 s in `engine/run.py`), and a timeout kills the ssh session while `pacman` may still be running (seen on the VPS, 2026-10-14). **The lock check is deferred (owner):** before an install or upgrade (the `Updates` upgrade runs `pacman -Syu` too), look at `/var/lib/pacman/db.lck`; a live `pacman` stops the run, a stale lock is reported and removed only with the owner's say-so (interactively asked, with `-y` removed). Making the time limit settable, or running upgrades detached, is parked as well.
 
 ## 7. AUR removal
 
@@ -125,7 +122,7 @@ Markdown, no Python (it is not a building block). `bastet init` and `bastet add 
 **In this round**
 1. **Cleanup:** `ssh`, `harden` and the old `base` moved to `refs/` and pulled; AUR removed.
 2. **Contract:** `supersedes` (with the typo check), the manager-wins tie rule (enforced and documented), the display of shared values, and the CLAUDE.md amendment (section 15).
-3. **Arch installs and pacman:** `-Syu`, the lock check, the `refresh: false` warning, reflector timer and the mirrorlist `NoExtract`; groups copied to a user folder.
+3. **Arch installs and pacman:** shipped default roles; `-Syu` and the `refresh: false` warning; `pacman` brought by the Arch OS file; reflector timer and the mirrorlist `NoExtract`; groups copied to a user folder.
 4. **`base`** in Markdown.
 5. **`caddy`, `forgejo`, `vaultwarden`.**
 
@@ -133,6 +130,7 @@ Markdown, no Python (it is not a building block). `bastet init` and `bastet add 
 - Debian: `debian.yml`, `apt` options and optional deps, the `non-free-firmware` note.
 - Optional dependencies as dependencies (both managers).
 - Moving options between `packages` and the manager roles.
+- The stale pacman lock check and long-upgrade handling.
 - `init` generating groups; the gather prompt with a remembered "no"; `bastet add group`.
 - Reflector configuration; unaccounted services and files; sysctl in the `systemd` block.
 - `ssh` and `harden` rebuilt (last); the SSH port field.

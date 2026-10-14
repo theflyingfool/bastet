@@ -4,7 +4,7 @@
 
 **Status:** written 2026-10-14 from the approved spec. **Awaiting the owner's read; no code is written yet.**
 
-**Goal:** VPS apps, step 3: remove the unconverted `ssh`, `harden` and old `base` roles and the AUR; add the `supersedes` contract key; make Arch installs work against a stale database; add a reflector stopgap to `pacman`; copy the generated groups into a user folder; rewrite `base` in Markdown.
+**Goal:** VPS apps, step 3: remove the unconverted `ssh`, `harden` and old `base` roles and the AUR; add the `supersedes` contract key and shipped default roles; make Arch installs work against a stale database; bring `pacman` with Arch and add a reflector stopgap; copy the generated groups into a user folder; rewrite `base` in Markdown.
 
 **Architecture:** Cleanup first (so there is less to cross-check), then one contract feature (`supersedes`), then changes inside the `packages` building block and the `pacman` Markdown role, then `base` as a Markdown role. `packages` is a building block-role and stays Python. `caddy`, `forgejo` and `vaultwarden` are **not in this plan**: each gets its own short plan after `base` lands, written on the finished contract.
 
@@ -17,7 +17,7 @@
 - **Unit tests** never touch the real inventory, `~/.config/bastet`, `~/.local/share/bastet`, `~/.ssh`, the real `~/.cache` or `$XDG_RUNTIME_DIR`; no network; `tmp_path` only; placeholder data only (10.1.x.x addresses, host names like pve1/media01). Follow `docs/testing.md`: a few focused tests per task, `parametrize`, no sleeps, no duplicate layers.
 - **Test file basenames unique across `tests/`** (no `__init__.py`).
 - Every message goes through `bastet.ui.out`; no `typer.echo` in `src/`; no "spec §"/"Task N" references in `src/`.
-- The version is written only in `pyproject.toml`, bumped with `scripts/version-bump` (Task 11).
+- The version is written only in `pyproject.toml`, bumped with `scripts/version-bump` (Task 12).
 - `docs/roles.md` is generated (`uv run python scripts/gen_roles_doc.py`); a repo test checks it.
 - `ruff check src tests` and `scripts/privacy-check` pass before the final commit (copy the ignored `.privacy-patterns` into a fresh worktree first, then delete the copy).
 - Nothing in Bastet deletes notes, records or host files; this plan adds no deletion. Removing a role from `src/` reverts nothing on hosts.
@@ -28,17 +28,18 @@
 ## Decisions carried from the spec (not to be reopened in the tasks)
 
 1. `ssh` and `harden` are removed now and rebuilt last; **Bastet assumes SSH port 22 everywhere** (no `ssh_port` field). Their code is copied to `refs/` first.
-2. Arch installs always `pacman -Syu --noconfirm --needed`; `refresh: false` keeps `-S` and warns loudly. A stale `db.lck` is removed only with `-y`; interactively the run stops with instructions. (**Simplification to confirm:** the spec says "ask"; the engine has no prompt channel inside a fix, so this plan refuses with instructions unless `-y`.)
-3. `supersedes: <role>.<option>` marks a manager option as overriding another role's option; rank first, a tie goes to the role with `supersedes`. No existing role uses it this round.
-4. Deferred (roadmap): Debian/`apt`/`debian.yml`, optional dependencies as dependencies, moving options between `packages` and the managers, `init` generating groups, the gather prompt, `add group`, reflector configuration, sysctl, `tools` baselines.
+2. Arch installs always `pacman -Syu --noconfirm --needed`; `refresh: false` keeps `-S` and warns loudly. **The stale `db.lck` check is deferred** (roadmap).
+3. `supersedes: <role>.<option>` marks a manager option as overriding another role's option; rank first, a tie goes to the role with `supersedes`, and it runs **before** a role's own `overrides:`. No existing role uses it this round.
+4. `packages` and `base` are **shipped default roles** (a new `defaults.yml`, not `bastet init`); `pacman` comes with Arch through `oses/arch.yml`, as `systemd` does.
+5. Deferred (roadmap): the pacman lock check, Debian/`apt`/`debian.yml`, optional dependencies as dependencies, moving options between `packages` and the managers, `init` generating groups, the gather prompt, `add group`, reflector configuration, sysctl, `tools` baselines.
 
 ## Review Focus
 
 1. A note still naming a removed role (`base` old, `ssh`, `harden`) fails the host with the existing `unknown role` message, and other hosts are unaffected. (Task 2)
 2. `supersedes` naming a role or option that does not exist fails the role load with a message naming the role file and key; a type mismatch is refused. (Task 4)
 3. A host with the superseding role but no `packages` note still gets the value. (Task 5)
-4. A stale or live pacman lock, and an unreachable mirror during the update check, never read as "nothing to do". (Task 7)
-5. `base` on a physical host with no or an unknown CPU fact is an error naming `bastet run -g`; on a VM or container it installs nothing; `base` with no options on a physical Arch host installs the default tools and the right microcode package. (Task 10)
+4. An unreachable mirror during the update check never reads as "nothing pending"; `refresh: false` on an Arch host warns on every run. (Tasks 7 and 8)
+5. `base` on a physical host with no or an unknown CPU fact is an error naming `bastet run -g`; on a VM or container it installs nothing; `base` with no options on a physical Arch host installs the default tools and the right microcode package. (Task 11)
 
 ---
 
@@ -77,7 +78,7 @@ What depends on the old roles (checked in the code):
 | Tests using the names as example data | `tests/cli/test_add_role.py`, `test_common.py`, `test_secret_leaks.py`, `tests/core/test_inventory.py`, `test_render.py`, `test_pages.py` | Grep each; switch to a surviving role (`packages`, `files`, `time`, `pacman`); leave unrelated words alone (ssh the command, Obsidian "Bases") |
 | Type and OS default roles | `data/types/*.yml`, `oses/arch.yml` | None name them (verified) |
 | `engine/security.py` and its tests | lynis, exposure, ports, vulnerable packages, AppArmor | Stay; only the role that called them goes |
-| `role-hashes.txt` | lists the three | `scripts/version-bump` rewrites it (Task 11) |
+| `role-hashes.txt` | lists the three | `scripts/version-bump` rewrites it (Task 12) |
 | Docs | `using_roles.md:4`, `docs/roles.md` | Edit / regenerate |
 
 - [ ] **Step 1: Failing tests** in `tests/roles/test_removed_roles_unknown.py`:
@@ -100,7 +101,7 @@ def test_a_note_naming_a_removed_role_fails_that_host_only(tmp_path):
     ...
 ```
 
-Fill in the second test from `tests/roles/test_resolve.py`'s inventory helper; it must be complete, not a stub. `base` is not asserted missing here because it returns in Task 10.
+Fill in the second test from `tests/roles/test_resolve.py`'s inventory helper; it must be complete, not a stub. `base` is not asserted missing here because it returns in Task 11.
 - [ ] **Step 2: See them fail** (`uv run pytest tests/roles/test_removed_roles_unknown.py -q`).
 - [ ] **Step 3: Copy first.** `mkdir -p refs/removed-2026-10-14 && cp -r src/bastet/data/roles/{base,ssh,harden} src/bastet/roles/system.py tests/roles/test_harden_role.py tests/roles/test_ssh_role.py tests/cli/test_ssh_port.py refs/removed-2026-10-14/ && git show HEAD:tests/contract/test_contract.py > refs/removed-2026-10-14/test_contract.py`, then `ls refs/removed-2026-10-14` to confirm. `refs/` is git-ignored, so this is the only working reference (sysctl, fail2ban and sshd logic for the later rebuilds).
 - [ ] **Step 4: Remove and edit** per the table: `git rm -r` the three role folders and `system.py`; edit `builtin.py` and `cli/common.py`; trim or delete tests; regenerate `docs/roles.md`; edit `using_roles.md`.
@@ -173,17 +174,32 @@ def test_a_host_note_on_the_target_beats_a_lab_note_on_the_manager(...): ...  # 
 def test_an_unset_manager_option_changes_nothing(...): ...             # target keeps its own value and origin
 def test_the_target_is_applied_when_it_has_no_note(...): ...           # only the manager note exists; target Applied exists with the value
 def test_the_resolved_table_shows_the_effective_value_and_its_origin(...): ...  # resolved_table(applied) lists the target option with "lab, manager" and the manager role's row shows the shared option with the effective value
+def test_a_role_override_that_clears_the_option_wins_over_supersedes(...): ...  # the target role's own overrides: clears the option on this host; the superseding value does not come back
 ```
 
-Write all five completely.
+Write all six completely.
 - [ ] **Step 2: See them fail.**
-- [ ] **Step 3: Implement.** In `resolve`, keep per-role pre-default `merged`, `origins` and a new `ranks: dict[str, tuple]` (the highest rank among sources that set each key) in a list instead of appending `Applied` straight away; run `_apply_supersedes` over that list (create the target's entry when missing from `roles[target]`); then, per role, do `check_relations`, `with_defaults` and build `Applied`, so `requires`/`conflicts` see the superseded value. Keep the final sort by role name. `resolved_table` prints, under a manager role with shared options, a line per shared option with the effective value and `from <origin>` even when the manager's own value is unset.
+- [ ] **Step 3: Implement.** In `resolve`, keep per-role pre-default `merged`, `origins` and a new `ranks: dict[str, tuple]` (the highest rank among sources that set each key) in a list instead of appending `Applied` straight away; run `_apply_supersedes` over that list (create the target's entry when missing from `roles[target]`); then, per role, apply the role's own `overrides:` (`_apply_role_overrides`), `check_relations`, `with_defaults` and build `Applied`. **The order is: merge, `supersedes`, the role's own `overrides:`, relations, defaults**, so a role's deliberate clearing of an option still wins over a superseding value, and `requires`/`conflicts` see the final value. Keep the final sort by role name. `resolved_table` prints, under a manager role with shared options, a line per shared option with the effective value and `from <origin>` even when the manager's own value is unset.
 - [ ] **Step 4: Run** `uv run pytest tests/roles -q`; `ruff check src tests`.
 - [ ] **Step 5: Commit** `Resolver: supersedes decides by rank, ties to the superseding role, and is shown in the table (Task 5, not reviewed yet)`.
 
 ---
 
-### Task 6: Arch installs use `pacman -Syu`
+### Task 6: Shipped default roles (`packages` for every host)
+
+**Files:** Create `src/bastet/data/defaults.yml`; Modify `src/bastet/core/osdefaults.py` (or a small new loader next to it), `src/bastet/roles/resolve.py` (`sources_for`), `src/bastet/data/docs/writing_roles.md`; Create `tests/roles/test_shipped_default_roles.py`.
+
+**Interfaces:** Produces: `data/defaults.yml` with `roles: {packages: {}}` (the file may carry `overrides:` per role like an OS file); a source with rank `(-2,)` and label `Bastet default` for every managed host. Unmanaged host types still get nothing (`resolve` returns early for them). `base` is added to this file in Task 11, when the role exists.
+
+- [ ] **Step 1: Failing tests:** (a) a host with no role notes at all resolves `packages` with origin `Bastet default`; (b) a lab note for `packages` overrides the shipped default and the origin reads `lab`; (c) an unmanaged host type (for example `unifi`) gets no roles; (d) the shipped file names only roles that exist (`set(defaults) <= set(load_roles())`). Use the inventory helper in `tests/roles/test_resolve.py`.
+- [ ] **Step 2: See them fail; implement.** Load the file once (cache like `load_os_defaults`), add the source in `sources_for` before the OS default source, and add `Bastet default` to the resolved table's origin labels.
+- [ ] **Step 3: Expect existing tests to change.** `packages` is now applied to every managed host, so `_packages` also emits `Reboot` and the `Unaccounted` report on hosts that had no `packages` note (more items on a `check`). Run `uv run pytest tests -q -x --ignore=tests/contract`, fix the tests whose counts or expected role lists change (minimally, without weakening what they pin), and list each one in your report. Document the behaviour in the `packages` role's description.
+- [ ] **Step 4: Run** `uv run pytest tests/roles tests/cli tests/core tests/engine -q`; `ruff check src tests`.
+- [ ] **Step 5: Commit** `Shipped default roles: packages reaches every managed host (Task 6, not reviewed yet)`.
+
+---
+
+### Task 7: Arch installs use `pacman -Syu`
 
 **Files:** Modify `src/bastet/engine/packages.py` (`Package.fix_group`), `src/bastet/core/tools.py:22`, `src/bastet/data/roles/packages/role.yml` (the `refresh` and `full_upgrade` descriptions); tests `tests/engine/test_packages.py`, `tests/core/test_tools.py`, `tests/engine/test_updates.py`.
 
@@ -192,51 +208,54 @@ Write all five completely.
 - [ ] **Step 1: Failing tests** in `tests/engine/test_packages.py`: change the pacman case at the parametrized table (`"pacman -S --noconfirm --needed -- tree"`) to `-Syu`, add `test_pacman_refresh_false_keeps_a_plain_install` and `test_pacman_never_runs_sy_alone` (build `Package(name="tree")` and `Package(name="tree", refresh=False)` with the file's existing "absent" current-state helper and assert on `type(p).fix_group([...])`). In `tests/core/test_tools.py` expect `pacman -Syu --noconfirm --needed dmidecode`. In `tests/engine/test_updates.py` add a case: a `checkupdates` exit code of 1 (error) raises `ReadError` with "couldn't check for updates"; if the existing fixtures already pin this, name that test in the commit message instead of adding one.
 - [ ] **Step 2: See them fail**, then implement: pacman install `cmds` use `'-Syu' if first.refresh else '-S'`; same in `core/tools.py`; update the `refresh` description: *Arch: refresh and upgrade the whole system together (-Syu); false installs with plain -S, which fails or half-upgrades when the database is stale.*
 - [ ] **Step 3: Run** `uv run pytest tests/engine tests/core/test_tools.py -q`; `ruff check src tests`.
-- [ ] **Step 4: Commit** `Arch installs run pacman -Syu so a stale sync database no longer 404s (Task 6, not reviewed yet)`.
+- [ ] **Step 4: Commit** `Arch installs run pacman -Syu so a stale sync database no longer 404s (Task 7, not reviewed yet)`.
 
 ---
 
-### Task 7: Stale pacman lock and the `refresh: false` warning
+### Task 8: The `refresh: false` warning on Arch
 
-**Files:** Modify `src/bastet/engine/packages.py` (`Package.reads`, `current`, `fix_group`), `src/bastet/roles/builtin.py` (`HostInfo`, `_packages`), `src/bastet/cli/run.py` (pass `-y` into `HostInfo`); tests in `tests/engine/test_packages.py` and a new `tests/roles/test_packages_pacman_warnings.py`.
+**Files:** Modify `src/bastet/roles/builtin.py` (`_packages`); Create `tests/roles/test_packages_refresh_warning.py`.
 
-**Interfaces:** Produces: `Package.remove_stale_lock: bool = False` (also in `group_key`); `HostInfo.remove_stale_lock: bool = False`, set from the CLI's `-y`. A pacman `Package` reads the lock state (`none`, `running`, `stale`: `/var/lib/pacman/db.lck` present and `pgrep -x pacman`). `current()` raises `ReadError` when `running` ("pacman is running on this host; try again when it finishes") and, when `stale` and not `remove_stale_lock`, `ReadError("pacman's database lock /var/lib/pacman/db.lck is stale (no pacman is running); rerun with -y to remove it, or remove it yourself")`. With `remove_stale_lock` the fix commands start with `rm -f /var/lib/pacman/db.lck`. The timeout message in `engine/run.py` (`_exec`) mentions that a timed-out `pacman` may still be running or have left a lock.
+**Interfaces:** Produces: when an Arch-like host's `packages` role has `refresh: false`, the `packages` batch carries a `Note("warning", "packages", ...)` naming `refresh: false` and saying a stale database can 404 or half-upgrade the system; it is built on every run. Other hosts get no note. (The lock check is deferred.)
 
-- [ ] **Step 1: Failing tests:** lock states from a faked read result (the file already fakes `results` dicts) → `ReadError` for `running` and for `stale` without the flag; `stale` with the flag keeps the install and prepends the `rm -f`; `none` changes nothing. In the new test file: `_packages` for an Arch `HostInfo` with `refresh: False` on any package leaves a warning `Note` (level `warning`) on the batch naming `refresh: false`, on every build; a non-Arch host with `refresh: False` leaves none.
-- [ ] **Step 2: See them fail; implement.** Note the engine already uses `Note("warning"|"info", role, text)` (`engine.run.Note`) attached to a `Batch`.
-- [ ] **Step 3: Run** `uv run pytest tests/engine tests/roles tests/cli -q -x`; `ruff check src tests`.
-- [ ] **Step 4: Commit** `pacman: stale lock check, loud warning for refresh: false (Task 7, not reviewed yet)`.
+- [ ] **Step 1: Failing tests:** an Arch `HostInfo` with `refresh: False` gets the note, and a Debian one does not; the note is present on each of two consecutive builds (not one-time).
+- [ ] **Step 2: See them fail; implement** in `_packages` (the engine already uses `Note("warning"|"info", role, text)` attached to a `Batch`).
+- [ ] **Step 3: Run** `uv run pytest tests/roles tests/engine -q -x`; `ruff check src tests`.
+- [ ] **Step 4: Commit** `packages: loud warning for refresh: false on Arch (Task 8, not reviewed yet)`.
 
 ---
 
-### Task 8: `pacman`: reflector (stopgap) and the mirrorlist `NoExtract`
+### Task 9: `pacman`: comes with Arch; reflector (stopgap) and the mirrorlist `NoExtract`
 
-**Files:** Modify `src/bastet/data/roles/pacman/pacman role.md` (new option, entries, docs, `## Changes`, `version: 0.1.1`); Create `tests/roles/test_pacman_reflector.py`; `docs/roles.md` regenerated.
+**Files:** Modify `src/bastet/data/roles/pacman/pacman role.md` (new option, entries, docs, `## Changes`, `version: 0.2.0`); Create `tests/roles/test_pacman_reflector.py`; `docs/roles.md` regenerated.
 
 **Interfaces:** Produces: option `reflector` (bool, default `true`; **on by default, listed in the role's docs as an opinionated default**). With it true on an Arch host the role installs `reflector` and enables and starts `reflector.timer`. `etc/pacman.d/mirrorlist` is in `NoExtract` while reflector is on. This is a stopgap: nothing configures reflector (no `reflector.conf`), and the role's docs say so.
 
 - [ ] **Step 1: Failing tests** (build the role like `tests/roles/test_time_role.py`): (a) with no options an Arch host gets `Package("reflector")` and `Unit("reflector.timer", enabled=True, state="up")`; (b) `reflector: false` emits neither; (c) the `pacman.conf` settings contain `NoExtract = etc/pacman.d/mirrorlist` with reflector on and no `no_extract` set, and do not contain it with `reflector: false`; (d) a note that sets its own `no_extract: [usr/share/doc/*]` keeps the user's list and the role leaves a `warning` check that the mirrorlist is then unprotected while reflector is on.
 - [ ] **Step 2: Implement** in the role file: option `reflector`; a `packages:` entry `reflector` and a `systemd:` unit entry for `reflector.timer`, both `when: reflector`; the `NoExtract` default through the existing `no_extract` option's mechanism. **If the contract cannot express "mirrorlist protection only while reflector is on" in a few lines of the role file** (the role-level `overrides:` `when` can see merged options before defaults), stop and ask the owner; the fallback is a `no_extract` default of `[etc/pacman.d/mirrorlist]` that applies always, documented as such.
-- [ ] **Step 3: Docs.** The role body gets a "What it does with no options" list (reflector installed, timer enabled and started, mirrorlist in `NoExtract`, plus the existing `color`/`candy` defaults) and a line that reflector is a stopgap. The timer starts on its schedule; the role does not run reflector once at apply time (noted in the docs and the roadmap).
+- [ ] **Step 3: Bring `pacman` with Arch.** Add `pacman: {}` to `roles:` in `src/bastet/data/oses/arch.yml` (the way `systemd` is there) and update the comment above it. Update `tests/roles/test_os_default_roles.py` (and any other test that expects Arch to come with only `systemd`) to expect both; the origin reads `OS default (arch)`. Because `pacman` already defaults `color` and `candy` to true and now `reflector` too, every Arch host changes `pacman.conf` and installs reflector with no options: the role's docs must list this.
+- [ ] **Step 3b: Docs.** The role body gets a "What it does with no options" list (reflector installed, timer enabled and started, mirrorlist in `NoExtract`, plus the existing `color`/`candy` defaults) and a line that reflector is a stopgap. The timer starts on its schedule; the role does not run reflector once at apply time (noted in the docs and the roadmap).
 - [ ] **Step 4: Run** `uv run pytest tests/roles -q`; `uv run python scripts/gen_roles_doc.py`; `ruff check src tests`.
-- [ ] **Step 5: Commit** `pacman: reflector timer and mirrorlist NoExtract, on by default (Task 8, not reviewed yet)`.
+- [ ] **Step 5: Commit** `pacman: reflector timer and mirrorlist NoExtract, on by default (Task 9, not reviewed yet)`.
 
 ---
 
-### Task 9: Gather copies the generated groups into a user folder
+### Task 10: Gather copies the generated groups into a user folder
 
-**Files:** Modify `src/bastet/core/render.py` (the group generation near `GROUPS_DIR = "_bastet/groups"`, the `_write_group` helper); tests next to `tests/core/test_render.py` (new file `tests/core/test_group_copy.py`).
+**Files:** Modify `src/bastet/core/render.py` (group generation near `GROUPS_DIR = "_bastet/groups"` and `_write_group`), `src/bastet/core/inventory.py:267-271` (the type-name check); Create `tests/core/test_group_copy.py`.
 
-**Interfaces:** Produces: the generated OS and type groups are written once to `groups/<ident>.md` in the inventory (a user folder) instead of `_bastet/groups/`; **an existing note of that name is never overwritten** (the user's copy wins); `_bastet/groups/<ident>.md` is no longer written.
+**Interfaces:** Produces: the generated OS and type groups are written once to `groups/<ident>.md` (a user folder) instead of `_bastet/groups/`. An existing note of that name that is **not** a Bastet-generated one (`_generated(root, path)` is false) is never overwritten, so the user's copy wins. Generated notes under `_bastet/` do not count as "existing". A group named like a host type is accepted when its `match` is exactly that type's rule; a user's own group with that name and any other content still errors (`inventory.py`).
 
-- [ ] **Step 1: Failing tests:** (a) after a refresh of an inventory whose host is `os: Arch Linux` there is `groups/arch.md` with `bastet: group` and `match: {os: arch}`, and no `_bastet/groups/arch.md`; (b) the user edits `groups/arch.md` (adds a line to the body), a second refresh leaves it byte-for-byte unchanged; (c) a user note named `vps` elsewhere in the inventory is not overwritten and no `groups/vps.md` is created.
-- [ ] **Step 2: Implement.** `_write_group` targets `root/"groups"/f"{ident}.md"`; if `inv.get(ident)` exists (any path) do nothing; otherwise create. Keep the body text (it already says how to point a role note at the group); change "Generated by Bastet" to say it is a copy the user may edit. Leave the existing behaviour that drops a stale generated group when a user note of the same name exists.
-- [ ] **Step 3: Run** `uv run pytest tests/core tests/cli -q -x`; `ruff check src tests`.
-- [ ] **Step 4: Commit** `Generated groups are copied once into groups/ and never overwritten (Task 9, not reviewed yet)`.
+What exists today (verified): the owner's inventory already has `_bastet/groups/arch.md`, `vps.md`, `unifi.md`, `undefined.md`. `_write_group` skips when `inv.get(ident)` finds any note of that name, which would find those, and `inventory.py` raises an error for a non-generated group named like a type.
+
+- [ ] **Step 1: Failing tests:** (a) refresh of an inventory with an Arch host and a `vps` host creates `groups/arch.md` (`match: {os: arch}`) and `groups/vps.md` (`match: {type: vps}`), and writes nothing under `_bastet/groups/`; (b) with a pre-existing generated `_bastet/groups/arch.md`, the copy still happens, and loading the inventory reports no error for the type-named `groups/vps.md`; (c) a user edit of `groups/arch.md` survives a second refresh byte for byte; (d) a user note named `arch` elsewhere is not overwritten and no `groups/arch.md` is created; (e) a user group named `vps` with a different `match` still errors.
+- [ ] **Step 2: See them fail; implement.** Point `_write_group` at `root/"groups"/f"{ident}.md"`, test existence with "a note of that name whose path is not under `_bastet/`", and change the `inventory.py` check as described. The stale `_bastet/groups/*.md` files: once a copy exists the existing rule that drops a generated group when a user note of the same name exists removes them; add a test line for it. Change the body text from "Generated by Bastet" to say it is a copy the user may edit.
+- [ ] **Step 3: Run** `uv run pytest tests/core tests/cli tests/roles -q -x`; `ruff check src tests`.
+- [ ] **Step 4: Commit** `Generated groups are copied once into groups/ and never overwritten (Task 10, not reviewed yet)`.
 
 ---
 
-### Task 10: The `base` role in Markdown
+### Task 11: The `base` role in Markdown
 
 **Files:** Create `src/bastet/data/roles/base/base role.md`, `tests/roles/test_base_role.py`; `docs/roles.md` regenerated.
 
@@ -261,23 +280,24 @@ def test_baseline_is_accepted_and_changes_nothing(): ...
 How an error `check` surfaces (copy the form `test_time_role.py` uses for the Debian `ntp: true` error). Write every test completely.
 - [ ] **Step 2: See them fail.**
 - [ ] **Step 3: Write the role note** (frontmatter `bastet: role-definition`, `name: base`, `version: 0.1.0`, `api: 0`, `description`, `starter: {extra_tools: []}` only if the starter mechanism needs a value; options above; `checks:`; `packages:` with `each: tools`, `each: extra_tools`, and four `when:`-guarded microcode entries; examples; `## Changes`). Microcode conditions use `host.physical`, `host.arch_like`, `host.debian_like`, `host.cpu` (a lowercase `'intel' in host.cpu|lower` test; if the sandbox lacks `lower`, use a `{% if %}` form). The body lists exactly what it does with no options.
+- [ ] **Step 3b: Ship it by default.** Add `base: {}` to `src/bastet/data/defaults.yml` (Task 6) so every managed host gets it; update `tests/roles/test_shipped_default_roles.py` to expect `packages` and `base`. Expect hosts with a CPU fact of an unknown vendor to see the `base` error check; that is the intended behaviour.
 - [ ] **Step 4: Run** `uv run pytest tests/roles -q` (parse, docs and accounts tests see the new role); `uv run python scripts/gen_roles_doc.py`; `ruff check src tests`.
-- [ ] **Step 5: Commit** `base: a Markdown role with the old role's tools and microcode (Task 10, not reviewed yet)`.
+- [ ] **Step 5: Commit** `base: a Markdown role with the old role's tools and microcode (Task 11, not reviewed yet)`.
 
 ---
 
-### Task 11: Roadmap and version
+### Task 12: Roadmap and version
 
 **Files:** `docs/ROADMAP.md`, version files via `scripts/version-bump`.
 
-- [ ] **Step 1: Roadmap.** Tick the cleanup, AUR removal, `supersedes`, Arch installs (`-Syu`, lock check, warning), reflector stopgap and `base` rows in step 3 of the VPS apps; leave the deferred rows (Debian round, optional deps, group generation, packages split, reflector configuration, sysctl, ssh/harden rebuilds, test audit) as written; add "reflector runs on its timer, not once at apply time" to the pacman row; set "next" to `caddy`.
+- [ ] **Step 1: Roadmap.** Tick the cleanup, AUR removal, `supersedes`, shipped default roles, Arch installs (`-Syu`, warning), `pacman` with Arch, reflector stopgap and `base` rows in step 3 of the VPS apps; leave the deferred rows (pacman lock, Debian round, optional deps, group generation, packages split, reflector configuration, sysctl, ssh/harden rebuilds, test audit) as written; set "next" to `caddy`, and write the "next session starts here" handoff line.
 - [ ] **Step 2: Version.** This round changes code, roles and behaviour: `scripts/version-bump 0.3.0` (rewrites `pyproject.toml`, the time zone list, `role-hashes.txt`, `docs/roles.md`); `scripts/version-bump --check` must print nothing. Commit them together.
 - [ ] **Step 3: Final checks.** `ruff check src tests`, `scripts/privacy-check`, `uv run pytest tests/roles tests/engine tests/core tests/cli -q`. Do **not** run the container contract suite or the full suite; give the owner `cd <worktree> && uv run pytest -q` and wait for his "passed". Note which contract tests were already failing before this plan (`test_roles_contract`, `test_arch_updates_reported`) in the ledger.
-- [ ] **Step 4: Commit** `ROADMAP: base, supersedes and Arch installs done; Bastet 0.3.0 (Task 11, not reviewed yet)`.
+- [ ] **Step 4: Commit** `ROADMAP: base, supersedes and Arch installs done; Bastet 0.3.0 (Task 12, not reviewed yet)`.
 
 ## Self-review (2026-10-14)
 
 - **Spec coverage:** in-round list (spec section 13): cleanup (2, 3), `supersedes` with typo check and display (4, 5), CLAUDE.md and skills (1), `-Syu`, lock check, warning (6, 7), reflector and `NoExtract` (8), groups copy (9), `base` (10), roadmap (11). `caddy`/`forgejo`/`vaultwarden` are named as separate plans.
 - **Placeholders:** the `...` tests in Tasks 2, 4, 5, 7, 8 and 10 are named with the exact behaviour to assert; the implementer writes them out in full (each step says so).
 - **Names:** `supersedes`, `Option.supersedes`, `remove_stale_lock`, `reflector`, `extra_tools`, `baseline` are used the same way in every task they appear in.
-- **Open for the owner's read:** (a) the lock rule is "refuse with instructions unless `-y`" (decision 2); (b) `NoExtract` fallback in Task 8 if "only while reflector is on" cannot be expressed simply; (c) Task 5 applies the target role when it has no note.
+- **Open for the owner's read:** (a) `NoExtract` fallback in Task 9 if "only while reflector is on" cannot be expressed simply; (b) Task 5 applies the target role when it has no note; (c) Task 6 makes `packages` apply to every managed host, which adds the unaccounted report and reboot policy everywhere.
