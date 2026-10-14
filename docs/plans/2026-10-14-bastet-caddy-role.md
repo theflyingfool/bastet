@@ -4,7 +4,7 @@
 
 **Status:** draft for the owner's review (2026-10-14); no code is written. Design: `docs/specs/2026-10-14-bastet-caddy-and-collectors-design.md` (read it first). Decisions: D-036 to D-038.
 
-**Goal:** a `caddy` role whose sites are collected from other roles' `expose` options plus a manual `sites:` list, with inherited `site_defaults`, and an optional `dns` option that builds Caddy with a DNS-challenge plugin on the host.
+**Goal:** a `caddy` role whose sites are collected from other roles' `proxy` options plus a manual `sites:` list, with inherited `site_defaults`, and an optional `dns` option that builds Caddy with a DNS-challenge plugin on the host.
 
 **Tech stack:** Python ≥3.12, pydantic, PyYAML, Jinja2 (the existing sandbox), pytest, ruff. The role itself is Markdown with no Python; the only Python is the `collects` contract feature (Task 2).
 
@@ -22,7 +22,7 @@
 Read-only. Write the findings into the top of this plan under "Verified" (and fix the spec if one is wrong).
 
 - [ ] The packaged `caddy.service` on an Arch host: `ExecStart`, `ExecReload`, `AmbientCapabilities`, user/group, config path (`pacman -Ql caddy`, `systemctl cat caddy`; or the package page).
-- [ ] `go`, `xcaddy` and `caddy` are in the official repos; `caddy list-modules --versions` shows a plugin's version; `xcaddy build <version> --with <module>@<tag> --output <path>` works with `GOCACHE`/`GOPATH` set and no `HOME`.
+- [ ] `go` and `caddy` are in the official repos; `go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest` works inside a `DynamicUser` unit with `GOPATH`/`GOCACHE`/`GOBIN` under the cache directory and no `HOME`; `caddy list-modules --versions` shows a plugin's version; the resulting `xcaddy build <version> --with <module>@<tag> --output <path>` works there.
 - [ ] The exposing host's address field in the inventory (`host_data()` in `core`, a host note's `address`/`ip`), and what an unmanaged host's note holds.
 - [ ] What the sandboxed Jinja templating of a `template:` file allows (`{% for %}`, `is not none`, dict merge), by reading `engine/templates.py` and the time/pacman templates. This fixes the `site_defaults` syntax.
 - [ ] Whether an `each:` entry can render a different file per item, and whether a `files:` entry with `content` can write a pacman hook and a unit with `daemon_reload` (the `time`/`pacman` roles show the forms).
@@ -34,11 +34,11 @@ Done when: every item has a one-line finding; the owner sees any change to the s
 
 Files (expected): `src/bastet/roles/{contract,resolve,expr,declarative,builtin}.py`, `src/bastet/cli/run.py`, `src/bastet/data/docs/writing_roles.md`, tests under `tests/roles/`.
 
-- [ ] Parse `collects: {expose: <list option>}` in a role file; the target must be a `list` option; refuse unknown source names; `docs`/`pages` show it.
-- [ ] A function `collect(inv, proxy_role_note, types, roles)` (in `roles/`), used by `plan_for`: resolve every other host (cached for the run), take each applied role's `expose` option value, keep the ones whose domain's `proxy:` link (lab note, overridable by group/host) points at this host's role, and return exposure dicts with `host` and `address` added.
+- [ ] Parse `collects: {proxy: <list option>}` in a role file; the target must be a `list` option; refuse unknown source names; `docs`/`pages` show it.
+- [ ] A function `collect(inv, proxy_role_note, types, roles)` (in `roles/`), used by `plan_for`: resolve every other host (cached for the run), take each applied role's `proxy` option value, keep the ones whose domain's `proxy:` link (lab note, overridable by group/host) points at this host's role, and return exposure dicts with `host` and `address` added.
 - [ ] `plan_for` passes the collected list into `HostInfo`/`builtin.batches_for` so that `declarative.build` appends it to the `sites` option before `expr.context()`.
-- [ ] Errors: duplicate name on one domain (both files named), a secret field in `expose`, an exposure with no address and no `upstream:`. A `checks:`-style warning on the exposing host when its domain has no proxy.
-- [ ] Tests: collects from two hosts, filters by `proxy:` link, group override of the proxy, duplicate name, unmanaged host still scanned, nothing collected leaves `sites` as the manual list, no `collects` leaves everything unchanged (regression).
+- [ ] Errors: duplicate name on one domain (both files named), a secret field in `proxy`, an exposure with no address and no `upstream:`. A `checks:`-style warning on the exposing host when its domain has no proxy.
+- [ ] Tests: collects from two hosts, filters by `proxies:` link, group override of the proxy, duplicate name, unmanaged host still scanned, nothing collected leaves `sites` as the manual list, no `collects` leaves everything unchanged (regression).
 
 Done when: a demo role with `collects` builds sites from two fake exposing hosts in a `tmp_path` inventory.
 
@@ -61,29 +61,37 @@ Done when: `uv run pytest tests/roles -q` passes and the role parses.
 ### Task 5 — `dns` option and the build
 
 - [ ] Option `dns` (`provider` required, `version` default `latest`, `env` secret map) with a check that errors on an empty `provider`.
-- [ ] Entries behind `when: dns is not none`: packages `go` and `xcaddy`; the build unit file (`daemon_reload`), the drop-in, the credentials file (0600, secret), the pacman hook, the guarded `systemctl start` command (guard per spec section 5, `latest` resolved with `git ls-remote --tags --refs`), the global `acme_dns` line.
-- [ ] A check cannot see that `dns` was set on an earlier run, so what happens when it is turned off (Go and `xcaddy` stay, the drop-in is blanked) is documented in the role's body instead.
+- [ ] Entries behind `when: dns is not none`: package `go`; the build unit file (with `ExecStartPre` doing `go install ...xcaddy@latest`; `daemon_reload`), the drop-in, the credentials file (0600, secret), the pacman hook, the guarded `systemctl start` command (guard per spec section 5, `latest` resolved with `git ls-remote --tags --refs`), the global `acme_dns` line.
+- [ ] A check cannot see that `dns` was set on an earlier run, so what happens when it is turned off (Go stays, the drop-in is blanked) is documented in the role's body instead.
 - [ ] Tests: no `dns` emits none of this; `dns` emits exactly the listed entries; the credentials file is the only secret-marked entry; the guard text contains both comparisons; `version: <tag>` pins; unit and hook content snapshots (small).
 - [ ] The real build is **not** run in the test suite (needs network and Go); the owner checks it on a host.
 
-### Task 6 — Docs, version, roadmap
+### Task 6 — Sites table in the lab dashboard
+
+Files (expected): `src/bastet/core/render.py` (`dashboard()`), the collector from Task 2, tests under `tests/`.
+
+- [ ] A **Sites** table in the lab dashboard (the generated part of the lab note): name, domain, proxy host, upstream, source (the exposing host, or a manual `sites:` entry). Built from the Task 2 collector over every `caddy` role in the inventory; absent when no site exists.
+- [ ] Tests: two exposing hosts and one manual site give three rows; a name collision shows in the table and is also the run error; an inventory without `caddy` renders no Sites section (regression).
+
+### Task 7 — Docs, version, roadmap
 
 - [ ] `uv run python scripts/gen_roles_doc.py`; commit `docs/roles.md`.
 - [ ] `docs/ROADMAP.md`: tick `caddy` (VPS apps step 4, roles table V1), add the deferred rows from spec section 7, update "Next session starts here".
 - [ ] `scripts/version-bump` to the next Y (0.4.0: new contract feature and a new role); role hashes recorded; `--check` passes.
 - [ ] `ruff check src tests`; `scripts/privacy-check` (copy `.privacy-patterns` into the worktree first, delete after).
 
-### Task 7 — Owner's checks (give him the commands; the controller never merges before "passed")
+### Task 8 — Owner's checks (give him the commands; the controller never merges before "passed")
 
 - `uv run pytest -q` (full suite).
 - On a real Arch host: `bastet run -c <host>` shows the diff for the plain role; apply; then add a `dns` note and check the build unit, the hook (`pacman -S --needed caddy` reinstall triggers a build), the drop-in and `caddy-bastet list-modules --versions`.
 - On the VPS with two exposing hosts (or one plus a manual `sites:` entry), check the generated `conf.d` files and a certificate issue.
 
-## Open questions for the owner
+## Decided by the owner (2026-10-14, answers to the open questions)
 
-1. Is the **auto-restart on every rebuild** (`ExecStartPost=+ systemctl try-restart caddy`) acceptable, or should a rebuild wait for the next restart/maintenance window? Default: restart now (a rebuild is rare and Caddy restarts fast).
-2. **Where the manual `sites:` default lives** for a lab with both a VPS and a home-lab proxy: in each proxy's host/group note (this plan) — no lab-level default.
-3. Name of the exposure option: `expose` (spec) — fine, or something more specific like `proxy`?
+1. Restart on every rebuild: not asked again; the default stands (`try-restart` after the move) and the role's body says so.
+2. The exposure option is **`proxy`**; the lab note's map is `proxies:`.
+3. **No lab-level site defaults**; the lab note **lists every site** (Task 6).
+4. `xcaddy` comes from `go install ...@latest` in the build unit, not from a package.
 
 ## Ledger
 
