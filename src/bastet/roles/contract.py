@@ -27,11 +27,11 @@ API_VERSIONS = (0,)
 OPTION_AS = ("flag", "value", "list", "lines", "text", "entries")
 ENTRY_FORMATS = ("deb822", "ini_section")
 VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
-ROLE_NOTE_RESERVED = {"uses", "needs", "contributes", "collects", "requires", "tags", "cssclasses", "types",
+ROLE_NOTE_RESERVED = {"uses", "needs", "contributes", "requires", "tags", "cssclasses", "types",
                       "not_types", "os_min", "data", "vars", "presets", "templates", "units", "hooks",
                       "source", "source_hash"}
 ROLE_NOTE_KEYS = {"bastet", "name", "version", "api", "description", "os", "provides", "options", "examples", "files", "commands", "packages",
-                  "systemd", "users", "accounts", "starter", "checks", "sections", "overrides"}
+                  "systemd", "users", "accounts", "starter", "checks", "sections", "overrides", "collects"}
 FILE_EDITS = ("ini",)
 FILE_RENDERS = ("apt",)
 FILE_FORMS = ("edit", "render", "content", "template", "directory", "link", "line", "block")
@@ -50,6 +50,7 @@ SECTION_BLOCKS = ("packages", "users", "files", "systemd", "commands")
 SECTION_KEYS = {"name", "when", *SECTION_BLOCKS}
 GENERATE_KINDS = ("password", "token")
 SECRET_SOURCES = ("generated", "chosen", "issued")
+COLLECT_SOURCES = ("proxy",)  # what a role can `collects:` from other hosts' roles
 
 
 @dataclass
@@ -105,6 +106,7 @@ class RoleDef:
     users: list[dict] = field(default_factory=list)
     checks: list[dict] = field(default_factory=list)
     overrides: list[dict] = field(default_factory=list)  # role-level: {when, note, values}, checked when the role is read
+    collects: dict[str, str] = field(default_factory=dict)  # source (proxy) -> the list option the collected items join
     markdown: bool = False
     raw: dict = field(default_factory=dict)
 
@@ -514,6 +516,28 @@ def _role_overrides(role_name: str, items: object, options: dict[str, Option], p
     return out
 
 
+def _collects(name: str, value: object, options: dict[str, Option], path: Path) -> dict[str, str]:
+    """`collects: {proxy: <list option>}`: what the role gathers from other hosts' roles, and where it goes."""
+
+    def fail(text: str) -> BastetError:
+        return BastetError(f"role {name}: {text}", file=path, key="collects")
+
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise fail("collects must be a map like {proxy: sites}")
+    for source, target in value.items():
+        if source not in COLLECT_SOURCES:
+            raise fail(f"collects can't gather {source!r} (known: {', '.join(COLLECT_SOURCES)})")
+        if not isinstance(target, str) or target not in options:
+            raise fail(f"collects {source} names {target!r}, which isn't an option (options: {', '.join(options)})")
+        if options[target].type != "list":
+            raise fail(f"collects {source} needs a list option, but {target} is a {options[target].type}")
+        if source == "proxy" and (options.get("serves") is None or options["serves"].type != "list"):
+            raise fail("collects proxy needs a list option `serves` (the lab scopes this role answers for)")
+    return dict(value)
+
+
 def parse_role(path: Path) -> RoleDef:
     """Read one Markdown role note ("<name> role.md"): the frontmatter is the contract."""
     doc = parse_document(path.read_text(encoding="utf-8"), path)
@@ -559,6 +583,7 @@ def parse_role(path: Path) -> RoleDef:
         checks = role_entries.parse_checks(path, data.get("checks") or [], options)
         grouped = _sections(path, data.get("sections") or [], options)
         overrides = _role_overrides(name, data.get("overrides"), options, path)
+        collects = _collects(name, data.get("collects"), options, path)
         entries += grouped["files"]
         commands += grouped["commands"]
         packages += grouped["packages"]
@@ -570,7 +595,7 @@ def parse_role(path: Path) -> RoleDef:
         raise
     role = RoleDef(name, description, options, path, examples, api=data["api"], version=version, os=os_,
                    provides=provides, accounts=accounts, entries=entries, commands=commands, packages=packages,
-                   systemd=systemd, users=users, checks=checks, overrides=overrides, markdown=True,
+                   systemd=systemd, users=users, checks=checks, overrides=overrides, collects=collects, markdown=True,
                    raw={k: data[k] for k in ROLE_NOTE_RESERVED if k in data})
     try:
         _read_starter(role, data.get("starter"), path)

@@ -178,12 +178,22 @@ RENDERERS = {"apt": _apt}
 EDITORS = {"ini": _ini}
 
 
+def _with_collected(role: RoleDef, values: dict, host) -> dict:
+    """The values with what other hosts' roles hand this one (`collects`) added after the option's own items."""
+    items = host.collected.get(role.name)
+    if not items or "proxy" not in role.collects:
+        return values
+    target = role.collects["proxy"]
+    return {**values, target: [*(values.get(target) or []), *items]}
+
+
 def build(role: RoleDef, values: dict, host, secret_options: frozenset = frozenset(),
           origins: dict[str, str] | None = None) -> list[Batch]:
     # Any secret option may have reached a file this role edits, renders or writes as entries, so those are marked.
     secret = bool(secret_options)
     _check_os(role, host)
     resources: list[Resource] = []
+    values = _with_collected(role, values, host)
     ctx = expr.context(role.options, values, host, origins)
     notes = entries.run_checks(role, ctx)  # first, so an error check stops the host before anything is planned
     for i, entry in enumerate(role.entries):

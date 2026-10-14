@@ -5,7 +5,7 @@ import select
 import sys
 import tempfile
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import typer
@@ -50,6 +50,7 @@ from bastet.engine.run import Batch, Note, run_host
 from bastet.engine.script import exec_script, new_mark
 from bastet.engine.security import LYNIS_AUDIT, LynisReport
 from bastet.roles.builtin import HostInfo, batches_for
+from bastet.roles.collect import Collector
 from bastet.roles.contract import RoleDef, load_roles
 from bastet.roles.pages import options_in_body
 from bastet.roles.resolve import Applied, resolve
@@ -70,7 +71,16 @@ def plan_for(ctx: Context, doc: Document, roles: dict[str, RoleDef], updates: bo
         a.values, became_secret = resolve_refs(a.values, host=doc.name, role=a.role.name, options=a.role.options, sctx=ctx.secrets)
         a.secret = bool(became_secret)
         a.secret_options = frozenset(became_secret)
-    return applied, batches_for(applied, host_info(ctx, doc, updates=updates))
+    collector = getattr(ctx, "_collector", None)
+    if collector is None or collector.inv is not ctx.inventory or collector.roles is not roles:  # one scan per run
+        collector = ctx._collector = Collector(ctx.inventory, ctx.types, roles)
+    info = replace(host_info(ctx, doc, updates=updates), collected=collector.sites_for(doc))
+    batches = batches_for(applied, info)
+    for role, message in collector.warnings_for(doc):  # an exposure no collecting role receives
+        target = next((b for b in batches if b.name == role), batches[0] if batches else None)
+        if target is not None:
+            target.notes.append(Note("warning", role, message))
+    return applied, batches
 
 
 def distinct_notes(batches: list[Batch]) -> list[Note]:

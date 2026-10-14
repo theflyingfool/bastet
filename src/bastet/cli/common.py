@@ -24,6 +24,7 @@ from bastet.core.secrets.notes import SecretNote, SecretPath
 from bastet.core.secrets.redact import ACTIVE
 from bastet.core.secrets.refs import MissingSecret
 from bastet.core.secrets.store import AgeStore, for_note
+from bastet.roles.collect import Collector
 from bastet.ui import out
 
 
@@ -161,6 +162,7 @@ class Context:
     written: set[Path] = field(default_factory=set, repr=False)  # paths written but not yet committed this command
     pull_error: str | None = field(default=None, repr=False)  # the last pull's failure message, if any
     _secrets: SecretsContext | None = field(default=None, init=False, repr=False)
+    _collector: Collector | None = field(default=None, init=False, repr=False)  # one scan of the inventory per run
 
     @property
     def secrets(self) -> SecretsContext:

@@ -79,7 +79,7 @@ def test_unknown_top_level_key(tmp_path):
 
 
 def test_reserved_keys_accepted_and_ignored(tmp_path):
-    reserved = ["uses", "needs", "contributes", "collects", "requires", "tags", "cssclasses", "types", "not_types",
+    reserved = ["uses", "needs", "contributes", "requires", "tags", "cssclasses", "types", "not_types",
                 "os_min", "data", "vars", "presets", "templates", "units", "hooks", "source",
                 "source_hash"]
     role = parse_role(_write(tmp_path, _fm(**{k: [k] for k in reserved})))

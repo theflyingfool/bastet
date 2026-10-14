@@ -68,6 +68,13 @@ def _rows(name: str, opt: Option) -> list[str]:
     return rows
 
 
+def _collects_lines(role: RoleDef, heading: str) -> list[str]:
+    if not role.collects:
+        return []
+    return ["", f"{heading}Collects", ""] + [
+        f"- Collects `{source}` exposures from other hosts' roles into `{target}`." for source, target in role.collects.items()]
+
+
 def role_page(role: RoleDef, used_by: list[tuple[str, list[str]]]) -> str:
     lines = [f"# {role.name} role", "", role.description, "", "Docs: [[Using roles]] · [[Writing roles]]", "",
              "Values go in a role file's properties (the frontmatter at the top), never in its page text.", "",
@@ -78,6 +85,7 @@ def role_page(role: RoleDef, used_by: list[tuple[str, list[str]]]) -> str:
              "| Option | Type | Default | Description |", "|---|---|---|---|"]
     for name, opt in role.options.items():
         lines += _rows(name, opt)
+    lines += _collects_lines(role, "## ")
     lines += ["", "## Used by", ""]
     lines += [f"- [[{host}]]: {', '.join(labels)}" for host, labels in used_by] or ["- (no hosts yet)"]
     return f"---\ngenerated: true\nrole: {role.name}\n---\n" + "\n".join(lines) + "\n"
@@ -119,6 +127,7 @@ def roles_markdown(roles: dict[str, RoleDef]) -> str:
         lines += ["### Options", "", "| Option | Type | Default | Description |", "|---|---|---|---|"]
         for opt_name, opt in role.options.items():
             lines += _rows(opt_name, opt)
+        lines += _collects_lines(role, "### ")
     return re.sub(r"\[\[([^\]|]+)(?:\|[^\]]*)?\]\]", r"`\1`", "\n".join(lines)) + "\n"  # no vault links on GitHub
 
 

@@ -33,6 +33,7 @@ class HostInfo:
     apply_updates: bool = False
     physical: bool = False
     ssh_ports: tuple[int, ...] = ()  # from the ssh role, when it sets port (fail2ban's jail, listening ports)
+    collected: dict[str, list[dict]] = field(default_factory=dict)  # role name -> items other hosts' roles hand it (`collects`)
 
     @property
     def os_id(self) -> str | None:

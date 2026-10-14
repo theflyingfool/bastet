@@ -22,6 +22,7 @@ Role keys (top level of the role note):
 - `checks`: info, warning or error from a role, [Stopping or warning instead of skipping silently](#stopping-or-warning-instead-of-skipping-silently).
 - `sections`: [Grouping entries](#grouping-entries-sections).
 - `overrides`: options the role itself sets or clears on some hosts, [Overrides defined by the role itself](#overrides-defined-by-the-role-itself).
+- `collects`: a role that gathers the `proxy` exposures other hosts' roles declare, [Collecting from other hosts](#collecting-from-other-hosts-collects).
 - `accounts`, `starter`: [Accounts, defaults and starters](#accounts-defaults-and-starters).
 - `examples`: example values shown in the generated reference ([Markdown roles](#markdown-roles-draft)).
 
@@ -296,6 +297,33 @@ files:
 There is deliberately no index variable: reordering the list changes nothing that is built. Item numbers appear only in
 error messages. An item that is removed or renamed leaves the file it once built behind, because Bastet does not delete
 files yet; remove it by hand.
+
+### Collecting from other hosts (collects)
+
+A role that is a proxy can gather what the rest of the lab wants proxied. Its role note says
+`collects: {proxy: sites}`: the key is the kind of thing collected (only `proxy` exists) and the value is one of the
+role's own `list` options, where the collected items are added after the ones the notes set. The role also needs a
+`list` option called `serves`, the lab scopes it answers for. Both are checked when the role is read, and the generated
+reference page for the role shows the key.
+
+Other roles take part by declaring an option called `proxy`, a list of exposures (`subdomain`, `domain`, `port`, `via`,
+`upstream` and any knobs the proxy role reads). It may not hold a secret: no secret field, no `secret:` value. Every host
+in the inventory is read, unmanaged ones too, from its notes as written (nothing waits for the exposing host to be
+applied). For each exposure:
+
+- The site name is `subdomain` + `.` + the domain the lab note's `domains:` maps the exposure's `domain` (its scope) to.
+  The scope may be left out when `domains:` has exactly one entry; with several it must be given. Two scopes may map to
+  the same domain.
+- It goes to the collecting roles whose `serves` contains the scope, or to the ones `via` names (`[[vps1/caddy]]`, one
+  or a list: a host and the role on it). Two or more matches with no `via` is an error; no match is a warning on the
+  exposing host.
+- The upstream is `upstream` if the exposure has one, else the exposing host's `ip` (or `address`) and `port`, or
+  `127.0.0.1` and `port` when the proxy is on the same host. No address and no `upstream` is an error.
+
+Each collected item is the exposure plus `name` (the site name, lowercase), `upstream`, `host` (the exposing host) and
+`source` (like `nas1/jellyfin proxy[0]`), so one `each: sites` entry builds manual and collected sites alike. The same
+site name twice on one proxy host, collected or typed in `sites`, is an error naming both sources; on two proxy hosts it
+is fine (split-horizon). Errors name the note file and the key (`proxy`, or `serves` for a proxy role).
 
 ### Accounts, defaults and starters
 
