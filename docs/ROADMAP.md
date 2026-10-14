@@ -19,6 +19,8 @@ work in `docs/plans/`. Update this file whenever a plan lands.
 
 ## Now
 
+**Next session starts here (2026-10-14):** the spec (`docs/specs/2026-10-14-bastet-package-roles-and-base-design.md`) is approved and the plan (`docs/plans/2026-10-14-bastet-base-role.md`, 12 tasks) is written and waits for the owner's read. Both live on the unpushed branch `base-role` (temporary worktree `.claude/worktrees/base-role-plan`). Decisions are in `docs/decisions.md` (priority: D-032). Nothing is built. After the owner's go: run the plan with the `bastet-run-plan` skill (push the branch first, ask), then plan `caddy`, `forgejo`, `vaultwarden`.
+
 **Run logs were pulled forward ahead of the roles redesign** (decided 2026-10-10): you need to see what a run did, in order, before more roles land, and the event tests give the roles work a regression net. The design is `docs/specs/2026-10-10-bastet-console-output-design.md`, built as three plans:
 1. **Console primitives:** done and merged (colour, width-fitting tables, coloured diffs, plain when piped).
 2. **Events and the JSONL record:** done (`docs/plans/2026-10-10-bastet-console-2-events.md`): events, the JSONL record, the `-vv` live view and `bastet log`.
