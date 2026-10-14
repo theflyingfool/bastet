@@ -1,0 +1,11 @@
+{%- set fields = dns_secrets if dns_secrets is not none else {} -%}
+{%- set settings = dns.get("settings") if dns.get("settings") is not none else {} -%}
+# Managed by Bastet (the caddy role); changes made here are overwritten.
+acme_dns {{ dns.provider }}{% if fields or settings %} {
+{%- for field in fields %}
+	{{ field }} {{ "{env.DNS_" ~ (field | upper) ~ "}" }}
+{%- endfor %}
+{%- for key, value in settings.items() %}
+	{{ key }} {{ value }}
+{%- endfor %}
+}{% endif %}

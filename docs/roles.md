@@ -138,6 +138,42 @@ serves:
 email: admin@example.com
 ```
 
+**Certificates with the DNS challenge, Linode (Caddy is rebuilt on this host with the plugin)**
+
+```yaml
+serves:
+  - internal
+dns:
+  provider: linode
+  resolvers:
+    - 1.1.1.1
+  ttl: 30s
+dns_secrets:
+  api_token: secret:linode_token
+```
+
+**The same with Cloudflare, pinned to a plugin release**
+
+```yaml
+dns:
+  provider: cloudflare
+  version: v0.2.1
+dns_secrets:
+  api_token: secret:cloudflare_token
+```
+
+**The same with Namecheap (a user name and an API key; try the sandbox endpoint first)**
+
+```yaml
+dns:
+  provider: namecheap
+  settings:
+    user: example-user
+    api_endpoint: https://api.sandbox.namecheap.com/xml.response
+dns_secrets:
+  api_key: secret:namecheap_key
+```
+
 **Behind another proxy, with a snippet for hand-written config**
 
 ```yaml
@@ -173,6 +209,15 @@ snippets:
 | trusted_proxies | list of string |  | Networks of proxies in front of Caddy whose forwarded headers are trusted (servers / trusted_proxies static) |
 | snippets | map of string |  | Name to raw text, each written as a (name) { ... } block in the Caddyfile, for hand-written config to import |
 | extra | string |  | Raw Caddyfile text added at the end of the global block |
+| dns | object |  | Build Caddy with a DNS-challenge plugin on this host so certificates can be issued with DNS-01 (names that are not reachable from the internet, wildcards). Unset = stock Caddy, nothing below exists on the host. The credentials go in dns_secrets |
+| dns.provider | string |  | The caddy-dns module name: github.com/caddy-dns/<provider> (linode, cloudflare and namecheap are documented below; any other caddy-dns module works with its fields passed through as given) |
+| dns.version | string |  | The plugin release to build: latest (the default, rebuilt when a newer one appears) or a tag such as v0.8.0 |
+| dns.settings | map of string |  | The provider's plain fields, written as they are in the acme_dns block (for example user, or api_endpoint for Namecheap) |
+| dns.propagation_delay | string |  | How long to wait before checking that the challenge record is visible, e.g. 2m (written in each site's tls block) |
+| dns.propagation_timeout | string |  | How long to wait for the record to propagate, e.g. 5m, or -1 for no check |
+| dns.ttl | string |  | TTL of the challenge record, e.g. 30s (written as dns_ttl) |
+| dns.resolvers | list of string |  | DNS servers used to check the challenge record, e.g. 1.1.1.1; needed when this host's own resolver answers differently for the name (split-horizon) |
+| dns_secrets | map of string |  | The provider's secret fields, by their name in the acme_dns block, each a secret: reference (for example api_token: secret:linode_token). They are written to /etc/caddy/dns.env (root only, mode 0600) as DNS_<FIELD>, and the Caddyfile refers to them as {env.DNS_<FIELD>}. A separate option from dns so that only the files that hold or name a secret are hidden in diffs |
 
 ### Collects
 

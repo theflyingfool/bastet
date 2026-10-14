@@ -14,6 +14,14 @@
 {%- for text in [defaults.get("extra"), item.get("extra")] -%}
 {%- if text is string and text.strip() %}{{ extras.append(text.strip("\n")) or "" }}{% endif -%}
 {%- endfor -%}
+{#- With dns set, the generic challenge keys go in each site's tls block: the global acme_dns takes only the provider. -#}
+{%- set tls = [] -%}
+{%- if dns is not none -%}
+{%- for key, option in [("propagation_delay", "propagation_delay"), ("propagation_timeout", "propagation_timeout"), ("dns_ttl", "ttl")] -%}
+{%- if dns.get(option) is not none %}{{ tls.append(key ~ " " ~ dns.get(option)) or "" }}{% endif -%}
+{%- endfor -%}
+{%- if dns.get("resolvers") %}{{ tls.append("resolvers " ~ (dns.get("resolvers") | join(" "))) or "" }}{% endif -%}
+{%- endif -%}
 # Managed by Bastet (the caddy role); changes made here are overwritten.
 {{ item.name }} {
 {%- if allow %}
@@ -36,6 +44,13 @@
 	}
 {%- elif upstreams %}
 	reverse_proxy {{ upstreams | join(" ") }}
+{%- endif %}
+{%- if tls %}
+	tls {
+{%- for line in tls %}
+		{{ line }}
+{%- endfor %}
+	}
 {%- endif %}
 {%- if extras %}
 {{ extras | join("\n") | indent("\t", true) }}

@@ -8,6 +8,9 @@
 {%- if email is not none %}
 	email {{ email }}
 {%- endif %}
+{%- if dns is not none %}
+	import /etc/caddy/dns.caddy
+{%- endif %}
 {%- if log_level is not none %}
 	log {
 		level {{ log_level }}

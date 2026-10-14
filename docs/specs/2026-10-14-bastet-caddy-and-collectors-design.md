@@ -210,6 +210,14 @@ Unset means none of this exists on the host. `provider` is free-form, so any `ca
 
 Known limits, stated plainly in the role's body: unreviewed upstream plugin code is built whenever its newest release changes (so a host can pin); a rebuild restarts Caddy briefly; a failed build is only reported on the next Bastet run (Bastet has no notification channel yet), and until then the older Caddy keeps serving; a build peaked at 2.8 GB of memory with everything in the private `/tmp` (1m53s wall, 6 CPU-minutes on the dev machine), but that was with the caches in tmpfs. The owner built Caddy with `xcaddy` manually on the VPS without trouble (2026-10-14), so memory is not treated as a blocker; caches on disk should lower the peak further, round 3 measures it, and a host that cannot afford a build can skip `dns` (the VPS does not need it today, since HTTP-01 works there) or add swap.
 
+### 5.5 As built (Task 5): where it differs from 5.1 and 5.2
+
+- **`dns_secrets` is a top-level option, not `dns.secrets`.** Bastet marks a file secret (hidden in diffs and logs) when it uses an option that holds a secret reference, by top-level option name; a nested secret would hide every file that mentions `dns`, the main Caddyfile included. With the split, only `/etc/caddy/dns.env` and `/etc/caddy/dns.caddy` (which names the secret fields) are hidden.
+- **The `acme_dns` block lives in `/etc/caddy/dns.caddy`,** imported from the global block of the Caddyfile (verified with the plugin binary), so the Caddyfile itself never mentions a secret field.
+- **`commands:` entries cannot hold `{{ }}`,** so the provider, version and the guard live in `/usr/local/lib/caddy-bastet/build` (`build`, `install`, `current`, `rebuild`), a templated script; the guard and the rebuild command are `build current` and `build rebuild`, placed `before: systemd` so the plugin binary exists before `caddy.service` first starts.
+- **The first apply** writes the files, then the build command runs `systemctl daemon-reload` and starts the build unit, then `caddy.service` is enabled and started with the drop-in in effect.
+- **The generic keys** (`propagation_delay`, `propagation_timeout`, `ttl` as `dns_ttl`, `resolvers`) are written in each site's `tls { }` block; the per-site and whole-config validators and the gated reload and restart use `caddy-bastet` once `dns` is set.
+
 ## 6. Verification status (2026-10-14)
 
 **Verified** (read from the code, the Arch package, and a run on the owner's Arch host with Caddy 2.11.7, Go 1.27.2, systemd 262):
