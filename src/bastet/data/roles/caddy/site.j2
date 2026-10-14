@@ -1,15 +1,26 @@
 {%- macro q(text) -%}"{{ text | replace("\\", "\\\\") | replace("\"", "\\\"") }}"{%- endmacro -%}
+{#- A knob is the site's own value, else the Caddy's site_defaults, else nothing. false, 0, "" and [] are values. -#}
+{%- set defaults = site_defaults if site_defaults is not none else {} -%}
 {%- set upstream = item.get("upstream") -%}
 {%- set upstreams = [] if not upstream else ([upstream] if upstream is string else upstream) -%}
-{%- set headers = item.get("headers") or {} -%}
-{%- set skip_verify = item.get("tls_skip_verify") is true -%}
+{%- set allow = item.get("allow") if item.get("allow") is not none else defaults.get("allow") -%}
+{%- set encode = item.get("encode") if item.get("encode") is not none else defaults.get("encode") -%}
+{%- set skip_verify = (item.get("tls_skip_verify") if item.get("tls_skip_verify") is not none else defaults.get("tls_skip_verify")) is true -%}
+{%- set headers = {} -%}
+{%- for source in [defaults.get("headers"), item.get("headers")] -%}
+{%- if source %}{% for name, value in source.items() %}{{ headers.update({name: value}) or "" }}{% endfor %}{% endif -%}
+{%- endfor -%}
+{%- set extras = [] -%}
+{%- for text in [defaults.get("extra"), item.get("extra")] -%}
+{%- if text is string and text.strip() %}{{ extras.append(text.strip("\n")) or "" }}{% endif -%}
+{%- endfor -%}
 # Managed by Bastet (the caddy role); changes made here are overwritten.
 {{ item.name }} {
-{%- if item.get("allow") %}
-	@denied not remote_ip {{ item.allow | join(" ") }}
+{%- if allow %}
+	@denied not remote_ip {{ allow | join(" ") }}
 	respond @denied 403
 {%- endif %}
-{%- if item.get("encode") is true %}
+{%- if encode is true %}
 	encode zstd gzip
 {%- endif %}
 {%- if upstreams and (skip_verify or headers) %}
@@ -26,7 +37,7 @@
 {%- elif upstreams %}
 	reverse_proxy {{ upstreams | join(" ") }}
 {%- endif %}
-{%- if item.get("extra") is not none and item.extra.strip() %}
-{{ item.extra.strip("\n") | indent("\t", true) }}
+{%- if extras %}
+{{ extras | join("\n") | indent("\t", true) }}
 {%- endif %}
 }

@@ -161,6 +161,12 @@ snippets:
 | sites[].headers | map of string |  | Headers added to the request sent to the backend (name: value) |
 | sites[].encode | bool |  | true compresses responses (encode zstd gzip) |
 | sites[].extra | string |  | Raw Caddyfile text added inside the site block |
+| site_defaults | object |  | Values every site of this Caddy inherits when it does not set its own: a site's own value wins, then this one, then nothing is written. Set it in a group or host note to give one proxy different defaults from another |
+| site_defaults.tls_skip_verify | bool |  | Default for a site's tls_skip_verify |
+| site_defaults.allow | list of string |  | Default for a site's allow (a site's own list replaces it; [] on a site drops it) |
+| site_defaults.headers | map of string |  | Headers every site sends to its backend; a site's header of the same name wins |
+| site_defaults.encode | bool |  | Default for a site's encode |
+| site_defaults.extra | string |  | Raw Caddyfile text added inside every site block, before the site's own extra |
 | email | string |  | ACME account email, written as the email line of the global block |
 | admin | string |  | The admin endpoint: off, or an address. Unset keeps the package's unix socket |
 | log_level | string |  | Global log level, written as a log block in the global block (one of DEBUG, INFO, WARN, ERROR, PANIC, FATAL) |

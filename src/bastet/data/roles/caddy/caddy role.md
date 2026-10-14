@@ -50,6 +50,31 @@ options:
         extra:
           type: string
           description: 'Raw Caddyfile text added inside the site block'
+  site_defaults:
+    type: object
+    description: 'Values every site of this Caddy inherits when it does not set its own: a site''s own value wins, then this one, then nothing is written. Set it in a group or host note to give one proxy different defaults from another'
+    fields:
+      tls_skip_verify:
+        type: bool
+        description: 'Default for a site''s tls_skip_verify'
+      allow:
+        type: list
+        description: 'Default for a site''s allow (a site''s own list replaces it; [] on a site drops it)'
+        items:
+          type: string
+          single_line: true
+      headers:
+        type: map
+        description: 'Headers every site sends to its backend; a site''s header of the same name wins'
+        items:
+          type: string
+          single_line: true
+      encode:
+        type: bool
+        description: 'Default for a site''s encode'
+      extra:
+        type: string
+        description: 'Raw Caddyfile text added inside every site block, before the site''s own extra'
   email:
     type: string
     single_line: true
@@ -181,6 +206,7 @@ Everything below is written only when you set the option.
 | --- | --- |
 | `serves` | nothing of its own: the scopes (keys of the lab note's `domains`) this Caddy receives exposures for |
 | `sites` | one file per site, see below |
+| `site_defaults` | nothing of its own: values every site of this Caddy inherits (see "Defaults for sites") |
 | `email` | `email <value>` in the global block |
 | `admin` | `admin <value>` in place of the package's socket (`off` or an address) |
 | `log_level` | `log { level <value> }` in the global block |
@@ -194,7 +220,7 @@ is refused; `extra` and `snippets` are raw text and may have many lines.
 ## Sites
 
 Each site (manual or collected) becomes `/etc/caddy/conf.d/<hostname>.caddy`, a complete site block that needs nothing
-from the main Caddyfile (no `import`). A site uses only its own values; the fields are:
+from the main Caddyfile (no `import`). The fields are:
 
 | Field | Written as |
 | --- | --- |
@@ -210,6 +236,22 @@ A collected site also carries `host` (the exposing host) and `source` (the note 
 information. One Caddy never gets the same hostname twice: two sources for one name (collected or manual) are an error
 that names both. A site removed from the list leaves its file behind, because Bastet does not delete files yet; the role
 says so (info). The same hostname on two different Caddies is fine (split horizon).
+
+## Defaults for sites
+
+`site_defaults` has the same knobs as a site (`tls_skip_verify`, `allow`, `headers`, `encode`, `extra`) and is an
+ordinary option, so a group or host note can give one proxy different defaults from another (for example the home-lab
+Caddy defaults `allow` to the LAN and the tunnel). There are no lab-wide defaults. For each knob a site gets:
+
+1. its own value, whether it was written by hand or exposed by another host's role (the app knows what only the app
+   knows);
+2. else the Caddy's `site_defaults` value;
+3. else nothing is written, and Caddy's own behaviour applies.
+
+`false`, `0`, `""` and `[]` are values, so a site can switch a default off: `encode: false`, `tls_skip_verify: false`,
+`allow: []` (no restriction). A site's own list or flag replaces the default. `headers` merge by header name, and the
+site's value wins for a name both set. `extra` is the exception: the default's text is written first and the site's
+text after it, so a site cannot remove a default's `extra`.
 
 ## Validation and reloads
 
@@ -227,4 +269,5 @@ Bastet never reloads Caddy without validating first.
 
 ## Changes
 
-- 0.1.0: first version: the Caddyfile, `conf.d` site files, collected sites, validation before every write and reload.
+- 0.1.0: first version: the Caddyfile, `conf.d` site files, collected sites, `site_defaults`, validation before every
+  write and reload.

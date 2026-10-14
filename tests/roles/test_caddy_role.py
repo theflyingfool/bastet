@@ -200,3 +200,93 @@ def test_a_site_exposed_by_another_host_ends_up_as_a_file(tmp_path):
     info = HostInfo(name="vps1", type="vps", data={"os": "Arch Linux"}, root=Path("/x"), lab={}, collected=collect(inv, host, TYPES, roles))
     written = files([r for b in batches_for(caddy, info) for r in b.resources])
     assert written[f"{CONF_D}/media.example.com.caddy"].content.endswith("media.example.com {\n\tencode zstd gzip\n\treverse_proxy 10.1.0.7:8096\n}\n")
+
+
+# -- site_defaults: a site's own value, else the Caddy's default, else nothing -----------------------------------------------
+
+HEADER = "# Managed by Bastet (the caddy role); changes made here are overwritten.\n"
+DEFAULTS = {"allow": ["10.1.0.0/16"], "tls_skip_verify": True, "encode": True, "headers": {"X-A": "1", "X-B": "2"}, "extra": "log"}
+
+
+def with_defaults_site(site=None, defaults=None):
+    return site_file({"name": "a.example.com", "upstream": "10.1.0.5:80", **(site or {})}, site_defaults=DEFAULTS if defaults is None else defaults)
+
+
+def test_a_site_inherits_every_default_it_does_not_set():
+    assert with_defaults_site() == (
+        HEADER + "a.example.com {\n\t@denied not remote_ip 10.1.0.0/16\n\trespond @denied 403\n\tencode zstd gzip\n"
+        "\treverse_proxy 10.1.0.5:80 {\n\t\ttransport http {\n\t\t\ttls_insecure_skip_verify\n\t\t}\n"
+        "\t\theader_up \"X-A\" \"1\"\n\t\theader_up \"X-B\" \"2\"\n\t}\n\tlog\n}\n")
+
+
+@pytest.mark.parametrize(("site", "present", "absent"), [
+    pytest.param({"allow": []}, [], ["@denied", "10.1.0.0/16"], id="an empty allow list drops the restriction"),
+    pytest.param({"allow": ["10.2.0.0/16"]}, ["remote_ip 10.2.0.0/16"], ["10.1.0.0/16"], id="a list replaces the default"),
+    pytest.param({"encode": False}, [], ["encode"], id="false beats a true default"),
+    pytest.param({"tls_skip_verify": False}, ["header_up"], ["tls_insecure_skip_verify"], id="false beats a true skip-verify"),
+    pytest.param({"extra": ""}, ["\tlog\n"], [], id="an empty extra still gets the default's extra"),
+])
+def test_a_value_the_site_sets_wins_over_the_default(site, present, absent):
+    text = with_defaults_site(site)
+    assert all(p in text for p in present) and not any(a in text for a in absent)
+
+
+def test_headers_merge_by_name_with_the_site_winning():
+    text = with_defaults_site({"headers": {"X-B": "3", "X-C": "4"}})
+    assert text.index('"X-A" "1"') < text.index('"X-B" "3"') < text.index('"X-C" "4"')
+    assert '"X-B" "2"' not in text
+
+
+def test_a_sites_extra_follows_the_defaults_extra():
+    assert with_defaults_site({"extra": "debug"}).endswith("\tlog\n\tdebug\n}\n")
+
+
+def test_unset_defaults_change_nothing():
+    plain = site_file({"name": "a.example.com", "upstream": "10.1.0.5:80"})
+    assert plain == with_defaults_site(defaults={}) and plain.endswith("a.example.com {\n\treverse_proxy 10.1.0.5:80\n}\n")
+
+
+@pytest.mark.parametrize("defaults", [
+    pytest.param({"allow": ["10.1.0.0/16\nrespond 200"]}, id="allow entry"),
+    pytest.param({"headers": {"X-A": "b\nrespond 200"}}, id="header value"),
+    pytest.param({"upstream": "10.1.0.5:80"}, id="a field that is not a knob"),
+])
+def test_site_defaults_are_checked_like_a_sites_own_values(defaults):
+    with pytest.raises(BastetError, match="site_defaults"):
+        build({"site_defaults": defaults})
+
+
+def test_each_caddy_has_its_own_defaults_for_the_same_exposure(tmp_path):
+    folder = tmp_path / "roles" / "app"
+    folder.mkdir(parents=True)
+    exposure = {"type": "object", "fields": {"subdomain": {"type": "string"}, "domain": {"type": "string"}, "port": {"type": "int"},
+                                             "encode": {"type": "bool"}}}
+    (folder / "app role.md").write_text("---\n" + yaml.safe_dump({
+        "bastet": "role-definition", "name": "app", "version": "1.0.0", "api": 0, "description": "A demo app",
+        "options": {"proxy": {"type": "list", "items": exposure}}}) + "---\nNotes.\n", encoding="utf-8")
+    roles = {**ROLES, **load_roles(tmp_path / "roles")}
+    root = tmp_path / "vault"
+    notes = {"Homelab.md": {"bastet": "lab", "domains": {"public": "example.com", "internal": "example.com"}},
+             "hosts/vps1.md": {"bastet": "host", "type": "vps", "ip": "10.1.0.5"},
+             "hosts/lab1.md": {"bastet": "host", "type": "vps", "ip": "10.1.0.6"},
+             "hosts/nas1.md": {"bastet": "host", "type": "vps", "ip": "10.1.0.7"},
+             "_roles/hosts/vps1/caddy.md": {"bastet": "role", "role": "caddy", "applies_to": "[[vps1]]", "serves": ["public"],
+                                            "site_defaults": {"allow": ["203.0.113.7"], "encode": False}},
+             "_roles/hosts/lab1/caddy.md": {"bastet": "role", "role": "caddy", "applies_to": "[[lab1]]", "serves": ["internal"]},
+             "_roles/hosts/nas1/app.md": {"bastet": "role", "role": "app", "applies_to": "[[nas1]]", "proxy": [
+                 {"subdomain": "media", "domain": "public", "port": 8096, "encode": True},
+                 {"subdomain": "media", "domain": "internal", "port": 8096}]}}
+    for rel, data in notes.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text("---\n" + yaml.safe_dump(data) + "---\n")
+    inv = load_inventory(root, TYPES)
+
+    def site(host):
+        doc = inv.get(host)
+        caddy = [a for a in resolve(inv, doc, TYPES, roles) if a.role.name == "caddy"]
+        info = HostInfo(name=host, type="vps", data={"os": "Arch Linux"}, root=Path("/x"), lab={}, collected=collect(inv, doc, TYPES, roles))
+        return files([r for b in batches_for(caddy, info) for r in b.resources])[f"{CONF_D}/media.example.com.caddy"].content
+
+    public, internal = site("vps1"), site("lab1")
+    assert "remote_ip 203.0.113.7" in public and "encode zstd gzip" in public  # the exposure's own encode beats the default's false
+    assert "remote_ip" not in internal and "encode" not in internal
