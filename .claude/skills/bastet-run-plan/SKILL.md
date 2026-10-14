@@ -11,7 +11,9 @@ prompts and reviews don't get rewritten, and drift, every time.
 ## Setup
 
 1. **Plan file:** `docs/plans/<date>-<name>.md`. Read it, plus the spec sections it names.
-2. **Branch:** `git switch -c <plan-name-without-date>` from an up-to-date `main`. Never work on `main`.
+2. **Branch:** `git switch -c <plan-name-without-date>` from an up-to-date `main`. Never work on `main`. If the plan and
+   its spec exist only on an unmerged branch (the spec branch the owner reviewed), continue on that branch instead and
+   write that down in the ledger as a ruling.
    - **Background sessions** refuse edits in the main checkout ("call EnterWorktree first"). The owner allows a
      *temporary* worktree for that: `git worktree add .claude/worktrees/<name> -b <branch> main` (use an absolute
      path if you are already inside a worktree), then `EnterWorktree` with `path`. Never leave worktrees behind (see
@@ -22,7 +24,8 @@ prompts and reviews don't get rewritten, and drift, every time.
 4. **Ledger:** create `progress.md` with this first line:
    `# SDD ledger — plan: <plan path>`.
    Add the code repo and branch, the BASE commit and the execution style, then the pre-flight table. The table has one row per pair of tasks that share a file or interface, and records any rulings.
-5. **Baseline:** run `uv run pytest -q` once and record the count in the ledger (about 4 minutes).
+5. **Baseline:** the owner runs the full suite himself (`CLAUDE.md`); record his count in the ledger, and run
+   `uv run pytest -q` (about 5 minutes) only when he says to.
 
 ## Dispatch (one implementer per task; sonnet by default, haiku for small mechanical tasks)
 
@@ -48,7 +51,9 @@ Rules:
   $XDG_RUNTIME_DIR; no network; tmp_path only; placeholder data only (see "Example data" in docs/ROADMAP.md: 10.1.x.x addresses,
   host names like pve1/media01, user admin).
 - Run ONLY the test files/folders named in the brief (never the full suite, never BASTET_CONTRACT unless told), in the
-  foreground. If `uv run pytest` cannot import bastet, use `PYTHONPATH=src .venv/bin/python -m pytest`.
+  foreground. Name `tests/core/test_docs.py` (and any test that renders shipped docs or role pages) in every brief that
+  touches `src/bastet/data/docs`, a role note or a generated page: shipped docs may not contain a `[[x]]` that is not
+  a doc, and the owner's full run caught exactly that once. If `uv run pytest` cannot import bastet, use `PYTHONPATH=src .venv/bin/python -m pytest`.
 - Match surrounding style; no "spec §"/"Task N" references in src/; bastet.core never imports typer; every message
   goes through bastet.ui.out.
 - `ruff check src tests` must pass; fix only findings from your own changes. Regenerate docs/roles.md with
@@ -71,6 +76,11 @@ Return only: status, commit hash(es), one-line test summary, concerns.
   `EnterWorktree path` first. No per-task reviewer subagent.
 - Each agent commits when it thinks it is done, with `(Task N, not reviewed yet)` on the first line of the message.
   A fix after a failed test run goes in a follow-up commit, never an amend.
+- **When the owner is low on usage** (2026-10-14): the controller writes the tasks itself, inline, with no
+  implementer subagents, one task at a time, and checkpoints after each task (push, report, wait for his "passed,
+  go"). Record the ruling in the ledger. Keep the final review, on a cheaper model if he says so.
+- **Worktree sessions refuse compound commands** that mention git or use heredocs: run plain commands one at a time
+  and append to files with the Edit tool.
 - **After each task:** the controller reads the `src/` diff, checks `git status` and `ps`, writes the ledger line,
   **pushes the branch**, reports in plain words (what was built, what the agent changed from the brief and why, what
   to run), then waits for the user's go unless they said to keep going (they usually do after the first task).
@@ -138,7 +148,12 @@ Return only: status, commit hash(es), one-line test summary, concerns.
 - **Tell the user** what changed, the rulings made for them (with the cost if wrong), and the deferred minors.
 - **Plans:** ask before merging into `main` (a plan is a lot of change). **Small edits made in a temporary worktree**
   (skills, docs, one-file fixes): the owner said not to ask; commit, push, merge and clean up.
-- **Merging from a worktree session** (the main checkout cannot be switched from there):
+- **A background session cannot merge or push to `main`** (a harness rule; the owner saying "merge and push" does
+  not lift it, and he is annoyed if you say no late). Say so in the first sentence, push the branch, open a draft PR
+  (`gh pr create --draft --base main --head <branch> --body-file <file>`, a body that ends with the attribution line)
+  and give him the two-tap path (mark ready, merge) or `git fetch && git merge --ff-only origin/<branch> && git push
+  origin main` for his own checkout. Do the cleanup below only after he says it is merged.
+- **Merging from a worktree session you own** (an interactive one; the main checkout cannot be switched from there):
   `git fetch origin && git merge-base --is-ancestor origin/main HEAD` (it must succeed), then
   `git push origin <branch>:main`. Then `ExitWorktree` (keep), and from the main checkout: copy the ignored
   `.superpowers/sdd/<plan>/` out of the worktree if you want to keep it, `git worktree remove --force <path>`,

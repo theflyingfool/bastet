@@ -5,7 +5,8 @@
   (a reversed one is marked superseded, never deleted). Ending a session: the `bastet-end-session` skill.
 - Writing or changing tests: read `docs/testing.md` first (one layer per behaviour, parametrize, no sleeps, a small
   budget per feature).
-- Running a plan: the `bastet-run-plan` skill. Adding or converting a role: the `bastet-new-role` skill.
+- Running a plan: the `bastet-run-plan` skill. Adding or converting a role: the `bastet-new-role` skill. Checking
+  behaviour on a real host before writing it down: the `bastet-host-check` skill.
 - Git: no lasting worktrees. Work on a plain branch in the real checkout or on `main`. A background session that
   cannot edit the checkout may use a temporary worktree (pushed branch, removed after). A background session cannot
   merge or push to `main`: it pushes its branch and opens a draft PR, and the owner merges. The owner runs the full test
