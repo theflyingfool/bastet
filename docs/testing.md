@@ -1,5 +1,7 @@
 # Test-Writing Guardrails: Stop Test Bloat & Layer Duplication
 
+Moved here from the stray `4CLAUDE.md` (2026-10-14); linked from `CLAUDE.md`. A test audit is on the roadmap.
+
 You have a severe tendency toward test bloat. The test suite currently has over 1,200 tests taking 6 full minutes for a 14k LOC project (a bloated 1:1 test-to-code ratio). You are prohibited from adding sprawling micro-tests. Follow these strict rules when writing or modifying tests:
 
 ### 1. The "Single-Sentry" Rule (Zero Layer Duplication)

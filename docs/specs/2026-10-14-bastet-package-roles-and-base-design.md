@@ -125,5 +125,5 @@ CLAUDE.md says a role applied to every host by default must change nothing with 
 
 When this design is approved:
 - CLAUDE.md's role paragraph is rewritten around that principle (an opinionated default is allowed when the role's documentation says exactly what it does and a note can turn it off; every other role still waits for an option), and the `bastet-new-role` skill's rule 1 is changed to match.
-- CLAUDE.md is tidied: the stray `4CLAUDE.md` (test-writing guardrails: one test layer per behaviour, parametrize, no sleeps, a small test budget per feature) is merged in. Proposed split: a short CLAUDE.md for project rules, and a separate `docs/testing.md` for the test guardrails, linked from CLAUDE.md; `4CLAUDE.md` is then removed from the repo.
+- CLAUDE.md is tidied: the stray `4CLAUDE.md` (test-writing guardrails: one test layer per behaviour, parametrize, no sleeps, a small test budget per feature) is merged in. Done 2026-10-14: the guardrails now live in `docs/testing.md`, linked from CLAUDE.md, and `4CLAUDE.md` is gone.
 - The roadmap gets a test audit (see the roadmap).
