@@ -10,10 +10,15 @@ set -eu
 
 MODULE=github.com/caddy-dns/{{ dns.provider }}
 ID=dns.providers.{{ dns.provider }}
-PIN={{ version if version != "latest" else "" }}
+PIN='{{ version if version != "latest" else "" }}'
 BIN=/usr/local/bin/caddy-bastet
 RUN=/run/caddy-bastet
 STAMP=/usr/local/share/caddy-bastet.build
+
+# The plugin's code runs whenever the binary does, so everything here that runs it does so as the caddy user, never as root.
+as_caddy() {
+	runuser -u caddy -- "$@"
+}
 
 # The plugin release this host should have: the pin, or the newest one Go's module proxy knows.
 want() {
@@ -29,10 +34,15 @@ want() {
 
 current() {
 	[ -x "$BIN" ] || return 1
-	[ "$("$BIN" version 2>/dev/null | cut -d' ' -f1)" = "$(caddy version 2>/dev/null | cut -d' ' -f1)" ] || return 1
-	have=$("$BIN" list-modules --versions 2>/dev/null | awk -v id="$ID" '$1 == id { print $2 }')
+	[ "$(as_caddy "$BIN" version 2>/dev/null | cut -d' ' -f1)" = "$(caddy version 2>/dev/null | cut -d' ' -f1)" ] || return 1
+	have=$(as_caddy "$BIN" list-modules --versions 2>/dev/null | awk -v id="$ID" '$1 == id { print $2 }')
+	[ -n "$have" ] || return 1
 	need=$(want)
-	[ -n "$have" ] && [ "$have" = "$need" ]
+	if [ -z "$need" ]; then # the module proxy could not be reached: a healthy host must not fail over that, keep what is built
+		echo "caddy-bastet: could not look up the newest $ID release; keeping $have" >&2
+		return 0
+	fi
+	[ "$have" = "$need" ]
 }
 
 build() {
@@ -46,15 +56,15 @@ build() {
 install_new() {
 	new=$RUN/new
 	chmod 0755 "$new"
-	runuser -u caddy -- env XDG_DATA_HOME=/var/lib XDG_CONFIG_HOME=/etc "$new" validate --adapter caddyfile --config /etc/caddy/Caddyfile
+	as_caddy env XDG_DATA_HOME=/var/lib XDG_CONFIG_HOME=/etc "$new" validate --adapter caddyfile --config /etc/caddy/Caddyfile
 	cp "$new" "$BIN.new"
 	chmod 0755 "$BIN.new"
 	mv -f "$BIN.new" "$BIN"
 	mkdir -p "$(dirname "$STAMP")"
 	{
 		date -u +"built %Y-%m-%dT%H:%M:%SZ"
-		echo "caddy $("$BIN" version | cut -d' ' -f1)"
-		"$BIN" list-modules --versions | awk -v id="$ID" '$1 == id { print "plugin " $1 " " $2 }'
+		echo "caddy $(as_caddy "$BIN" version | cut -d' ' -f1)"
+		as_caddy "$BIN" list-modules --versions | awk -v id="$ID" '$1 == id { print "plugin " $1 " " $2 }'
 		go version -m "$BIN" | head -n 1 | sed 's/^[^:]*: /go /'
 	} >"$STAMP"
 	cat "$STAMP"

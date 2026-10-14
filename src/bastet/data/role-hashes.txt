@@ -1,7 +1,7 @@
 # role content hashes at the last bump; scripts/version-bump rewrites this file
 apt ee08624adaa8
 base 6fd4f7015e56
-caddy 57db268a80bf
+caddy 41b44bf6ca54
 files 6d7153959f55
 packages e1561430b133
 pacman 2e9d4710be5d

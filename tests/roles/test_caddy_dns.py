@@ -165,8 +165,15 @@ def test_the_build_script_is_valid_shell_and_bakes_in_the_provider(tmp_path):
     path = tmp_path / "build"
     path.write_text(script)
     assert subprocess.run(["sh", "-n", str(path)]).returncode == 0
-    assert "MODULE=github.com/caddy-dns/cloudflare\nID=dns.providers.cloudflare\nPIN=v0.2.1\n" in script
-    assert "PIN=\n" in text(f"{LIB}/build", LINODE)
+    assert "MODULE=github.com/caddy-dns/cloudflare\nID=dns.providers.cloudflare\nPIN='v0.2.1'\n" in script
+    assert "PIN=''\n" in text(f"{LIB}/build", LINODE)
+
+
+def test_the_plugin_binary_is_never_run_as_root():
+    script = text(f"{LIB}/build", LINODE)
+    for call in ('"$BIN" version', '"$BIN" list-modules', '"$new" validate'):
+        assert call in script and call not in script.replace(f"as_caddy {call}", "").replace(f"as_caddy env XDG_DATA_HOME=/var/lib "
+                                                                                                 f"XDG_CONFIG_HOME=/etc {call}", "")
 
 
 STUB_GO = """printf '{\\n\\t"Path": "m",\\n\\t"Version": "%s",\\n\\t"Query": "latest"\\n}\\n' 'LATEST'"""
@@ -179,7 +186,8 @@ STUB_GO = """printf '{\\n\\t"Path": "m",\\n\\t"Version": "%s",\\n\\t"Query": "la
     pytest.param({"plugin": "v0.7.0", "version": "v0.7.0", "latest": "v0.8.0"}, 0, id="pinned: a newer release does not matter"),
     pytest.param({"plugin": "v0.8.0", "version": "v0.7.0"}, 1, id="pinned to another release than the one built"),
     pytest.param({"missing": True}, 1, id="nothing built yet"),
-    pytest.param({"latest": ""}, 1, id="the module proxy cannot be reached"),
+    pytest.param({"latest": ""}, 0, id="the module proxy cannot be reached: keep what is built"),
+    pytest.param({"latest": "", "plugin": ""}, 1, id="the proxy cannot be reached and the plugin is not in the binary"),
 ])
 def test_the_version_guard(tmp_path, case, want):
     version = case.get("version")
@@ -193,6 +201,7 @@ def test_the_version_guard(tmp_path, case, want):
         file.chmod(0o755)
 
     stub(stubs / "caddy", 'echo "v2.11.7 h1:packaged"')
+    stub(stubs / "runuser", 'shift 3; exec "$@"')  # runuser -u caddy -- command ...: here just the command
     stub(stubs / "go", STUB_GO.replace("LATEST", case.get("latest", "v0.8.0")))
     if not case.get("missing"):
         stub(bin_, f'case "$1" in version) echo "{case.get("built", "v2.11.7 h1:custom")}";; '
@@ -206,6 +215,8 @@ def test_the_version_guard(tmp_path, case, want):
     pytest.param({"dns": {"provider": "linode", "settings": {"API Key": "x"}}}, "other than lower-case", id="a bad settings name"),
     pytest.param({"dns": {"provider": "linode"}, "dns_secrets": {"Api-Token": "x"}}, "other than lower-case", id="a bad secret name"),
     pytest.param({"dns_secrets": {"api_token": "x"}}, "dns is not", id="secrets without dns"),
+    pytest.param({"dns": {"provider": "linode", "version": "v0.8 0; rm -rf /"}}, "release tag", id="a version with shell characters"),
+    pytest.param({"dns": {"provider": "linode"}, "dns_secrets": {"api_token": "a\nb"}}, "single non-empty line", id="a secret with a line break (the contract's single_line)"),
 ])
 def test_dns_mistakes_stop_the_host(values, fragment):
     with pytest.raises(BastetError, match=fragment):

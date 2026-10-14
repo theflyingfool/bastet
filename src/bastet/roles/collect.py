@@ -123,6 +123,8 @@ class Collector:
 
         Never raises: a bad exposure or a host that cannot be resolved is a problem line, not a failure."""
         scan = self.scan()
+        if not scan.sites:  # no collecting role is applied anywhere: nothing to list, and nothing of this belongs on the dashboard
+            return [], []
         rows = []
         for (host, role), sites in scan.manual.items():
             rows += [{"name": s["name"], "scope": "", "proxy": f"{host}/{role}", "upstream": s.get("upstream"), "from": "by hand"}
@@ -260,7 +262,10 @@ class Collector:
         if not upstream_given and not address and any(c.host != doc.name for c in chosen):
             return fail(f"{doc.name} has no address; set `upstream:` (host:port) for this exposure")
         for caddy in chosen:
-            upstream = upstream_given or f"{SELF if caddy.host == doc.name else address}:{item['port']}"
+            where_to = SELF if caddy.host == doc.name else str(address)
+            if ":" in where_to and not where_to.startswith("["):  # an IPv6 address needs brackets before the port
+                where_to = f"[{where_to}]"
+            upstream = upstream_given or f"{where_to}:{item['port']}"
             source = f"{doc.name}/{applied.role.name} proxy[{i}]"
             if self._claim(scan, caddy, taken[caddy.key], name, source, file, {doc.name}, "proxy"):
                 scan.sites[caddy.key].append({**item, "name": name, "scope": scope, "upstream": upstream, "host": doc.name,

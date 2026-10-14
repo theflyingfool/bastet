@@ -319,7 +319,9 @@ applied). For each exposure:
   brackets, like vps1 slash caddy). Two or more matches with no `via` is an error; no match is a warning on the
   exposing host.
 - The upstream is `upstream` if the exposure has one, else the exposing host's `ip` (or `address`) and `port`, or
-  `127.0.0.1` and `port` when the proxy is on the same host. No address and no `upstream` is an error.
+  `127.0.0.1` and `port` when the proxy is on the same host (an IPv6 address gets brackets). No `upstream` and no
+  address is an error only when a receiving role is on another host. Each collected site also carries `scope` (the
+  scope it was routed by), `host` and `source`.
 
 Each collected item is the exposure plus `name` (the site name, lowercase), `upstream`, `host` (the exposing host) and
 `source` (like `nas1/jellyfin proxy[0]`), so one `each: sites` entry builds manual and collected sites alike. The same

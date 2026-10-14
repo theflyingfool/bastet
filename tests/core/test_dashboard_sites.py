@@ -20,12 +20,12 @@ def roles(tmp_path):
     return {**load_roles(), **load_roles(tmp_path / "roles")}
 
 
-def lab(tmp_path, notes, domains=None, name="vault"):
+def lab(tmp_path, notes, domains=None, name="vault", nas_ip="10.1.0.7"):
     root = tmp_path / name
     files = {"Homelab.md": {"bastet": "lab", "domains": domains or {"public": "example.com", "internal": "example.com"}},
              "hosts/vps1.md": {"bastet": "host", "type": "vps", "ip": "10.1.0.5"},
              "hosts/lab1.md": {"bastet": "host", "type": "vps", "ip": "10.1.0.6"},
-             "hosts/nas1.md": {"bastet": "host", "type": "vps", "ip": "10.1.0.7"}}
+             "hosts/nas1.md": {"bastet": "host", "type": "vps", "ip": nas_ip}}
     for key, values in notes.items():
         host, role = key.split("/")
         files[f"_roles/hosts/{host}/{role}.md"] = {"bastet": "role", "role": role, "applies_to": f"[[{host}]]", **values}
@@ -79,6 +79,21 @@ def test_a_clash_shows_as_a_problem_and_the_dashboard_still_renders(tmp_path):
     assert "router.example.com" in problem and "nothing wins silently" in problem
     text = dashboard(inv, TYPES, {}, [], sites=sites, site_problems=problems)
     assert "\n### Not collected\n\n- " in text and "router.example.com comes from both" in text
+
+
+def test_a_lab_without_a_caddy_gets_nothing_from_any_of_this_even_when_another_host_is_broken(tmp_path):
+    inv = lab(tmp_path, {"nas1/nosuchrole": {}, "nas1/app": {"proxy": [{"subdomain": "media", "domain": "public", "port": 8096}]}})
+    known = roles(tmp_path)
+    sites, problems = site_listing(inv, TYPES, known)
+    assert (sites, problems) == ([], [])
+    assert "Sites" not in dashboard(inv, TYPES, {}, [], sites=sites, site_problems=problems)
+
+
+def test_an_ipv6_upstream_is_bracketed(tmp_path):
+    inv = lab(tmp_path, {"lab1/caddy": {"serves": ["internal"]},
+                         "nas1/app": {"proxy": [{"subdomain": "media", "domain": "internal", "port": 8096}]}}, nas_ip="fd00::7")
+    [site] = site_listing(inv, TYPES, roles(tmp_path))[0]
+    assert site["upstream"] == "[fd00::7]:8096"
 
 
 def test_a_host_whose_roles_cannot_be_resolved_does_not_stop_the_listing(tmp_path):

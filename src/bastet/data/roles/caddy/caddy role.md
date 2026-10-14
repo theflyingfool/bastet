@@ -214,6 +214,10 @@ checks:
   when: (dns is not none and dns.get('settings') is not none and (dns.get('settings') | list | join('') | list | reject('in', 'abcdefghijklmnopqrstuvwxyz0123456789_') | list | length) > 0) or (dns_secrets is not none and (dns_secrets | list | join('') | list | reject('in', 'abcdefghijklmnopqrstuvwxyz0123456789_') | list | length) > 0)
   level: error
   message: 'a dns settings or dns_secrets name has a character other than lower-case letters, digits and underscores (use the provider''s field name, for example api_token)'
+- name: bad dns version
+  when: dns is not none and dns.get('version') is not none and ((dns.get('version') | length) == 0 or (dns.get('version') | list | reject('in', 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-_+') | list | length) > 0)
+  level: error
+  message: 'dns.version must be latest or a release tag such as v0.8.0 (letters, digits and . - _ + only)'
 - name: dns secrets without dns
   when: dns is none and dns_secrets
   level: error
@@ -505,6 +509,11 @@ output; a failure inside the hook is only seen on the next run (Bastet has no no
 the older Caddy keeps serving. The build is slow the first time (about two minutes and 1 GB of memory on the machine
 this was tested on) and a warm rebuild takes seconds. Each build prints the versions it used (journal and
 `/usr/local/share/caddy-bastet.build`).
+
+A change to `dns.provider` or `dns.version` is written to the script in one run and acted on in the next: the check
+that decides whether to rebuild reads the old script before the new one is written. Run `bastet run` twice, or start the
+build yourself with `systemctl start caddy-bastet-build.service`. If Go's module proxy cannot be reached when the newest
+plugin release is looked up, the built binary is kept and the run goes on (a message says so).
 
 **Credentials.** Put each secret field in `dns_secrets` as a secret reference, for example
 `api_token: secret:linode_token`; the role turns the field name into `DNS_API_TOKEN`. A residual risk to know about:
