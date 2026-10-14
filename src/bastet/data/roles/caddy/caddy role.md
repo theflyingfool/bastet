@@ -1,7 +1,7 @@
 ---
 bastet: role-definition
 name: caddy
-version: 0.1.1
+version: 0.9.0
 api: 0
 accounts:
 - caddy
@@ -556,6 +556,7 @@ Bastet never reloads Caddy without validating first.
 
 ## Changes
 
+- 0.9.0: checked on a real host by the owner (2026-10-14); no change in behaviour. Stays below 1.0.0 for now.
 - 0.1.1: the `caddy` account that the package creates is an expected account.
 - 0.1.0: first version: the Caddyfile, `conf.d` site files, collected sites, `site_defaults`, `client_ip` for `allow`,
   the DNS challenge (`dns`, `dns_secrets`) with a Caddy built on the host, validation before every write, reload and
