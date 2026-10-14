@@ -5,12 +5,9 @@ Every role Bastet ships. Put values in a role file's properties (`_roles/lab/<ro
 | Role | What it does |
 |---|---|
 | [apt](#apt) | apt's own settings, written to /etc/apt/apt.conf.d/90-bastet (Debian-based hosts; aim it at `debian`) |
-| [base](#base) | The basics every host gets: admin tools, and CPU microcode on physical machines |
 | [files](#files) | Files, directories, links, and blocks or lines inside other files |
-| [harden](#harden) | Security knobs and reports |
 | [packages](#packages) | Packages for apt, pacman, dnf, zypper and apk |
 | [pacman](#pacman) | pacman's own settings: every [options] setting in /etc/pacman.conf (Arch-based hosts; aim it at `arch`) |
-| [ssh](#ssh) | OpenSSH server settings: every sshd_config keyword, plus Match blocks |
 | [systemd](#systemd) | Settings systemd owns: hostname, locale, and services with their drop-ins (time and time sync are the time role) |
 | [time](#time) | The time zone (every system) and, on Arch, time sync with systemd-timesyncd: servers and poll settings go in a drop-in at /etc/systemd/timesyncd.conf.d/bastet.conf |
 | [users](#users) | Users, groups, SSH keys and sudoers rules |
@@ -76,33 +73,6 @@ repositories:
 | repositories[].trusted | bool |  |  |
 | repositories[].signed_by | string |  | A key file path, or the armored key text |
 | modernize_sources | bool | false | Run `apt modernize-sources` to convert leftover legacy .list files to .sources; does nothing when there is nothing to convert. Where apt cannot work out Signed-By it prints a warning and the new file has none |
-
-## base
-
-The basics every host gets: admin tools, and CPU microcode on physical machines.
-
-### Examples
-
-**Everywhere (put in _roles/lab/base.md)**
-
-```yaml
-extra_tools:
-  - jq
-```
-
-**A machine that shouldn't get microcode**
-
-```yaml
-microcode: never
-```
-
-### Options
-
-| Option | Type | Default | Description |
-|---|---|---|---|
-| tools | list of string | ["vim", "zsh", "git", "htop", "tree", "gdu", "wget", "less"] | Admin tools to install; setting this replaces the default list (use extra_tools to add) |
-| extra_tools | list of string | [] | More tools on top of `tools` |
-| microcode | string | auto | auto: install CPU microcode on physical hosts (by host type; Intel or AMD from the gathered CPU), never on VMs or containers. Debian needs the non-free-firmware component. (one of auto, never) |
 
 ## files
 
@@ -176,62 +146,6 @@ lines:
 | commands[].run | string |  | The command |
 | commands[].unless | string |  | Skip when this command exits 0 |
 | commands[].root | bool |  | Run as root (default true) |
-
-## harden
-
-Security knobs and reports. Reports only read (vulnerable packages, service exposure, listening ports, AppArmor; lynis when on) and land in each host's security note. Changes are mostly off by default: fail2ban, lynis, kernel modules, core dumps, sudo defaults. A small safe sysctl set is on (not in containers).
-
-### Examples
-
-**Everywhere, reports plus fail2ban (put in _roles/lab/harden.md)**
-
-```yaml
-fail2ban: true
-fail2ban_ignoreip: ["127.0.0.1/8", "::1", "10.10.0.0/24"]
-```
-
-**Audit with lynis on one host**
-
-```yaml
-lynis: true
-```
-
-**Stricter (try on one machine first)**
-
-```yaml
-core_dumps: "off"
-block_modules: [usb-storage, dccp, sctp, rds, tipc]
-sudo_defaults: [use_pty, "logfile=/var/log/sudo.log"]
-sysctl:
-  kernel.yama.ptrace_scope: "1"
-  kernel.unprivileged_bpf_disabled: "1"
-```
-
-### Options
-
-| Option | Type | Default | Description |
-|---|---|---|---|
-| fail2ban | bool | false | Install fail2ban with an sshd jail (ports follow the ssh role) |
-| fail2ban_bantime | string | 1h | How long a ban lasts |
-| fail2ban_findtime | string | 10m | Window for counting failures |
-| fail2ban_maxretry | int | 5 | Failures before a ban |
-| fail2ban_ignoreip | list of string | ["127.0.0.1/8", "::1"] | Never ban these addresses/networks (add your LAN to avoid locking yourself out) |
-| fail2ban_backend | string | systemd | Where fail2ban reads logs (systemd journal; Arch and Debian 12+ have no auth.log) |
-| fail2ban_jails | map of map | {} | More jails: name → settings, written as-is |
-| fail2ban_sandbox | bool | true | Run fail2ban sandboxed (systemd drop-in); turn off if a jail needs more access |
-| lynis | bool | false | Install lynis; apply runs an audit (1–3 minutes) and the host's security note shows the result |
-| lynis_timer | bool | false | Leave the lynis package's own timer alone (Debian enables a daily one); off = Bastet turns it off |
-| vulnerable_packages | bool | true | Report installed packages with known vulnerabilities (arch-audit on Arch, debsecan on Debian/Proxmox) |
-| service_exposure | bool | true | Report systemd-analyze security for every service |
-| exposure_target | number | 5.0 | Services Bastet's roles run should score at or under this (0 locked down, 10 exposed) |
-| listening_ports | bool | true | Report what listens on the network (ss) and what no role accounts for |
-| allowed_ports | list of string | [] | Listeners that are fine: proto/port (tcp/8006) or a process name |
-| apparmor_status | bool | true | Report whether AppArmor is on, and its profiles |
-| sysctl_defaults | bool | true | A safe kernel set: kptr/dmesg restrict, protected links/fifos/regular, SYN cookies, ignore ICMP redirects (not in containers) |
-| sysctl | map of string | {} | More kernel settings (key → value); these win over the defaults |
-| block_modules | list of string | [] | Kernel modules that may never load (e.g. usb-storage, dccp, sctp, rds, tipc) |
-| core_dumps | string | keep | off: no core dumps (they can hold secrets from memory) (one of keep, off) |
-| sudo_defaults | list of string | [] | sudo Defaults lines (e.g. use_pty, logfile=/var/log/sudo.log, timestamp_timeout=5) |
 
 ## packages
 
@@ -400,158 +314,6 @@ repositories:
 | repositories[].sig_level | string |  | e.g. Required, Optional or Never |
 | repositories[].usage | string |  |  |
 | repositories[].enabled | bool |  | false comments the whole block out |
-
-## ssh
-
-OpenSSH server settings: every sshd_config keyword, plus Match blocks. Written to /etc/ssh/sshd_config.d/10-bastet.conf, checked with sshd -t, then sshd is reloaded. Unset = leave sshd's own setting alone; nothing is set by default. Settings that would lock Bastet out are refused.
-
-### Examples
-
-**Super hardened (not applied anywhere by default — copy into _roles/lab/ssh.md when ready)**
-
-```yaml
-password_authentication: false
-kbd_interactive_authentication: false
-permit_root_login: "no"
-permit_empty_passwords: false
-x11_forwarding: false
-allow_agent_forwarding: false
-allow_tcp_forwarding: "no"
-max_auth_tries: 3
-login_grace_time: "20"
-client_alive_interval: 300
-client_alive_count_max: 2
-kex_algorithms: [sntrup761x25519-sha512@openssh.com, curve25519-sha256, curve25519-sha256@libssh.org]
-ciphers: [chacha20-poly1305@openssh.com, aes256-gcm@openssh.com, aes128-gcm@openssh.com]
-macs: [hmac-sha2-512-etm@openssh.com, hmac-sha2-256-etm@openssh.com]
-host_key_algorithms: [ssh-ed25519, sk-ssh-ed25519@openssh.com, rsa-sha2-512]
-log_level: VERBOSE
-```
-
-**Move to port 2222 safely (apply this, then change it to [2222] once 2222 works)**
-
-```yaml
-port: [22, 2222]
-```
-
-**Allow a forwarding user only from the LAN**
-
-```yaml
-match:
-  - criteria: "User admin Address 10.10.0.0/24"
-    settings:
-      allow_tcp_forwarding: "yes"
-```
-
-### Options
-
-| Option | Type | Default | Description |
-|---|---|---|---|
-| authorized_keys_file | list of string |  | AuthorizedKeysFile |
-| authorized_principals_file | string |  | AuthorizedPrincipalsFile: principals allowed per user (with certificates) |
-| chroot_directory | string |  | ChrootDirectory |
-| host_certificate | list of string |  | HostCertificate: host certificates signed by your CA |
-| host_key | list of string |  | HostKey |
-| host_key_agent | string |  | HostKeyAgent |
-| moduli_file | string |  | ModuliFile |
-| pid_file | string |  | PidFile |
-| revoked_keys | string |  | RevokedKeys |
-| trusted_user_ca_keys | string |  | TrustedUserCAKeys: CA keys trusted to sign user certificates |
-| security_key_provider | string |  | SecurityKeyProvider |
-| x_auth_location | string |  | XAuthLocation |
-| sshd_session_path | string |  | SshdSessionPath |
-| sshd_auth_path | string |  | SshdAuthPath |
-| port | list of int |  | Port: ports to listen on; Bastet tries them in order, then 22 |
-| listen_address | list of string |  | ListenAddress |
-| address_family | string |  | AddressFamily |
-| rdomain | string |  | RDomain |
-| ipqos | string |  | IPQoS |
-| tcp_keep_alive | bool |  | TCPKeepAlive |
-| use_dns | bool |  | UseDNS |
-| client_alive_interval | int |  | ClientAliveInterval |
-| client_alive_count_max | int |  | ClientAliveCountMax |
-| channel_timeout | list of string |  | ChannelTimeout |
-| unused_connection_timeout | string |  | UnusedConnectionTimeout |
-| allow_users | list of string |  | AllowUsers: only these users may log in (must include bastet) |
-| allow_groups | list of string |  | AllowGroups: only these groups may log in (must include bastet, or list bastet in allow_users) |
-| deny_users | list of string |  | DenyUsers |
-| deny_groups | list of string |  | DenyGroups |
-| permit_root_login | string |  | PermitRootLogin: yes, prohibit-password, forced-commands-only or no |
-| permit_empty_passwords | bool |  | PermitEmptyPasswords |
-| permit_tty | bool |  | PermitTTY |
-| permit_user_environment | string |  | PermitUserEnvironment |
-| permit_user_rc | bool |  | PermitUserRC |
-| strict_modes | bool |  | StrictModes |
-| max_auth_tries | int |  | MaxAuthTries |
-| max_sessions | int |  | MaxSessions |
-| max_startups | string |  | MaxStartups |
-| login_grace_time | string |  | LoginGraceTime |
-| per_source_max_startups | string |  | PerSourceMaxStartups |
-| per_source_net_block_size | string |  | PerSourceNetBlockSize |
-| per_source_penalties | list of string |  | PerSourcePenalties |
-| per_source_penalty_exempt_list | list of string |  | PerSourcePenaltyExemptList |
-| refuse_connection | bool |  | RefuseConnection |
-| force_command | string |  | ForceCommand |
-| banner | string |  | Banner |
-| print_motd | bool |  | PrintMotd |
-| print_last_log | bool |  | PrintLastLog |
-| version_addendum | string |  | VersionAddendum |
-| pubkey_authentication | bool |  | PubkeyAuthentication: key logins (Bastet needs these) |
-| password_authentication | bool |  | PasswordAuthentication: password logins |
-| kbd_interactive_authentication | bool |  | KbdInteractiveAuthentication: keyboard-interactive (PAM) logins |
-| authentication_methods | string |  | AuthenticationMethods |
-| use_pam | bool |  | UsePAM |
-| hostbased_authentication | bool |  | HostbasedAuthentication |
-| hostbased_uses_name_from_packet_only | bool |  | HostbasedUsesNameFromPacketOnly |
-| ignore_rhosts | string |  | IgnoreRhosts |
-| ignore_user_known_hosts | bool |  | IgnoreUserKnownHosts |
-| gssapi_authentication | bool |  | GSSAPIAuthentication |
-| gssapi_cleanup_credentials | bool |  | GSSAPICleanupCredentials |
-| gssapi_strict_acceptor_check | bool |  | GSSAPIStrictAcceptorCheck |
-| kerberos_authentication | bool |  | KerberosAuthentication |
-| kerberos_get_afs_token | bool |  | KerberosGetAFSToken |
-| kerberos_or_local_passwd | bool |  | KerberosOrLocalPasswd |
-| kerberos_ticket_cleanup | bool |  | KerberosTicketCleanup |
-| authorized_keys_command | string |  | AuthorizedKeysCommand |
-| authorized_keys_command_user | string |  | AuthorizedKeysCommandUser |
-| authorized_principals_command | string |  | AuthorizedPrincipalsCommand |
-| authorized_principals_command_user | string |  | AuthorizedPrincipalsCommandUser |
-| expose_auth_info | bool |  | ExposeAuthInfo |
-| pubkey_auth_options | list of string |  | PubkeyAuthOptions |
-| required_rsa_size | int |  | RequiredRSASize |
-| ciphers | list of string |  | Ciphers |
-| macs | list of string |  | MACs |
-| kex_algorithms | list of string |  | KexAlgorithms |
-| host_key_algorithms | list of string |  | HostKeyAlgorithms |
-| pubkey_accepted_algorithms | list of string |  | PubkeyAcceptedAlgorithms |
-| hostbased_accepted_algorithms | list of string |  | HostbasedAcceptedAlgorithms |
-| ca_signature_algorithms | list of string |  | CASignatureAlgorithms |
-| fingerprint_hash | string |  | FingerprintHash |
-| rekey_limit | string |  | RekeyLimit |
-| allow_agent_forwarding | bool |  | AllowAgentForwarding |
-| allow_tcp_forwarding | string |  | AllowTcpForwarding |
-| allow_stream_local_forwarding | string |  | AllowStreamLocalForwarding |
-| disable_forwarding | bool |  | DisableForwarding |
-| gateway_ports | string |  | GatewayPorts |
-| permit_listen | list of string |  | PermitListen |
-| permit_open | list of string |  | PermitOpen |
-| permit_tunnel | string |  | PermitTunnel |
-| stream_local_bind_mask | string |  | StreamLocalBindMask |
-| stream_local_bind_unlink | bool |  | StreamLocalBindUnlink |
-| x11_forwarding | bool |  | X11Forwarding |
-| x11_display_offset | int |  | X11DisplayOffset |
-| x11_use_localhost | bool |  | X11UseLocalhost |
-| accept_env | list of string |  | AcceptEnv |
-| set_env | list of string |  | SetEnv |
-| subsystem | list of string |  | Subsystem |
-| compression | string |  | Compression |
-| log_level | string |  | LogLevel |
-| log_verbose | list of string |  | LogVerbose |
-| syslog_facility | string |  | SyslogFacility |
-| include | list of string |  | Include |
-| match | list of object |  | Match blocks: settings for some users or addresses only (written last, then Match all) |
-| match[].criteria | string |  | e.g. User admin Address 10.10.0.0/24 |
-| match[].settings | map of any |  | ssh role option names and values |
 
 ## systemd
 

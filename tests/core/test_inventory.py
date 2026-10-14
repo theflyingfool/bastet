@@ -290,15 +290,15 @@ def test_role_file_bad_value_is_an_inventory_error_with_file_and_key(tmp_path):
     (the terminal, the dashboard), not only inside the host's own facts note."""
     pve1 = put(tmp_path, "hosts/pve1.md", host("pve1"))
     role_path = put(
-        tmp_path, "_roles/hosts/pve1/ssh.md",
-        '---\nbastet: role\nrole: ssh\napplies_to: "[[pve1]]"\nclient_alive_interval: maybe\n---\n# ssh for pve1\n',
+        tmp_path, "_roles/hosts/pve1/pacman.md",
+        '---\nbastet: role\nrole: pacman\napplies_to: "[[pve1]]"\nparallel_downloads: maybe\n---\n# pacman for pve1\n',
     )
     inv = load_inventory(tmp_path, TYPES)
     role_errors = [p for p in inv.errors if p.error.file == role_path]
     assert len(role_errors) == 1
     error = role_errors[0].error
-    assert error.key == "client_alive_interval"
-    assert error.line == 5  # the `client_alive_interval: maybe` line in the role file above
+    assert error.key == "parallel_downloads"
+    assert error.line == 5  # the `parallel_downloads: maybe` line in the role file above
     assert "expected a whole number" in error.message
     assert pve1.exists()
 

@@ -17,7 +17,7 @@ from bastet.engine.security import ServiceExposure
 from bastet.engine.systemd import Hostname, Locale, Unit, drop_in, reload, restart
 from bastet.engine.templates import render_template
 from bastet.engine.users import AuthorizedKey, Group, UnaccountedUsers, User, sudoer
-from bastet.roles import declarative, system
+from bastet.roles import declarative
 from bastet.roles.baselines import baseline_for
 from bastet.roles.resolve import Applied
 
@@ -208,8 +208,7 @@ def _files(v: dict, host: HostInfo) -> list[Batch]:
     return [Batch("files", res)]
 
 
-BUILDERS = {"systemd": _systemd, "packages": _packages, "users": _users, "files": _files, "base": system.base,
-            "ssh": system.ssh, "harden": system.harden}
+BUILDERS = {"systemd": _systemd, "packages": _packages, "users": _users, "files": _files}
 
 
 def batches_for(applied: list[Applied], host: HostInfo) -> list[Batch]:

@@ -172,12 +172,6 @@ def test_arch_aur_contract(arch_host):
     assert arch_host.run("pacman -Qm yay-bin").returncode == 0
 
 
-def test_base_contract(host):
-    info = HostInfo(name="ct", type="vm", data={"os": "Debian GNU/Linux 13 (trixie)"}, root=Path("/nonexistent"), lab={})
-    converge(host, batches_for([_applied("base", {})], info))
-    assert host.run("command -v gdu && command -v htop").returncode == 0
-
-
 def test_arch_pacman_contract(arch_host):
     info = HostInfo(name="ct", type="vm", data={"os": "Arch Linux"}, root=Path("/nonexistent"), lab={})
     converge(arch_host, batches_for([_applied("pacman", {"parallel_downloads": 8})], info))
@@ -238,55 +232,3 @@ def test_debian_apt_modernize_sources_contract(host):
     again = run_host(host, "ct", batches, apply=True)
     assert all(i.status == "compliant" for i in again.items) and not again.triggers, render_host(again, full=True)
 
-
-def test_ssh_contract(host):
-    info = HostInfo(name="ct", type="vm", data={"os": "Debian GNU/Linux 13 (trixie)"}, root=Path("/nonexistent"), lab={})
-    batches = batches_for([_applied("ssh", {"x11_forwarding": False, "max_auth_tries": 4, "port": [22, 2222],
-                                            "match": [{"criteria": "User nobody", "settings": {"permit_tty": False}}]})], info)
-    # take Debian's Include out, so the step that puts it back (at the top) runs too
-    host.run("sudo -n sed -i '/sshd_config.d/d' /etc/ssh/sshd_config || sed -i '/sshd_config.d/d' /etc/ssh/sshd_config")
-    first = run_host(host, "ct", batches, apply=True)
-    assert first.ok, render_host(first, full=True)
-    head = host.run("sudo -n head -1 /etc/ssh/sshd_config || head -1 /etc/ssh/sshd_config").stdout
-    assert head.startswith("Include /etc/ssh/sshd_config.d/*.conf")
-    again = run_host(host, "ct", batches, apply=True)
-    assert all(i.status == "compliant" for i in again.items) and not again.triggers, render_host(again, full=True)
-    effective = host.run("sudo -n /usr/sbin/sshd -T -C user=bastet,host=x,addr=127.0.0.1 2>/dev/null "
-                         "|| /usr/sbin/sshd -T -C user=bastet,host=x,addr=127.0.0.1").stdout
-    assert "pubkeyauthentication yes" in effective
-    assert "x11forwarding no" in effective and "maxauthtries 4" in effective and "port 2222" in effective
-    assert host.run("systemctl is-active ssh.service").stdout.strip() == "active"
-
-
-def test_harden_contract(host):
-    from bastet.cli.run import run_audit
-    from bastet.engine.security import LynisReport, ServiceExposure, VulnerablePackages
-    # a podman container can't set kernel settings; as an LXC, harden skips them, as it would on a real container
-    info = HostInfo(name="ct", type="lxc", data={"os": "Debian GNU/Linux 13 (trixie)"}, root=Path("/nonexistent"), lab={})
-    batches = batches_for([_applied("harden", {"fail2ban": True, "lynis": True})], info)
-    first = run_host(host, "ct", batches, apply=True)
-    assert first.ok, render_host(first, full=True)
-    assert host.run("systemctl is-active fail2ban.service").stdout.strip() == "active"
-    assert host.run("sudo -n fail2ban-client status sshd || fail2ban-client status sshd").returncode == 0
-
-    class Doc:
-        name = "ct"
-    assert run_audit(host, Doc()) is None
-    again = run_host(host, "ct", batches, apply=False)
-    items = {type(i.resource): i for i in again.items}
-    assert items[LynisReport].current["index"] is not None, render_host(again, full=True)
-    assert items[VulnerablePackages].status in ("compliant", "attention")
-    exposure = dict((u, s) for u, s, _ in items[ServiceExposure].current["units"])
-    print("fail2ban exposure:", exposure.get("fail2ban.service"))
-    assert exposure["fail2ban.service"] <= 5.0, exposure["fail2ban.service"]
-    assert host.run("systemctl is-enabled lynis.timer").stdout.strip() in ("disabled", "masked")
-
-
-def test_arch_harden_reports_contract(arch_host):
-    from bastet.engine.security import VulnerablePackages
-    info = HostInfo(name="ct", type="lxc", data={"os": "Arch Linux"}, root=Path("/nonexistent"), lab={})
-    batches = batches_for([_applied("harden", {"service_exposure": False, "apparmor_status": False})], info)
-    assert run_host(arch_host, "ct", batches, apply=True).ok
-    again = run_host(arch_host, "ct", batches, apply=False)
-    vuln = next(i for i in again.items if isinstance(i.resource, VulnerablePackages))
-    assert vuln.status in ("compliant", "attention") and vuln.current["installed"], render_host(again, full=True)

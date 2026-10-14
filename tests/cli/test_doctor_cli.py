@@ -111,7 +111,7 @@ def test_doctor_lints_the_bundled_markdown_and_yaml_roles(runner):
     import bastet
 
     roles = Path(bastet.__file__).parent / "data" / "roles"
-    for name in ("pacman", "ssh"):
+    for name in ("pacman", "time"):
         result = runner.invoke(app, ["doctor", str(roles / name)])
         assert result.exit_code == 0, result.output
         assert "parses as a role definition" in result.output

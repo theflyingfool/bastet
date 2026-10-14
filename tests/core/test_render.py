@@ -451,9 +451,9 @@ def test_role_file_error_appears_on_the_dashboard_and_the_hosts_facts_note(repo)
     separately via the Roles card, through `resolve()`) -- but it's never folded into the host's
     stored `warnings:` (that stays gather's alone), so fixing the role file clears it immediately,
     with no stale warning left behind until the next gather."""
-    role_path = repo.root / "_roles" / "hosts" / "pve1" / "ssh.md"
+    role_path = repo.root / "_roles" / "hosts" / "pve1" / "pacman.md"
     role_path.parent.mkdir(parents=True)
-    role_path.write_text('---\nbastet: role\nrole: ssh\napplies_to: "[[pve1]]"\nclient_alive_interval: maybe\n---\n')
+    role_path.write_text('---\nbastet: role\nrole: pacman\napplies_to: "[[pve1]]"\nparallel_downloads: maybe\n---\n')
     i = inv(repo)
     changes = {c.path: c for c in generated_changes(i, TYPES, repo)}
     dash = changes[repo.root / DASHBOARD_PATH].after
@@ -467,7 +467,7 @@ def test_role_file_error_appears_on_the_dashboard_and_the_hosts_facts_note(repo)
     write_changes(list(changes.values()))
     repo.commit([c.path for c in changes.values()], "add a bad ssh role file")
 
-    role_path.write_text('---\nbastet: role\nrole: ssh\napplies_to: "[[pve1]]"\nclient_alive_interval: 300\n---\n')
+    role_path.write_text('---\nbastet: role\nrole: pacman\napplies_to: "[[pve1]]"\nparallel_downloads: 300\n---\n')
     after_fix = {c.path: c for c in generated_changes(inv(repo), TYPES, repo)}
     assert "expected a whole number" not in after_fix[repo.root / DASHBOARD_PATH].after
     assert "expected a whole number" not in after_fix[facts_path(repo.root, "pve1")].after
@@ -476,9 +476,9 @@ def test_role_file_error_appears_on_the_dashboard_and_the_hosts_facts_note(repo)
 def test_role_file_error_on_the_lab_appears_on_the_dashboard_under_the_lab(repo):
     """A bad value in a lab-scoped role file (`applies_to: lab`) is keyed by its real target
     (the lab, not a host), and still reaches the dashboard."""
-    role_path = repo.root / "_roles" / "lab" / "ssh.md"
+    role_path = repo.root / "_roles" / "lab" / "pacman.md"
     role_path.parent.mkdir(parents=True)
-    role_path.write_text('---\nbastet: role\nrole: ssh\napplies_to: "[[Homelab]]"\nclient_alive_interval: maybe\n---\n')
+    role_path.write_text('---\nbastet: role\nrole: pacman\napplies_to: "[[Homelab]]"\nparallel_downloads: maybe\n---\n')
     dash = {c.path: c for c in generated_changes(inv(repo), TYPES, repo)}[repo.root / DASHBOARD_PATH].after
     assert "## Needs attention" in dash and "expected a whole number" in dash and "[[Homelab]]" in dash
 

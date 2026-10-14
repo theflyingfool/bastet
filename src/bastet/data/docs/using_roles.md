@@ -1,7 +1,7 @@
 # Using roles
 
 A role is a menu of options for one thing: `systemd` (time, hostname, locale, services),
-`packages`, `users`, `files`, `ssh`, `harden` and more. `bastet add role` writes a role file for
+`packages`, `users`, `files`, `pacman`, `time` and more. `bastet add role` writes a role file for
 you; its page in `_bastet/roles/` lists every option, with its default and description.
 
 ## Role files

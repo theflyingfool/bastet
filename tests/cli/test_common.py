@@ -68,8 +68,8 @@ def test_print_problems_shows_a_role_file_error_with_file_and_key(tmp_path, caps
     (tmp_path / "hosts").mkdir()
     (tmp_path / "hosts" / "pve1.md").write_text("---\nbastet: host\ntype: proxmox\nip: 10.0.10.11\n---\n# pve1\n")
     (tmp_path / "_roles" / "hosts" / "pve1").mkdir(parents=True)
-    (tmp_path / "_roles" / "hosts" / "pve1" / "ssh.md").write_text(
-        '---\nbastet: role\nrole: ssh\napplies_to: "[[pve1]]"\nclient_alive_interval: maybe\n---\n# ssh for pve1\n'
+    (tmp_path / "_roles" / "hosts" / "pve1" / "pacman.md").write_text(
+        '---\nbastet: role\nrole: pacman\napplies_to: "[[pve1]]"\nparallel_downloads: maybe\n---\n# pacman for pve1\n'
     )
     types = load_host_types()
     inv = load_inventory(tmp_path, types)
@@ -78,8 +78,8 @@ def test_print_problems_shows_a_role_file_error_with_file_and_key(tmp_path, caps
     print_problems(ctx)
 
     out = capsys.readouterr().out
-    assert "_roles/hosts/pve1/ssh.md" in out
-    assert "client_alive_interval" in out
+    assert "_roles/hosts/pve1/pacman.md" in out
+    assert "parallel_downloads" in out
     assert "expected a whole number" in out
 
 

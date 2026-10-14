@@ -46,7 +46,7 @@ def test_roles_index_lists_every_role_with_description_and_users():
     for name in roles:
         assert f"[[{name} role\\|{name}]]" in text
     assert "| 2: [[pve1]], [[git1]] |" in text
-    assert roles["base"].description.split(". ")[0].rstrip(".") in text
+    assert roles["packages"].description.split(". ")[0].rstrip(".") in text
 
 
 def test_repo_roles_doc_is_current():

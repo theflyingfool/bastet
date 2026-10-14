@@ -73,30 +73,6 @@ def test_security_note_write_failure_is_masked(runner, box, inventory, monkeypat
     assert "‹secret›" in result.output
 
 
-def test_run_audit_warning_is_masked(runner, box, inventory, monkeypatch, secret_keys):
-    from bastet.engine.run import HostRun
-
-    SENTINEL = "SENTINEL-AUDIT-7777"
-    ACTIVE.add(SENTINEL)
-
-    def fake_run_audit(runner_, doc):
-        return f"{doc.name}: lynis audit failed: token {SENTINEL}; the security note keeps the previous report"
-
-    monkeypatch.setattr(run_mod, "run_audit", fake_run_audit)
-    monkeypatch.setattr(run_mod, "run_host", lambda runner_, host, batches, **kw: HostRun(host, kw.get("apply", False), []))
-    (inventory / "_roles" / "hosts" / "box" / "harden.md").write_text(
-        '---\nbastet: role\nrole: harden\napplies_to: "[[box]]"\nlynis: true\nvulnerable_packages: false\n'
-        'service_exposure: false\nlistening_ports: false\napparmor_status: false\nsysctl_defaults: false\n---\n')
-    git(inventory, "add", ".")
-    git(inventory, "commit", "-q", "-m", "harden")
-
-    result = runner.invoke(app, ["run", "box", "-y"])
-
-    assert result.exit_code == 0, result.output
-    assert SENTINEL not in result.output
-    assert "‹secret›" in result.output
-
-
 def test_handle_reboot_note_is_masked(runner, box, inventory, monkeypatch):
     SENTINEL = "SENTINEL-REBOOT-7777"
     ACTIVE.add(SENTINEL)

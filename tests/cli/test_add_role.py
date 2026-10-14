@@ -30,11 +30,11 @@ def test_add_role_offers_roles_and_targets(runner, inventory):
         "---\nbastet: group\ngenerated: true\nmatch:\n  os: debian\n---\nEvery host whose OS is debian.\n")
     git(inventory, "add", ".")
     git(inventory, "commit", "-q", "-m", "groups")
-    result = runner.invoke(app, ["add", "role"], input="base\nproxmox\ny\n")
+    result = runner.invoke(app, ["add", "role"], input="time\nproxmox\ny\n")
     assert result.exit_code == 0, result.output
     assert "Roles:" in result.output and "Add to:" in result.output and "every host" in result.output
     assert "every proxmox host" in result.output and "every debian host" in result.output
-    assert (inventory / "_roles" / "groups" / "proxmox" / "base.md").exists()
+    assert (inventory / "_roles" / "groups" / "proxmox" / "time.md").exists()
 
 
 def test_add_role_asks_to_set_needed_secrets(runner, secret_keys, inventory, test_role):
