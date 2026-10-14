@@ -11,7 +11,10 @@
   suite himself and says when it passed.
 - Tracked files use the example data in `docs/ROADMAP.md` ("Example data"), never real lab details;
   `scripts/privacy-check` enforces it.
-- `refs/` (old Ansible roles, old plans, survey scripts) and `.superpowers/` are git-ignored and local only.
+- `refs/` (old Ansible roles, old plans, survey scripts), `.superpowers/` and `.serena/` are git-ignored and local only.
+  A new worktree does not have the ignored files: right after creating one, copy `.serena/` from the main checkout
+  (`cp -r <main checkout>/.serena <worktree>/`) before using Serena's tools there, and never commit it. Copy
+  `.privacy-patterns` the same way only if `scripts/privacy-check` is to run there, and delete the copy afterwards.
 - Roles: the current design is `docs/specs/2026-10-10-bastet-roles-architecture-design.md` (building blocks stay
   Python, roles are Markdown, a host runs by phase across all roles). The six old roles subplans are superseded.
 - Building blocks are the actions that roles use. Technically they are roles too, the special ones; they are the only
