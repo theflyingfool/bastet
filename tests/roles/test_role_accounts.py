@@ -41,5 +41,5 @@ def test_shipped_roles_declare_their_accounts():
     roles = load_roles()
     assert roles["pacman"].accounts == ("alpm",)
     assert set(roles["systemd"].accounts) == {"systemd-coredump", "systemd-network", "systemd-oom",
-                                               "systemd-journal-remote", "systemd-resolve", "systemd-timesync"}
+                                               "systemd-journal-remote", "systemd-resolve", "systemd-timesync", "systemd-imds"}
     assert roles["packages"].accounts == () and roles["apt"].accounts == ()

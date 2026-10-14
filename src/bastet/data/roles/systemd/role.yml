@@ -1,5 +1,5 @@
 description: "Settings systemd owns: hostname, locale, and services with their drop-ins (time and time sync are the time role). Arch comes with this role by default only for its accounts, the systemd-* system users every Arch install has; with no options it changes nothing."
-accounts: [systemd-coredump, systemd-network, systemd-oom, systemd-journal-remote, systemd-resolve, systemd-timesync]
+accounts: [systemd-coredump, systemd-network, systemd-oom, systemd-journal-remote, systemd-resolve, systemd-timesync, systemd-imds]
 options:
   manage_hostname: {type: bool, default: false, description: "Set the hostname from the host file's hostname: (or the note name); off unless you turn it on"}
   locale: {type: string, description: "LANG, e.g. en_US.UTF-8; the locale must exist on the host"}
