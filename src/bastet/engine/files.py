@@ -252,7 +252,7 @@ class _Edit(Resource):
 
     def compare(self, current):
         old = current["content"]
-        if self.wanted(old) == old:
+        if self.wanted(old) == old or (old == ABSENT and self.wanted(old) == ""):  # nothing to write: don't make an empty file
             return []
         return [FieldChange("content", ABSENT if old == ABSENT else "current", "desired")]
 

@@ -15,8 +15,8 @@ FILES = {
     "groups/laptops.md": "---\nbastet: group\n---\n# laptops\n",
     "hosts/hp-13.md": '---\nbastet: host\ntype: computer\nconnection: local\ngroups:\n  - "[[laptops]]"\n---\n# hp-13\n',
     "hosts/pve1.md": "---\nbastet: host\ntype: proxmox\nip: 10.0.10.11\n---\n# pve1\n",
-    "_roles/lab/systemd.md": '---\nbastet: role\nrole: systemd\napplies_to: "[[Homelab]]"\ntimezone: UTC\nntp_service: timesyncd\n---\n',
-    "_roles/hosts/hp-13/systemd.md": '---\nbastet: role\nrole: systemd\napplies_to: "[[hp-13]]"\ntimezone: America/Chicago\n---\n',
+    "_roles/lab/systemd.md": '---\nbastet: role\nrole: systemd\napplies_to: "[[Homelab]]"\nlocale: UTC\nkeymap: us\n---\n',
+    "_roles/hosts/hp-13/systemd.md": '---\nbastet: role\nrole: systemd\napplies_to: "[[hp-13]]"\nlocale: America/Chicago\n---\n',
     "_roles/groups/laptops/packages.md": '---\nbastet: role\nrole: packages\napplies_to: "[[laptops]]"\ninstall:\n  - git\n  - name: jq\n    version: "1.7"\n---\n',
     "_roles/hosts/hp-13/packages.md": '---\nbastet: role\nrole: packages\napplies_to: "[[hp-13]]"\ninstall:\n  - tree\n---\n',
     "_roles/hosts/hp-13/users.md": ('---\nbastet: role\nrole: users\napplies_to: "[[hp-13]]"\nusers:\n  alice:\n'
@@ -40,18 +40,18 @@ def test_table_shows_winner_origin_merged_lists_and_defaults(tmp_path):
     inv = lab(tmp_path)
     text = resolved_table(resolve(inv, inv.get("hp-13"), TYPES, load_roles()))
     assert "[!warning] Resolved roles" in text and "don't edit" in text.lower()
-    assert "| [[systemd role\\|systemd]] | timezone | America/Chicago | host hp-13 |" in text
-    assert "| [[systemd role\\|systemd]] | ntp_service | timesyncd | lab |" in text
+    assert "| [[systemd role\\|systemd]] | locale | America/Chicago | host hp-13 |" in text
+    assert "| [[systemd role\\|systemd]] | keymap | us | lab |" in text
     assert "| [[systemd role\\|systemd]] | manage_hostname | false | default |" in text
     assert "| [[packages role\\|packages]] | install | git, jq (version 1.7), tree | group laptops, host hp-13 |" in text
     assert "$6$" not in text and "password_hash: (secret)" in text
-    assert not [r for r in rows(text) if "| ntp |" in r]  # unset, no default: not shown
+    assert not [r for r in rows(text) if "| services |" in r]  # unset, no default: not shown
 
 
 def test_summary_embeds_table_and_proxmox_type_adds_no_roles(tmp_path):
     inv = lab(tmp_path)
     summary = host_summary(inv, inv.get("pve1"), TYPES, [])
-    assert "| [[systemd role\\|systemd]] | ntp_service | timesyncd | lab |" in summary
+    assert "| [[systemd role\\|systemd]] | keymap | us | lab |" in summary
     assert "type proxmox" not in summary
     assert summary.index("[!grid]") < summary.index("Resolved roles")
 

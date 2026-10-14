@@ -6,8 +6,8 @@ from bastet.roles.contract import Option, check_value, check_values, load_roles,
 
 def test_shipped_roles_load():
     roles = load_roles()
-    assert set(roles) == {"systemd", "packages", "users", "files", "base", "pacman", "apt", "ssh", "harden"}
-    assert roles["systemd"].options["ntp_service"].choices == ("keep", "timesyncd", "chrony")
+    assert set(roles) == {"systemd", "packages", "users", "files", "base", "pacman", "apt", "ssh", "harden", "time"}
+    assert roles["time"].options["timezone"].choices_file == "time zones.txt"
     assert roles["packages"].options["install"].items.shorthand == "name"
     assert roles["users"].options["users"].items.fields["password_hash"].secret is True
 
@@ -21,8 +21,9 @@ def test_shorthand_and_reserved_keys():
 
 @pytest.mark.parametrize("role,values,message", [
     ("systemd", {"timezon": "UTC"}, "systemd has no option 'timezon'"),
-    ("systemd", {"ntp": "maybe"}, "expected true or false"),
-    ("systemd", {"ntp_service": "ntpd"}, "isn't one of keep, timesyncd, chrony"),
+    ("systemd", {"manage_hostname": "maybe"}, "expected true or false"),
+    ("systemd", {"timezone": "UTC"}, "systemd has no option 'timezone'"),
+    ("time", {"ntp": "maybe"}, "expected true or false"),
     ("files", {"files": {"/etc/x": {"content": "a", "mode": 420}}}, "quote it"),
     ("files", {"files": {"/etc/x": {"contents": "a"}}}, "unknown field contents"),
     ("packages", {"install": "tree"}, "expected a list"),
@@ -35,9 +36,9 @@ def test_errors_name_the_option(role, values, message):
 
 
 def test_defaults():
-    v = with_defaults(load_roles()["systemd"], {"timezone": "UTC"})
-    assert v["timezone"] == "UTC" and v["ntp_service"] == "keep" and v["manage_hostname"] is False
-    assert v["rtc_local"] is None and v["ntp"] is None and v["services"] is None
+    v = with_defaults(load_roles()["systemd"], {"locale": "en_US.UTF-8"})
+    assert v["locale"] == "en_US.UTF-8" and v["manage_hostname"] is False
+    assert v["keymap"] is None and v["services"] is None
 
 
 def test_bad_role_definitions(tmp_path):

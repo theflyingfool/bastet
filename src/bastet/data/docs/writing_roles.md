@@ -5,6 +5,42 @@ engine resources, once the roles format and library work lands.
 
 See [[Using roles]] for how roles are used today.
 
+## The contract at a glance
+
+One line per key; each links to the section that explains it.
+
+Option keys (under `options:`):
+- `type`, `default`, `required`, `choices`, `min`, `max`, `single_line`, `merge_default`: [Markdown roles](#markdown-roles-draft)
+  and [Accounts, defaults and starters](#accounts-defaults-and-starters).
+- `key`, `section`, `as` (plus `format`, `path`, `marker` for `as: entries`): [Markdown roles](#markdown-roles-draft).
+- `choices_from`: a long list of allowed values in a file, [Long lists of allowed values](#long-lists-of-allowed-values-choices_from).
+- `requires`, `conflicts`: [Options that need or exclude each other](#options-that-need-or-exclude-each-other).
+
+Role keys (top level of the role note):
+- `packages`, `users`, `files`, `systemd`, `commands`: [Calling the building blocks](#calling-the-building-blocks).
+- `checks`: info, warning or error from a role, [Stopping or warning instead of skipping silently](#stopping-or-warning-instead-of-skipping-silently).
+- `sections`: [Grouping entries](#grouping-entries-sections).
+- `overrides`: options the role itself sets or clears on some hosts, [Overrides defined by the role itself](#overrides-defined-by-the-role-itself).
+- `accounts`, `starter`: [Accounts, defaults and starters](#accounts-defaults-and-starters).
+- `examples`: example values shown in the generated reference ([Markdown roles](#markdown-roles-draft)).
+
+Entry keys (on a `packages`, `users`, `files`, `systemd` or `commands` entry):
+- `when`: [Calling the building blocks](#calling-the-building-blocks) and [Unset, false and empty](#unset-false-and-empty).
+- `before`, `after`: [What a role runs, in order](#what-a-role-runs-in-order).
+- `each`: [One entry per list item](#one-entry-per-list-item-each).
+- `restart`, `reload`, `daemon_reload`, `on_change` (on `files` entries): [Reacting to changes](#reacting-to-changes).
+
+Names an expression (`when:`, `{{ }}`, a check) can use:
+- `options`: every option of the role by its name; an option left unset is `none`.
+- `host.<fact>`: `name`, `type`, `os_id`, `arch_like`, `debian_like`, `container`, `physical`, `cpu`.
+- `lab`: the lab note's data.
+- `applied.origin.<option>`: where the value came from, [Stopping or warning instead of skipping silently](#stopping-or-warning-instead-of-skipping-silently).
+- `item` and `key`: only inside an entry that has `each:`.
+
+Keys in a role note (the values a lab, group, type or host writes):
+- `overrides`: different values on some hosts, [Different values on different hosts](#different-values-on-different-hosts-overrides).
+- `null` as a value: opts out of an inherited value, [Opting a host or group out](#opting-a-host-or-group-out-of-an-inherited-option).
+
 ## Markdown roles (draft)
 
 A Markdown role is one note, "<name> role.md", in a folder named after the role. The frontmatter is the contract:
@@ -47,11 +83,206 @@ runs only when the check fails), and optionally `when` (a condition, see below) 
 and `unless` texts are literal: `{{ }}` in them is not filled in.
 The apt role's `modernize_sources` option uses one to run `apt modernize-sources -y`.
 
+### Unset, false and empty
+
+An option the notes leave out is unset (`none` in an expression). `false`, `0`, `""` and `[]` are values, not unset:
+the role is told "the person said no", not "the person said nothing". A role leaves things alone for an unset option
+and acts on a value, including `false` (`ntp: false` means stop syncing; no `ntp` means don't touch it).
+
+So `when: ntp` is not the same as `when: ntp is not none`. A bare `when: ntp` is plain truthiness: it is false for
+unset and for `false`, `0`, `""` and `[]` alike, so use it for "do this only when it is on". When `false` must also do
+something, test for unset on purpose:
+- `ntp is none`: nothing was said;
+- `ntp is not none`: something was said (`true` or `false`);
+- `ntp is true`, `ntp is false`: exactly that value (unset matches neither).
+
+For example, a unit entry with `when: ntp is not none` and `enabled: "{{ ntp }}"` enables the unit for `true` and
+disables it for `false`, and does nothing when `ntp` is unset. `requires` and `conflicts` use the same idea: they count
+`false`, `0`, `""` and `[]` as set.
+
+### Options that need or exclude each other
+
+An option can say which other options it depends on:
+- `requires: [a, b]`: if this option is set, `a` and `b` must be set too;
+- `requires: {a: true}` or `{a: [x, y]}`: `a` must also have that value (or be one of those values);
+- `conflicts: [a]`: this option and `a` must not both be set.
+
+"Set" means the note gives the option a value (not null): `false`, `0`, `""` and `[]` count as set. A default never
+counts, because the check looks at what the notes wrote, merged across the lab, group and host notes of one host (a
+lab note and a host note can complete each other), before defaults are added. Inside an `object` option the names are
+the object's sibling fields; at the top they are other top-level options. A rule that names an option or field that
+does not exist is refused when the role is read; a rule that is broken is refused when the values are checked, for
+example `time: ntp_servers needs ntp to be true`.
+
+```yaml
+options:
+  ntp:
+    type: bool
+  ntp_servers:
+    type: list
+    items: {type: string}
+    requires: {ntp: true}
+  ntp_pool:
+    type: string
+    conflicts: [ntp_servers]
+```
+
+### Opting a host or group out of an inherited option
+
+A host or group note can undo something a broader note set by giving the option an explicit null (`key:` or
+`key: null`). The null is kept as an ordinary value while the notes are merged, so the usual rules decide: the
+highest-ranked note wins (a host's `false`, or any real value, beats a group's null; a group's null beats the lab's
+`true`), and two notes of the same rank that disagree (one null, one `true`) clash like any other disagreement. Only
+after every rank is merged is a winning null turned into "unset": the option then takes its default, or nothing. Nothing
+is removed during the merge, so the result never depends on the order of the notes. The same holds for a field inside a
+`map` or `object` option (a map entry set to null drops that entry; for a `merge_default` map it falls back to the default entry, if any).
+A null with nothing inherited does nothing. A cleared option is not listed among the origins, and `requires` and
+`conflicts` see it as unset.
+
+A bare `key:` with nothing after it is a null, so never write one expecting "no value yet": it clears whatever the
+lab or a group set. Shipped starters and `bastet add role` never write one. An option name that does not exist is
+refused even with a null.
+
+### Different values on different hosts (overrides)
+
+Any role note (lab, group, type or host) may carry `overrides:`, a list of entries `{when: <expression>, <option>:
+<value>, ...}`. For a host where `when` is true, the entry's values replace that same note's own values for those
+options, at that note's rank. A higher-ranked note still wins as usual. Entries apply in listing order, so a later
+matching entry wins over an earlier one. A value may be `null`, with the meaning described above.
+
+```yaml
+# the lab's note for the time role
+ntp: true
+overrides:
+  - when: not host.arch_like
+    ntp: null        # blank (unset) on hosts that are not Arch-like
+```
+
+`when` sees only the `host` facts (`name`, `type`, `os_id`, `arch_like`, `debian_like`, `container`, `physical`,
+`cpu`) and `lab`, never the options (the options are what is being decided), so a `when` that names an option is
+refused. Everything is checked when the note is read: the `when` syntax, the fact names, that every other key is an
+option of the role, and each value through that option's normal checks (a `secret:` reference is allowed). An error
+names the note file and the key `overrides`. In the origins, a value that came from an entry reads `lab (override)`.
+
+### Overrides defined by the role itself
+
+The role file may carry its own `overrides:`, for a limit the role knows about (a system it does not support yet)
+instead of every lab having to write the same note-level override. It is a different thing from the `overrides:` of a
+lab, group, type or host note above, and it applies to this role's own options only. Each entry is `{when, note?,
+<option>: <value or null>, ...}`:
+
+```yaml
+# in the role file's frontmatter
+overrides:
+  - when: not host.arch_like
+    note: sync is only built for Arch, so the sync settings are ignored on this host
+    ntp: null
+    ntp_servers: null
+```
+
+It is evaluated for each host once all notes are merged and their nulls cleared, after every note-level `overrides:`
+entry, before the `requires`/`conflicts` check and before defaults are added. So it wins over every note, and a value
+it clears is never seen by the relation rules. Entries apply in listing order, and a later entry sees the options as
+the earlier ones left them. A matching entry sets the options it lists; `null` removes the option, as if no note had set
+it. In the origins, a value it set reads `role override`, and a cleared one is not listed.
+
+`when` may use the role's option names (their merged values before defaults, `none` when unset), `host` and `lab`, but
+not `applied`. If a matching entry changed at least one option that had a value, the host gets one info note: the
+entry's `note` (which may use `{{ }}` over the same names) or `role <name> ignores <options> on this host`. If nothing
+had a value, no note. The note is shown like any note from a `checks:` entry, once per host.
+
+Everything is checked when the role is read: unknown keys (the options are the only other keys), option names that do
+not exist, each value through the option's normal check, the `when` syntax and names, and the `note` text. An error
+names the role, the role file, the key `overrides` and the entry number (`overrides[0]`, counting from 0).
+
+### Long lists of allowed values (choices_from)
+
+For a long list of allowed values (time zones, say), an option may say `choices_from: <file>` instead of `choices:`.
+The file sits in the role's own folder (no absolute path, no `..`), holds one value per line, and ignores blank lines,
+lines starting with `#` and surrounding spaces. It is checked when the role is read: it must be readable text with at
+least one value and no value twice, and `choices_from` together with `choices` is refused. It applies to string
+options, and to list or map options whose items are strings (put it on the option or on `items`). A value that is not
+in the file is refused with the option and file named and at most the closest match, never the whole list. The
+generated reference shows more than 20 values in a collapsed "N allowed values" block.
+
+```yaml
+options:
+  timezone: {type: string, choices_from: time zones.txt}
+```
+
+### Grouping entries (sections)
+
+`sections:` is a list of maps `{name, when, packages, users, files, systemd, commands}`; the five block keys take the
+same entry lists as the role's top-level keys of the same name. A section's optional `when` (an expression over the
+options and the host, lab and applied facts, checked when the role is read) is ANDed with each entry's own `when`; a
+section without `when` only organises. `name` is optional text that appears in error messages, for example
+`sections[1] (arch): files[0]: ...`.
+
+Sections and the top-level lists coexist. The engine still orders entries by block (packages, users, files, systemd,
+commands); within a block the top-level entries come first, then each section in order. `before:` and `after:` on an
+entry work as usual. A section inside a section, an unknown key, a value that is not a list and a section with no entries
+are refused when the role is read, naming the role file and `sections`.
+
+```yaml
+sections:
+  - name: arch
+    when: host.arch_like
+    packages: [ntp]                                  # install
+    files:
+      - path: /etc/ntp.conf                          # configure
+        content: "server {{ ntp_server }}\n"
+        reload: [ntpd.service]                       # reload when the file changed
+    systemd:
+      - {kind: unit, name: ntpd.service, enabled: true, state: up}   # enable and start
+```
+
+Install, configure, enable and reload run in block order whatever the order they are written in. An error raised while a
+role is built (an option that resolves to nothing, say) names the entry by its position among all entries of that block.
+
+### One entry per list item (each)
+
+`each: <option>` on a `packages`, `users`, `systemd`, `files` (content, template, directory, link, line or block) or
+`commands` entry, also inside `sections:`, builds the entry once per item of a `list` option, or once per pair of a `map`
+option. In the entry, `item` is the list element (or the map value) and `key` the map key (maps only). `item` and `key`
+are names only inside an entry that has `each`, in its `when:`, its `{{ }}` values and its template; anywhere else they
+are refused when the role is read like any name that is no option. `each` must name an option of type `list` or `map`
+(refused when the role is read otherwise), and is refused on a `files` entry with `edit:` or `render:`, which are built
+from the options as a whole. An unset or empty option builds nothing. In a looped `commands` entry `name`, `run` and
+`unless` can use `{{ }}` too (in other commands they stay literal text).
+
+The entry's `when:` (including a section's) is judged per item, so it may use `item` and `key`. A secret option used as
+`each` makes everything built from it secret. Two items that build the same thing (the same file path, unit, account,
+package or command name) are refused with the role, the entry (like `files[2]`) and both item numbers.
+
+```yaml
+options:
+  sites:
+    type: list
+    items:
+      type: object
+      fields:
+        domain: {type: string}
+        upstream: {type: string}
+files:
+  - path: /etc/caddy/sites/{{ item.domain }}.caddy
+    each: sites
+    content: |
+      {{ item.domain }} {
+          reverse_proxy {{ item.upstream }}
+      }
+    reload: [caddy.service]
+```
+
+There is deliberately no index variable: reordering the list changes nothing that is built. Item numbers appear only in
+error messages. An item that is removed or renamed leaves the file it once built behind, because Bastet does not delete
+files yet; remove it by hand.
+
 ### Accounts, defaults and starters
 
 `accounts:` (top level, a list of account names) lists the accounts a role brings; the unaccounted-users report treats
 them as expected on hosts the role is applied to. OS defaults are shipped per OS (`src/bastet/data/oses/`); for
-example Arch comes with the `systemd` role and the always-present Arch accounts. An OS default ranks below the lab: a
+example Arch comes with the `systemd` role and the always-present Arch accounts. The `systemd` role is there only for its
+accounts (the systemd-* system users every Arch install has); with no options it changes nothing. An OS default ranks below the lab: a
 lab, group or host note (and a host type's default) can still change that role's options, and the resolved table names
 the origin as "OS default (arch)".
 
@@ -69,9 +300,9 @@ is not needed to make it work); for a nested one, add it under `starter:`.
 
 ### Calling the building blocks
 
-A role file can also list `packages:`, `users:` and `systemd:` entries, which call the blocks of the same names; a role
-that needs several lists several. Blocks never call each other, and the engine runs the entries in block order
-(packages, users, files, systemd), whatever order the role lists them in. Every entry takes `when:`, a condition
+A role file can also list `packages:`, `users:`, `files:`, `systemd:` and `commands:` entries, which call the blocks of
+the same names; a role that needs several lists several. Blocks never call each other, and the engine runs the entries
+in block order (see below), whatever order the role lists them in. Every entry takes `when:`, a condition
 written as a Jinja2 expression over the options and the host and lab facts (`host`, `lab`), and values may contain
 `{{ }}` over the same names.
 
@@ -99,3 +330,81 @@ in the same sandbox as the expressions), `directory`, `link`, `line` and `block`
 entry from a secret is hashed on the controller in the host's own scheme.
 
 `bastet doctor <folder>` lints a Markdown role.
+
+### What a role runs, in order
+
+On one host, all the roles applied to it run together, by phase and not role by role. Within a phase the order is
+fixed by block, whatever order a role lists its entries in:
+
+1. `packages`: install, remove, update;
+2. `users`: accounts, groups, keys, sudoers;
+3. `files`: write and edit files;
+4. `systemd`: units (enable, start), drop-ins, hostname, time zone, locale;
+5. `commands`.
+
+Then the triggers run once, at the end: daemon-reload first, then restarts and reloads (in the order the entries
+changed), then `on_change` commands (in that order too).
+
+That is the usual workflow written out: install the package, configure it (a file), enable the unit, and reload or
+restart it when its configuration changed. `before:` and `after:` on an entry name a block (`before: files`) and move
+that entry to just before or just after that block's slot; they adjust the order inside this list, they do not add steps
+(a role that configures a package manager sets `provides: package-manager` and runs before packages). Entries from
+`sections:` and `each:` follow the same rule: block first, then listing order.
+
+### Reacting to changes
+
+When a file changes, the host often has to be told. There are four classes, and each has its own key:
+
+- **daemon-reload** is for unit definitions and drop-ins under `/etc/systemd/system`, and Quadlet files. Write
+  `daemon_reload: true` on the `files:` entry. A `systemd:` entry of `kind: dropin` does this for you.
+- **restart and reload** are for an application's own config (a file under `/etc/example-app/` or a `conf.d`
+  folder). Write `restart: [unit]` or `reload: [unit]`. Only a running unit is touched: a stopped or failed unit is left alone,
+  and the report says "skipped: not running". To bring a unit up, add a `systemd:` unit
+  entry with `state: up`.
+- **enable, disable, start and stop** belong to the `systemd:` unit entry (`enabled:`, `state:`), not to a file.
+- **`on_change`** runs a command of your own for anything else, such as `sysctl --system` or
+  `update-ca-certificates`: `on_change: [{name: apply sysctl, run: sysctl --system}]`. Both `name` and `run` are
+  required text and may use `{{ }}`.
+
+`daemon_reload`, `restart`, `reload` and `on_change` work on `content`, `template`, `line`, `block`, `edit` and `render`
+entries, not on `directory` or `link`. Triggers run once per host, after all the changes, in this order:
+daemon-reload first, then restarts and reloads, then `on_change` commands; within each group, in the order the
+entries changed. An identical trigger named by several entries
+runs once. A trigger only fires for an entry that changed and did not fail.
+
+Known limitation: a unit that was started in this same run is restarted once more when its config also changed.
+
+### Stopping or warning instead of skipping silently
+
+This is planning-time checking. The role file is checked when it is read (syntax, names, the facts), and a check's
+`when` is judged when a host is planned, from the options and the facts. Run-time protection is something else: it asks
+the host as it is right now. It is `validate:` on a file (a command run on the new file before it replaces the old
+one), `unless:` on a command, and the only-if-running test on restart and reload triggers.
+
+Nothing is skipped without a message, unless the setting itself says to skip. When a role leaves something out, or
+cannot do what a value asks for on this host, say so with `checks:`, a list of `{name?, when, level, message}`:
+
+- `info`: context the person may want (shown, does not matter to the outcome).
+- `warning`: something to look at (shown in yellow; the run goes on).
+- `error`: stops that host before anything is planned or applied, like any other error in the role.
+
+`when` is an expression and `message` may use `{{ }}`, both over the role's options and the facts `host`, `lab` and
+`applied`; they are checked when the role is read, including `host.<fact>` against the known host facts. A check can't
+look at the remote host, so protection that depends on the host's current state stays with `validate:`, `unless:` and
+the trigger checks. Notes show in both `run -c` and `run`, once per host and message.
+
+```yaml
+checks:
+  - name: ntp needs a zone
+    when: ntp and not timezone
+    level: error
+    message: "set a timezone together with ntp"
+  - when: host.container and ntp
+    level: warning
+    message: "{{ host.name }} is a container; its NTP comes from the Proxmox node"
+```
+
+`applied.origin.<option>` tells where this host's value came from: `lab`, `group <name>`, `type <name>`, `host <name>` or
+`OS default (<os>)`, with ` (override)` added when an `overrides:` entry set it, and an empty string when the option is
+unset. It works in `checks:`, `when:` and `{{ }}`. A role.yml (Python) role has no checks. The `time` and `hostname`
+entries on a container already say what they leave to the Proxmox node as `info` notes.

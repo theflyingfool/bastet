@@ -17,12 +17,22 @@ class ConflictError(BastetError):
     """Two sources want different things for the same item."""
 
 
+@dataclass(frozen=True)
+class Note:
+    """A message a role has for the person running it: `info` is context, `warning` is something to look at."""
+
+    level: str
+    role: str
+    message: str
+
+
 @dataclass
 class Batch:
     """Resources from one source (later: one role file), applied in order; a failure stops the rest of it."""
 
     name: str
     resources: list[Resource]
+    notes: list[Note] = field(default_factory=list)
 
 
 @dataclass
@@ -42,6 +52,7 @@ class TriggerRun:
     trigger: Trigger
     ok: bool
     error: str | None = None
+    skipped: bool = False  # its only_if failed (the unit wasn't running), so it didn't run
 
 
 @dataclass
@@ -191,19 +202,27 @@ def _still(c: FieldChange, secret: bool) -> str:
 FIX_TIMEOUT = 1800
 
 
-def _exec(runner, commands: list[str], root: bool, timeout: int, *, host: str, phase: str,
-          hidden: bool = False) -> tuple[bool, str | None]:
-    """Run a fix or trigger; a timeout or lost connection is a failure of this step, not of the whole run."""
+def _exec_status(runner, commands: list[str], root: bool, timeout: int, *, host: str, phase: str,
+                 hidden: bool = False) -> tuple[int | None, str | None]:
+    """Run commands; returns (exit status, error). The status is None when the commands could not run at all (a timeout
+    or lost connection), and the error is None when the status is 0."""
     shown = "(hidden: secret resource)" if hidden else "; ".join(commands)
     started = time.monotonic()
     try:
         res = runner.run(exec_script(commands, root=root, mark=new_mark()), timeout=timeout)
     except BastetError as e:
         _command_event(host, phase, shown, None, started, error=str(e), hidden=hidden)
-        return False, str(e)
+        return None, str(e)
     _command_event(host, phase, shown, res.returncode, started, hidden=hidden,
                    stdout="" if hidden else res.stdout, stderr="" if hidden else res.stderr)
-    return (True, None) if res.returncode == 0 else (False, _tail(res.stderr, res.returncode))
+    return res.returncode, (None if res.returncode == 0 else _tail(res.stderr, res.returncode))
+
+
+def _exec(runner, commands: list[str], root: bool, timeout: int, *, host: str, phase: str,
+          hidden: bool = False) -> tuple[bool, str | None]:
+    """Run a fix or trigger; a timeout or lost connection is a failure of this step, not of the whole run."""
+    status, error = _exec_status(runner, commands, root, timeout, host=host, phase=phase, hidden=hidden)
+    return status == 0, error
 
 
 def run_host(
@@ -295,6 +314,17 @@ def run_host(
                     if t not in pending:
                         pending.append(t)
         for t in sorted(pending, key=lambda t: t.order):  # phase 5
+            if t.only_if:
+                status, error = _exec_status(runner, [t.only_if], t.root, fix_timeout, host=host, phase="on_change")
+                if status is None:  # the probe itself failed (timeout, lost connection): the trigger failed
+                    error = f"{t.label}: couldn't check whether it is running: {error}"
+                    run.triggers.append(TriggerRun(t, False, error))
+                    events.emit("trigger_fired", host, trigger=t.label, ok=False, error=error)
+                    break
+                if status != 0:
+                    run.triggers.append(TriggerRun(t, True, skipped=True))
+                    events.emit("trigger_fired", host, trigger=t.label, ok=True, error=None, skipped="not running")
+                    continue
             ok, error = _exec(runner, [t.command], t.root, fix_timeout, host=host, phase="on_change")
             if ok and t.check:
                 for attempt in range(t.check_tries):

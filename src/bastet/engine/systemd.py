@@ -26,12 +26,13 @@ def _kv(text: str) -> dict[str, str]:
 
 
 def restart(unit: str, check: bool = True) -> Trigger:
-    return Trigger(f"restart {unit}", f"systemctl restart {_q(unit)}",
+    return Trigger(f"restart {unit}", f"systemctl restart {_q(unit)}", only_if=f"systemctl is-active --quiet {_q(unit)}",
                    check=f"systemctl is-active --quiet {_q(unit)}" if check else None)
 
 
 def reload(unit: str) -> Trigger:
-    return Trigger(f"reload {unit}", f"systemctl reload-or-restart {_q(unit)}")
+    return Trigger(f"reload {unit}", f"systemctl reload-or-restart {_q(unit)}",
+                   only_if=f"systemctl is-active --quiet {_q(unit)}")
 
 
 def daemon_reload() -> Trigger:
@@ -97,8 +98,15 @@ class Unit(Resource):
         return changes
 
     def fix(self, changes, current):
-        cmds = [] if current.get("exists") else ["systemctl daemon-reload"]
+        cmds = []
+        missing = not current.get("exists")
         for c in changes:
+            if missing and not cmds:
+                u = _q(self.name)
+                # a unit file written earlier in this run only becomes known after a reload
+                cmds.append("systemctl daemon-reload")
+                cmds.append(f"systemctl cat -- {u} >/dev/null 2>&1 || {{ echo \"unit {self.name} does not exist "
+                            f"(is the package that provides it installed, and does the role install it first?)\" >&2; exit 1; }}")
             if c.field == "enabled":
                 cmds.append(f"systemctl {'enable' if c.after else 'disable'} {_q(self.name)}")
             elif c.field == "state":

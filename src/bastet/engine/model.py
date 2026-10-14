@@ -37,6 +37,7 @@ class Trigger:
     check: str | None = None  # run after the command succeeds; must pass within check_tries tries
     check_tries: int = 5
     check_wait: float = 1.0
+    only_if: str | None = None  # must succeed for the trigger to run; when it fails the trigger is skipped, not failed
 
 
 @dataclass(frozen=True)

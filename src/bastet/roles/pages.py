@@ -33,8 +33,32 @@ def _cell(value: object) -> str:
     return str(value).replace("|", "\\|").replace("\n", " ")
 
 
+LONG_CHOICES = 20  # more allowed values than this are collapsed
+
+
+def _choices_text(opt: Option) -> str:
+    if not opt.choices:
+        return ""
+    values = _cell(", ".join(map(str, opt.choices)))
+    if len(opt.choices) > LONG_CHOICES:
+        return f" <details><summary>{len(opt.choices)} allowed values</summary>{values}</details>"
+    return f" (one of {values})"
+
+
+def _relations_text(opt: Option) -> str:
+    """What the option needs and what it can't be set with, for the Description cell."""
+    parts = []
+    if opt.requires:
+        needs = [n if want is None else f"{n}: {' or '.join(map(str, [str(v).lower() if isinstance(v, bool) else v for v in want]))}"
+                 for n, want in opt.requires.items()]
+        parts.append("needs " + ", ".join(needs))
+    if opt.conflicts:
+        parts.append("can't be set with " + ", ".join(opt.conflicts))
+    return _cell(f" ({'; '.join(parts)})") if parts else ""
+
+
 def _rows(name: str, opt: Option) -> list[str]:
-    extra = f" (one of {', '.join(map(str, opt.choices))})" if opt.choices else ""
+    extra = _choices_text(opt) + _relations_text(opt)
     rows = [f"| {name} | {_type_text(opt)} | {_cell(opt.default)} | {_cell(opt.description)}{extra} |"]
     inner = opt.items if opt.type in ("list", "map") else opt
     suffix = "[]" if opt.type == "list" else (".<name>" if opt.type == "map" else "")

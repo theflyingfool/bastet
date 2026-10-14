@@ -1,5 +1,8 @@
 from pathlib import Path
 
+import pytest
+
+from bastet.core.errors import BastetError
 from bastet.core.hosttypes import load_host_types
 from bastet.core.inventory import load_inventory
 from bastet.engine.systemd import Hostname, TimeSettings, Unit
@@ -29,14 +32,10 @@ def test_manage_hostname_true_manages_the_hostname():
     assert [type(r) for r in built({"manage_hostname": True})] == [Hostname]
 
 
-def test_rtc_local_set_explicitly_builds_time_settings():
-    (t,) = built({"rtc_local": False})
-    assert isinstance(t, TimeSettings) and t.rtc_local is False
-
-
-def test_a_timezone_alone_leaves_the_hardware_clock_alone():
-    (t,) = built({"timezone": "UTC"})
-    assert isinstance(t, TimeSettings) and t.timezone == "UTC" and t.rtc_local is None
+@pytest.mark.parametrize("option", ["timezone", "ntp", "ntp_service", "ntp_servers", "fallback_ntp_servers", "rtc_local"])
+def test_the_time_options_moved_to_the_time_role(option):
+    with pytest.raises(BastetError, match=f"systemd has no option '{option}'"):
+        check_values(ROLES["systemd"], {option: "UTC"}, "systemd")
 
 
 def test_a_fresh_arch_host_resolves_the_systemd_role_changing_nothing(tmp_path):
@@ -52,4 +51,4 @@ def test_a_fresh_arch_host_resolves_the_systemd_role_changing_nothing(tmp_path):
         p.write_text(text)
     inv = load_inventory(tmp_path, TYPES)
     (applied,) = [a for a in resolve(inv, inv.get("archdev"), TYPES, ROLES) if a.role.name == "systemd"]
-    assert applied.values["manage_hostname"] is False and applied.values["rtc_local"] is None
+    assert applied.values["manage_hostname"] is False

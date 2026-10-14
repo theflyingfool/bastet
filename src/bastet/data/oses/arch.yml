@@ -1,5 +1,7 @@
 name: arch
 description: Arch Linux and Arch-based systems
+# Arch comes with the systemd role only for its accounts: the systemd-* system users every Arch install has.
+# With no options the role changes nothing.
 roles:
   systemd: {}
 accounts: [bin, daemon, mail, ftp, http, nobody, dbus, tss, uuidd, _talkd]

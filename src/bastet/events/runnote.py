@@ -141,7 +141,7 @@ def _host_section(host: str, events: list[dict], detail: int) -> list[str]:
             command = d["command"] if len(d["command"]) <= MAX_COMMAND else d["command"][:MAX_COMMAND] + "…"
             lines.append(f"- `$ {command}` → {result} ({d['duration']:.1f}s)")
         elif kind == "trigger_fired" and d["ok"]:
-            lines.append(f"- trigger {d['trigger']} ✓")
+            lines.append(f"- trigger {d['trigger']} skipped: {d['skipped']}" if d.get("skipped") else f"- trigger {d['trigger']} ✓")
         elif kind == "note":
             lines.append(f"- {d['message']}")
     return lines

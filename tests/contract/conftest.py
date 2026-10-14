@@ -14,6 +14,16 @@ import pytest
 from bastet.core.remote import CommandResult
 
 HERE = Path(__file__).parent
+REAL_XDG_DATA_HOME = os.environ.get("XDG_DATA_HOME")
+
+
+@pytest.fixture(autouse=True)
+def _real_podman_storage(monkeypatch):
+    """The root conftest points XDG_DATA_HOME at a temp dir; rootless podman keeps its images and containers there."""
+    if REAL_XDG_DATA_HOME is None:
+        monkeypatch.delenv("XDG_DATA_HOME", raising=False)
+    else:
+        monkeypatch.setenv("XDG_DATA_HOME", REAL_XDG_DATA_HOME)
 IMAGE = "localhost/bastet-contract:debian-13"
 
 

@@ -8,14 +8,13 @@ from pathlib import Path
 
 from bastet.core.errors import BastetError
 from bastet.core.osdefaults import defaults_for
-from bastet.core.osinfo import ARCH_LIKE, os_id
+from bastet.core.osinfo import ARCH_LIKE, DEBIAN_LIKE, os_id
 from bastet.engine.command import Command
 from bastet.engine.files import Block, Directory, File, Line, Symlink
-from bastet.engine.model import Trigger
 from bastet.engine.packages import Package, Reboot, Unaccounted, Updates
 from bastet.engine.run import Batch
 from bastet.engine.security import ServiceExposure
-from bastet.engine.systemd import Hostname, Locale, TimeSettings, Unit, drop_in, reload, restart
+from bastet.engine.systemd import Hostname, Locale, Unit, drop_in, reload, restart
 from bastet.engine.templates import render_template
 from bastet.engine.users import AuthorizedKey, Group, UnaccountedUsers, User, sudoer
 from bastet.roles import declarative, system
@@ -23,7 +22,6 @@ from bastet.roles.baselines import baseline_for
 from bastet.roles.resolve import Applied
 
 ORDER = ("pacman", "packages", "base", "users", "files", "ssh", "harden", "systemd")  # repositories and pacman.conf before installs
-DEBIAN_LIKE = ("debian", "ubuntu", "proxmox", "raspbian", "mint")
 
 
 @dataclass
@@ -57,43 +55,6 @@ def _kw(values: dict) -> dict:
 
 def _systemd(v: dict, host: HostInfo) -> list[Batch]:
     res = []
-    service, ntp = v["ntp_service"], v["ntp"]
-    servers, fallback = tuple(v.get("ntp_servers") or ()), tuple(v.get("fallback_ntp_servers") or ())
-    if service == "keep" and (servers or fallback):
-        raise BastetError("systemd.ntp_servers needs ntp_service: timesyncd or chrony")
-    if service == "chrony" and fallback:
-        raise BastetError("systemd.fallback_ntp_servers only applies to timesyncd")
-    if (servers or fallback) and ntp is not True:
-        raise BastetError("systemd.ntp_servers needs ntp: true (otherwise the servers would never be used)")
-    if not host.container and service != "keep" and ntp is not None:
-        if service == "timesyncd":
-            unit, other = "systemd-timesyncd.service", "chronyd.service"
-            if ntp and host.debian_like:
-                res.append(Package(name="systemd-timesyncd"))
-            if ntp and (servers or fallback):
-                body = "[Time]\n" + (f"NTP={' '.join(servers)}\n" if servers else "") + \
-                    (f"FallbackNTP={' '.join(fallback)}\n" if fallback else "")
-                res.append(File(path="/etc/systemd/timesyncd.conf.d/bastet.conf", content=body, mode="0644",
-                                on_change=(restart(unit),)))
-        else:
-            unit, other = "chronyd.service", "systemd-timesyncd.service"
-            if ntp:
-                res.append(Package(name="chrony"))
-            if ntp and servers:
-                lines = "".join(f"server {s} iburst\n" for s in servers)
-                if host.debian_like:
-                    res.append(File(path="/etc/chrony/sources.d/bastet.sources", content=lines, mode="0644",
-                                    on_change=(Trigger("reload chrony sources", "chronyc reload sources"),)))
-                else:
-                    res.append(Block(path="/etc/chrony.conf", block=lines.rstrip("\n"), marker="bastet servers",
-                                     on_change=(restart(unit),)))
-        if ntp:
-            res.append(Unit(name=other, enabled=False, state="down"))
-        res.append(Unit(name=unit, enabled=bool(ntp), state="up" if ntp else "down"))
-    time = TimeSettings(timezone=v.get("timezone"), ntp=ntp if service == "keep" and not host.container else None,
-                        rtc_local=None if host.container else v.get("rtc_local"))
-    if time.timezone is not None or time.ntp is not None or time.rtc_local is not None:
-        res.append(time)
     if v.get("manage_hostname") and not host.container:
         res.append(Hostname(name=str(host.data.get("hostname") or host.name)))
     if v.get("locale") or v.get("keymap"):
@@ -259,9 +220,12 @@ def batches_for(applied: list[Applied], host: HostInfo) -> list[Batch]:
     for a in sorted(applied, key=lambda a: ORDER.index(a.role.name) if a.role.name in ORDER else len(ORDER)):
         if a.role.markdown:
             try:
-                batches += declarative.build(a.role, a.values, host, a.secret_options)
+                built = declarative.build(a.role, a.values, host, a.secret_options, a.origins)
             except (TypeError, ValueError, KeyError) as exc:
                 raise BastetError(f"{a.role.name}: {exc}") from None
+            if a.notes and built:
+                built[0].notes.extend(a.notes)
+            batches += built
             continue
         builder = BUILDERS.get(a.role.name)
         if builder is None:

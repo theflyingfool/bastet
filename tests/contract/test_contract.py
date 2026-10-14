@@ -133,7 +133,7 @@ def test_roles_contract(host):
                                               "keys": [KEY], "sudo": {"nopasswd": True}}}}),
         _applied("files", {"files": {"/etc/systemd/system/bastet-demo.service": {"content": DEMO_UNIT, "mode": "0644"}},
                            "directories": {"/srv/bastet": {"mode": "0750"}}}),
-        _applied("systemd", {"timezone": "America/Chicago", "locale": "en_US.UTF-8",
+        _applied("systemd", {"locale": "en_US.UTF-8",
                              "services": {"bastet-demo.service": {"enabled": True, "state": "up"}},
                              "dropins": [{"unit": "bastet-demo.service", "name": "bastet", "content": "[Service]\nNice=5\n"}]}),
     ], info)
