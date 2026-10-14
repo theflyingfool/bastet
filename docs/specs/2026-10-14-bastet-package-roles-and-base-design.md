@@ -152,6 +152,12 @@ Answered 2026-10-14 and removed: shared option key names (same as `packages`), t
 **Bastet is opinionated, but it tries to respect users choosing their own defaults most of the time.** Some roles install software or change settings just by being there; these are deliberate, the role's documentation says exactly what they do, and a note can turn them off. Listed here: `base` (tool list and `microcode: auto`), reflector's timer on Arch, optional dependencies on, `etc/pacman.d/mirrorlist` in `NoExtract`, always `-Syu` on Arch. Every other role waits for an option.
 
 When this design is approved:
-- CLAUDE.md's role paragraph (today: "must change nothing with no options") is rewritten around that principle, and the `bastet-new-role` skill's rule 1 is changed to match.
+- CLAUDE.md's role paragraph (today: "must change nothing with no options") is rewritten around that principle.
+- **Skills to change (checked against `.claude/skills/`):**
+  - `bastet-new-role`, rule 1 ("Unset means leave alone, and a default applied to every host must change nothing"): rewritten to the opinionated-defaults principle (an opinionated default is allowed when the role's documentation lists exactly what it does and a note can turn it off; the no-options test then asserts exactly that documented behaviour, not "emits nothing"). Its test pointer (`test_systemd_default_is_neutral.py`) stays for roles that do wait for an option.
+  - `bastet-new-role`, "Where it lives": the sentence that the old Python roles are "plus ssh/base/harden until converted" is wrong after the cleanup (they move to `refs/`; `base` returns as Markdown). Its opening line also lists `base`, `harden` and `ssh` among roles to write; update to what is left.
+  - `bastet-new-role`, new text: the `supersedes:` key, with a pointer to `docs/testing.md` for the tests.
+  - `bastet-run-plan`, review checklist line "Anything applied to every host by default must be neutral": changed to match the new principle (a default that changes a host must be one the role's docs list); and a pointer to `docs/testing.md` in the implementer rules.
+  - `run-bastet`: nothing in it refers to these roles; no change.
 - CLAUDE.md is tidied. Done 2026-10-14: the stray `4CLAUDE.md` (test-writing guardrails) now lives in `docs/testing.md`, linked from CLAUDE.md.
 - The roadmap has a test audit row.
