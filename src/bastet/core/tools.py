@@ -19,7 +19,7 @@ PACKAGES = {
 }
 INSTALL = {
     "apt-get": "apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends {pkgs}",
-    "pacman": "pacman -S --noconfirm --needed {pkgs}",
+    "pacman": "pacman -Syu --noconfirm --needed {pkgs}",
     "dnf": "dnf install -y {pkgs}",
     "zypper": "zypper --non-interactive install {pkgs}",
     "apk": "apk add {pkgs}",

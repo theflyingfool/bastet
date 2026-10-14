@@ -41,7 +41,7 @@ def test_smartmontools_only_with_real_drives():
 def test_install_scripts():
     apt = install_script("apt-get", ["dmidecode", "iproute2"])
     assert "apt-get install -y --no-install-recommends dmidecode iproute2" in apt and "apt-get update" in apt
-    assert "pacman -S --noconfirm --needed dmidecode" in install_script("pacman", ["dmidecode"])
+    assert "pacman -Syu --noconfirm --needed dmidecode" in install_script("pacman", ["dmidecode"])
     assert "dnf install -y iproute" in install_script("dnf", ["iproute2"])
     assert "sudo -n" in apt
     assert install_script("unknown-pm", ["dmidecode"]) is None

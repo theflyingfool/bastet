@@ -198,7 +198,7 @@ remove:
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| refresh | bool | true | Refresh the package index before installing (no effect on pacman) |
+| refresh | bool | true | Refresh the package index before installing. Arch: refreshes and upgrades the whole system together (-Syu); false installs with plain -S, which fails or half-upgrades when the sync database is stale |
 | install_recommends | bool |  | apt recommends / dnf weak deps / zypper recommends; unset = distro default |
 | full_upgrade | bool | false | Upgrade the whole system as part of installing (pacman -Syu, apt full-upgrade, …) |
 | default_release | string |  | apt only: install from this release (-t), e.g. trixie-backports |

@@ -180,7 +180,7 @@ class Package(Resource):
         release = f" -t {_q(first.default_release)}" if first.default_release else ""
         cmds.append({
             "apt-get": f"{apt} install -y -q{apt_rec}{release}{held}{' --allow-downgrades' if pinned else ''}{extra} -- {specs}",
-            "pacman": f"pacman {'-Syu' if first.full_upgrade else '-S'} --noconfirm --needed{extra} -- {specs}",
+            "pacman": f"pacman {'-Syu' if first.refresh or first.full_upgrade else '-S'} --noconfirm --needed{extra} -- {specs}",
             "dnf": f"dnf install -y -q{dnf_rec}{extra} -- {specs}",
             "zypper": f"zypper --non-interactive install{zyp_rec}{' --oldpackage' if pinned else ''}{extra} -- {specs}",
             "apk": f"apk add -q{extra} {specs}",

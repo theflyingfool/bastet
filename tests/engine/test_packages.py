@@ -64,7 +64,7 @@ def test_apt_install_group_is_one_command():
 
 
 @pytest.mark.parametrize("manager,query,install,remove", [
-    ("pacman", "tree 1-1", ["pacman -S --noconfirm --needed -- tree"], ["pacman -R --noconfirm -- tree"]),
+    ("pacman", "tree 1-1", ["pacman -Syu --noconfirm --needed -- tree"], ["pacman -R --noconfirm -- tree"]),
     ("dnf", "1-1", ["dnf makecache -q", "dnf install -y -q -- tree"], ["dnf remove -y -q -- tree"]),
     ("zypper", "1-1", ["zypper --non-interactive refresh", "zypper --non-interactive install -- tree"],
      ["zypper --non-interactive remove -- tree"]),
@@ -73,6 +73,17 @@ def test_apt_install_group_is_one_command():
 def test_other_managers(manager, query, install, remove):
     assert Package.fix_group(group(Package(name="tree"), manager=manager)) == install
     assert Package.fix_group(group(Package(name="tree", state="absent"), manager=manager, query=query)) == remove
+
+
+def test_pacman_refresh_false_keeps_a_plain_install():
+    assert Package.fix_group(group(Package(name="tree", refresh=False), manager="pacman")) == [
+        "pacman -S --noconfirm --needed -- tree"]
+
+
+def test_pacman_never_runs_sy_alone():
+    for refresh in (True, False):
+        [cmd] = Package.fix_group(group(Package(name="tree", refresh=refresh), manager="pacman"))
+        assert " -Sy " not in cmd and not cmd.startswith("pacman -Sy --")
 
 
 def test_purge_and_version_syntax():
