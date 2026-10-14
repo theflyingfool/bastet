@@ -227,7 +227,7 @@ from the main Caddyfile (no `import`). The fields are:
 | `name` | the site address (the hostname) and the file name |
 | `upstream` | `reverse_proxy <upstream>` (one `host:port`, or a list) |
 | `tls_skip_verify` | `transport http { tls_insecure_skip_verify }` inside `reverse_proxy` |
-| `allow` | `@denied not remote_ip <list>` and `respond @denied 403` (`[]` writes nothing) |
+| `allow` | `@denied not client_ip <list>` and `respond @denied 403` (`[]` writes nothing) |
 | `headers` | a `header_up` line per entry inside `reverse_proxy` |
 | `encode` | `encode zstd gzip` when `true` |
 | `extra` | raw text inside the site block |
@@ -236,6 +236,12 @@ A collected site also carries `host` (the exposing host) and `source` (the note 
 information. One Caddy never gets the same hostname twice: two sources for one name (collected or manual) are an error
 that names both. A site removed from the list leaves its file behind, because Bastet does not delete files yet; the role
 says so (info). The same hostname on two different Caddies is fine (split horizon).
+
+`allow` matches on `client_ip`: the address of whoever connects to Caddy, or, when this Caddy sits behind another proxy
+that is listed in `trusted_proxies`, the real visitor that proxy forwards. Without `trusted_proxies` it is the same as the
+connecting address, so a Caddy that is the first stop needs nothing extra; a Caddy behind another proxy should set
+`trusted_proxies` to that proxy's network, or the allow list would only ever see the proxy. The apps behind Caddy see the
+real address only if they trust the forwarded header (an app setting, not Caddy's).
 
 ## Defaults for sites
 

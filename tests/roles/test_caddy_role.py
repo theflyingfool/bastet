@@ -110,7 +110,7 @@ def test_two_sites_make_two_files_and_every_knob_is_written():
     assert sorted(p for p in files(resources) if p.startswith(CONF_D)) == [f"{CONF_D}/git.example.com.caddy", f"{CONF_D}/vault.example.com.caddy"]
     assert files(resources)[f"{CONF_D}/vault.example.com.caddy"].content == (
         "# Managed by Bastet (the caddy role); changes made here are overwritten.\nVault.example.com {\n"
-        "\t@denied not remote_ip 10.1.0.0/16 203.0.113.7\n\trespond @denied 403\n\tencode zstd gzip\n"
+        "\t@denied not client_ip 10.1.0.0/16 203.0.113.7\n\trespond @denied 403\n\tencode zstd gzip\n"
         "\treverse_proxy 10.1.0.7:8222 10.1.0.8:8222 {\n\t\ttransport http {\n\t\t\ttls_insecure_skip_verify\n\t\t}\n"
         "\t\theader_up \"X-Real-IP\" \"{remote_host}\"\n\t}\n\tlog\n}\n")
 
@@ -214,14 +214,14 @@ def with_defaults_site(site=None, defaults=None):
 
 def test_a_site_inherits_every_default_it_does_not_set():
     assert with_defaults_site() == (
-        HEADER + "a.example.com {\n\t@denied not remote_ip 10.1.0.0/16\n\trespond @denied 403\n\tencode zstd gzip\n"
+        HEADER + "a.example.com {\n\t@denied not client_ip 10.1.0.0/16\n\trespond @denied 403\n\tencode zstd gzip\n"
         "\treverse_proxy 10.1.0.5:80 {\n\t\ttransport http {\n\t\t\ttls_insecure_skip_verify\n\t\t}\n"
         "\t\theader_up \"X-A\" \"1\"\n\t\theader_up \"X-B\" \"2\"\n\t}\n\tlog\n}\n")
 
 
 @pytest.mark.parametrize(("site", "present", "absent"), [
     pytest.param({"allow": []}, [], ["@denied", "10.1.0.0/16"], id="an empty allow list drops the restriction"),
-    pytest.param({"allow": ["10.2.0.0/16"]}, ["remote_ip 10.2.0.0/16"], ["10.1.0.0/16"], id="a list replaces the default"),
+    pytest.param({"allow": ["10.2.0.0/16"]}, ["client_ip 10.2.0.0/16"], ["10.1.0.0/16"], id="a list replaces the default"),
     pytest.param({"encode": False}, [], ["encode"], id="false beats a true default"),
     pytest.param({"tls_skip_verify": False}, ["header_up"], ["tls_insecure_skip_verify"], id="false beats a true skip-verify"),
     pytest.param({"extra": ""}, ["\tlog\n"], [], id="an empty extra still gets the default's extra"),
@@ -288,5 +288,5 @@ def test_each_caddy_has_its_own_defaults_for_the_same_exposure(tmp_path):
         return files([r for b in batches_for(caddy, info) for r in b.resources])[f"{CONF_D}/media.example.com.caddy"].content
 
     public, internal = site("vps1"), site("lab1")
-    assert "remote_ip 203.0.113.7" in public and "encode zstd gzip" in public  # the exposure's own encode beats the default's false
-    assert "remote_ip" not in internal and "encode" not in internal
+    assert "client_ip 203.0.113.7" in public and "encode zstd gzip" in public  # the exposure's own encode beats the default's false
+    assert "client_ip" not in internal and "encode" not in internal

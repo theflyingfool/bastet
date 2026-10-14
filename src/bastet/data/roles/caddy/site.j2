@@ -17,7 +17,7 @@
 # Managed by Bastet (the caddy role); changes made here are overwritten.
 {{ item.name }} {
 {%- if allow %}
-	@denied not remote_ip {{ allow | join(" ") }}
+	@denied not client_ip {{ allow | join(" ") }}
 	respond @denied 403
 {%- endif %}
 {%- if encode is true %}
