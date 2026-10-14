@@ -8,9 +8,10 @@ Status: **active** · **superseded by D-xxx** · **deferred** (decided to do lat
 
 | ID | Date | Decision | Status |
 |---|---|---|---|
+| D-034 | 2026-10-14 | Default role notes: `packages` at the lab, `base` at the lab, every group and every host | active |
+| D-033 | 2026-10-14 | `packages` and `base` reach every managed host through the type files | superseded by D-034 |
 | D-032 | 2026-10-14 | First get to writing Markdown roles for the VPS; cleanup and destructive features come after | active |
 | D-031 | 2026-10-14 | Remove nothing that still works; only move the old roles to `refs/` and remove the AUR | active |
-| D-033 | 2026-10-14 | `packages` and `base` reach every managed host through the type files | active |
 | D-030 | 2026-10-14 | `packages` and `base` are shipped default roles | superseded by D-033 |
 | D-029 | 2026-10-14 | Bastet assumes SSH port 22 for now | active |
 | D-028 | 2026-10-14 | Debian and apt changes are deferred | deferred |
@@ -79,11 +80,13 @@ Reconstructed from documents after the fact, ordered by date (not interleaved wi
 
 ## Entries
 
+**D-034 · 2026-10-14 · Default role notes.** The lab gets `packages` and `base` role notes; every group (machine type, OS, custom) and every host gets a `base` note. A role is assigned the normal way, as a note in `_roles/`. They are written when the lab, host or copied group is created (`bastet init`, `bastet add host`, the gather group copy), from the role's `starter:`, and never overwrite an existing note. No migration. Replaces D-033 and D-030.
+
+**D-033 · 2026-10-14 · `packages` and `base` reach every managed host through the type files.** *Superseded by D-034:* it was a new mechanism the owner did not ask for; the owner wants the roles assigned as notes at each level.
+
 **D-032 · 2026-10-14 · First get to writing Markdown roles so the VPS can run; then clean up and add the destructive features.** The single biggest push is reaching the point where roles can be written in Markdown and the VPS comes up. Afterwards: go back through the current roles, clean up, and start adding the possibly destructive things (removal and the like) before going much further. Work not on that path is deferred or lowest priority.
 
 **D-031 · 2026-10-14 · Remove nothing that still works.** Apart from moving the unconverted roles to `refs/` and removing the AUR, working code is left alone; leftovers are listed in the roadmap as cleanup debt, not deleted. If a change needs a removal, ask first.
-
-**D-033 · 2026-10-14 · `packages` and `base` reach every managed host through the host type files' `roles:`,** the way the Arch OS file brings `systemd`. Existing mechanism, empty values (they never override a note), unmanaged types get nothing. Replaces D-030.
 
 **D-030 · 2026-10-14 · `packages` and `base` are shipped default roles.** *Superseded by D-033:* the owner did not want a new `defaults.yml`. Original text: a new file listed the roles every managed host gets, at a rank below the OS defaults.
 
