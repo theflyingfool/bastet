@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -40,6 +41,16 @@ class Applied:
     secret: bool = False  # at least one option resolve_refs() replaced with a decrypted secret value
     secret_options: frozenset[str] = frozenset()  # their names, so a Markdown role marks only what uses them
     notes: list[Note] = field(default_factory=list)  # info from the role's own `overrides:`, shown with its batch
+
+
+@dataclass
+class _State:
+    """A role on its way through resolve(): merged note values before supersedes, overrides and defaults."""
+    role: RoleDef
+    sources: list[Source]
+    merged: dict
+    origins: dict[str, str]
+    ranks: dict[str, tuple]  # per option, the highest rank of a note that set it
 
 
 def _links(value) -> list[str]:
@@ -166,6 +177,29 @@ def _cleared(opt: Option, value):
     return value
 
 
+def _apply_supersedes(states: dict[str, _State], roles: dict[str, RoleDef]) -> None:
+    """An option with `supersedes: role.option` that has a value sets the target's value: rank first, a tie to the
+    superseding role. A target role with no note of its own is applied with just that value."""
+    for name in sorted(states):
+        state = states[name]
+        for key, opt in state.role.options.items():
+            if opt.supersedes is None or state.merged.get(key) is None:
+                continue
+            target_name, target_key = opt.supersedes.split(".")
+            if target_name not in roles:
+                continue
+            target = states.setdefault(target_name, _State(roles[target_name], [], {}, {}, {}))
+            rank = state.ranks[key]
+            if target_key in target.merged and target.ranks[target_key] > rank:
+                continue
+            label = f"{state.origins[key]}, {name}"
+            target.merged[target_key] = copy.deepcopy(state.merged[key])
+            target.origins[target_key] = label
+            target.ranks[target_key] = rank
+            # a source of its own, one step above the note it came from, so the From column names the manager too
+            target.sources.append(Source(target_name, label, (*rank, 1), {target_key: state.merged[key]}))
+
+
 def _apply_overrides(source: Source, entries: list[tuple[str, dict]], ctx, file: Path | None) -> None:
     """Let each matching entry (listing order) replace the note's own value of its options, at the note's rank."""
     changed: set[str] = set()
@@ -221,6 +255,7 @@ def resolve(inv: Inventory, host: Document, types: dict[str, HostType], roles: d
             facts["lab"] = dict(inv.lab.data) if inv.lab else {}
         return facts
 
+    states: dict[str, _State] = {}
     for name, sources in sources_for(inv, host, types).items():
         role = roles.get(name)
         if role is None:
@@ -233,6 +268,7 @@ def resolve(inv: Inventory, host: Document, types: dict[str, HostType], roles: d
             _apply_overrides(s, check_overrides(role, s.overrides, s.label, file=file), facts_ctx, file)
         merged: dict = {}
         origins: dict[str, str] = {}
+        ranks: dict[str, tuple] = {}
         for rank in sorted({s.rank for s in sources}):
             level = [s for s in sources if s.rank == rank]
 
@@ -247,8 +283,13 @@ def resolve(inv: Inventory, host: Document, types: dict[str, HostType], roles: d
             for key in combined:
                 origins[key] = ", ".join(s.label + (" (override)" if key in s.overridden else "")
                                          for s in level if key in s.values)
+                ranks[key] = rank
         merged = {k: _cleared(role.options[k], v) for k, v in merged.items() if v is not None}
-        origins = {k: v for k, v in origins.items() if k in merged}
+        states[name] = _State(role, sources, merged, {k: v for k, v in origins.items() if k in merged}, ranks)
+    _apply_supersedes(states, roles)
+    for name in sorted(states):
+        state = states[name]
+        role, sources, merged, origins = state.role, state.sources, state.merged, state.origins
         notes = _apply_role_overrides(role, merged, origins, facts_ctx()) if role.overrides else []
         files = [s.doc.path if s.doc else s.file for s in sources if s.values]
         check_relations(role, merged, file=files[-1] if files else None)  # the notes' own values, before defaults

@@ -202,11 +202,17 @@ def resolved_table(applied: list[Applied]) -> str:
              "> What Bastet applies to this host, merged from every level (OS default, type, lab, groups, host). "
              "Don't edit it here: change the role files, and the next Bastet command refreshes this table.",
              "", "| Role | Option | Value | From |", "|---|---|---|---|"]
+    by_name = {a.role.name: a for a in applied}
     for a in applied:
         for key, opt in a.role.options.items():
-            value = a.values.get(key)
+            value, origin = a.values.get(key), None
+            if opt.supersedes:  # the effective value is the target's, whichever role set it
+                target_role, target_key = opt.supersedes.split(".")
+                target = by_name.get(target_role)
+                if target is not None and target.values.get(target_key) is not None and _from(target, target_key) != "default":
+                    value, origin = target.values[target_key], _from(target, target_key)
             if value is None:
                 continue
             lines.append(f"| {esc(f'[[{a.role.name} role|{a.role.name}]]')} | {key} | {esc(_fmt(opt, value))} | "
-                         f"{esc(_from(a, key))} |")
+                         f"{esc(origin or _from(a, key))} |")
     return "\n".join(lines) + "\n"
