@@ -1,7 +1,9 @@
 name: arch
 description: Arch Linux and Arch-based systems
-# Arch comes with the systemd role only for its accounts: the systemd-* system users every Arch install has.
-# With no options the role changes nothing.
+# Arch comes with two roles. systemd, for its accounts (the systemd-* system users every Arch install has), changes
+# nothing with no options. pacman is the package manager's own role; with no options it does what its docs list
+# (reflector and its timer, the mirrorlist in NoExtract, Color and ILoveCandy).
 roles:
   systemd: {}
+  pacman: {}
 accounts: [bin, daemon, mail, ftp, http, nobody, dbus, tss, uuidd, _talkd]

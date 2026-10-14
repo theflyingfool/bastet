@@ -83,3 +83,12 @@ def test_lab_group_and_host_notes_each_override_the_os_default(tmp_path, monkeyp
     assert applied.values["locale"] == "Asia/Tokyo" and applied.origins["locale"] == "group boxes"
     applied = systemd(lab(tmp_path, note("arch1", "America/Chicago", "hosts/arch1")), "arch1")
     assert applied.values["locale"] == "America/Chicago" and applied.origins["locale"] == "host arch1"
+
+
+def test_arch_hosts_get_pacman_as_the_os_default_and_others_do_not(tmp_path):
+    inv = lab(tmp_path)
+    for host, expected in (("arch1", True), ("manj1", True), ("deb1", False), ("plain1", False)):
+        found = [a for a in resolve(inv, inv.get(host), TYPES, load_roles()) if a.role.name == "pacman"]
+        assert bool(found) is expected
+        if found:
+            assert [s.label for s in found[0].sources] == ["OS default (arch)"]

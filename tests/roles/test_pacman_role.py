@@ -106,12 +106,12 @@ def test_a_value_option_must_be_one_non_empty_line(bad):
 
 
 def test_pacman_lines_run_before_the_packages_slot():
-    assert all(rank(r) < SLOTS.index("packages") for r in everything({}))
-    assert all(rank(r) < SLOTS.index("packages") for r in built({}))
+    assert all(rank(r) < SLOTS.index("packages") for r in everything({"reflector": False}))
+    assert all(rank(r) < SLOTS.index("packages") for r in built({"reflector": False}))
 
 
 def test_the_original_pacman_conf_is_backed_up_first():
-    [backup, block] = everything({})
+    [backup, block] = everything({"reflector": False})
     assert isinstance(backup, Command) and backup.run == f"cp -p {CONF} {CONF}.bastet-orig"
     assert rank(backup) <= rank(block)  # a tie runs in batch order, and the backup comes first
 
@@ -120,6 +120,6 @@ def test_the_backup_precedes_the_settings_in_run_order():
     from types import SimpleNamespace
 
     from bastet.engine.slots import apply_order
-    [batch] = batches_for([ap({})], arch())
+    [batch] = batches_for([ap({"reflector": False})], arch())
     ordered = [i.resource for i in apply_order([(batch.name, [SimpleNamespace(resource=r) for r in batch.resources])])]
     assert [type(r) for r in ordered] == [Command, Settings]

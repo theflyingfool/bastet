@@ -1,7 +1,7 @@
 ---
 bastet: role-definition
 name: pacman
-version: 0.1.0
+version: 0.2.0
 api: 0
 description: 'pacman''s own settings: every [options] setting in /etc/pacman.conf (Arch-based hosts; aim it at [[arch]]). Unset = leave pacman''s setting as it is. Settings you give are written in a Bastet block right after [options], and the original lines are commented out with `#bastet: `. Repositories are written in pacman''s own format (a block in /etc/pacman.conf, marked `bastet repo <name>`).'
 os:
@@ -194,6 +194,10 @@ options:
     key: UseSyslog
     section: options
     as: flag
+  reflector:
+    type: bool
+    default: true
+    description: 'Mirror list upkeep (a stopgap): installs reflector and starts reflector.timer, which refreshes the mirror list on its own schedule. While it is on, etc/pacman.d/mirrorlist is in NoExtract so a pacman-mirrorlist upgrade does not overwrite it. false does neither'
   repositories:
     type: list
     description: 'Extra pacman repositories, one marked block each at the end of /etc/pacman.conf, written before packages are installed'
@@ -250,6 +254,24 @@ examples:
         servers:
           - https://repo.example.net/$repo/os/$arch
         sig_level: Optional
+checks:
+- name: mirrorlist unprotected
+  when: reflector and no_extract is not none and 'etc/pacman.d/mirrorlist' not in no_extract
+  level: warning
+  message: 'no_extract is set without etc/pacman.d/mirrorlist while reflector is on: a pacman-mirrorlist upgrade can overwrite the mirror list reflector wrote. Add etc/pacman.d/mirrorlist to no_extract or set reflector: false'
+overrides:
+- when: reflector is not false and no_extract is none
+  no_extract:
+  - etc/pacman.d/mirrorlist
+packages:
+- name: reflector
+  when: reflector
+systemd:
+- kind: unit
+  name: reflector.timer
+  enabled: true
+  state: up
+  when: reflector
 files:
 - path: /etc/pacman.conf
   edit: ini
@@ -261,6 +283,21 @@ files:
 
 pacman's own settings: every [options] setting in /etc/pacman.conf (Arch-based hosts; aim it at [[arch]]). Unset = leave pacman's setting as it is. Settings you give are written in a Bastet block right after [options], and the original lines are commented out with `#bastet: `. Repositories are written in pacman's own format (a block in /etc/pacman.conf, marked `bastet repo <name>`).
 
+## What it does with no options
+
+On an Arch host with no options at all, this role does these things (turn each off as shown):
+
+- Installs `reflector` and enables and starts `reflector.timer` (`reflector: false` turns both off). Reflector is a
+  **stopgap**: nothing configures it (no `reflector.conf`), it runs with the package's own defaults on the timer's
+  schedule, and the role does not run it once at apply time.
+- Puts `etc/pacman.d/mirrorlist` in `NoExtract` (while reflector is on, and only if you set no `no_extract` yourself),
+  so a `pacman-mirrorlist` upgrade does not overwrite the list reflector wrote. If you set your own `no_extract` without
+  that path the role leaves the list as you wrote it and warns.
+- Writes `Color` and `ILoveCandy` (`color: false`, `candy: false` turn them off).
+
+Everything else is left as it is.
+
 ## Changes
 
+- 0.2.0: `reflector` (on by default): reflector and its timer, and the mirrorlist in `NoExtract`.
 - 0.1.0: converted from role.yml

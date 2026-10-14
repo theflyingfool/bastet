@@ -106,7 +106,12 @@ def test_unknown_host_name(runner, inventory):
     assert result.exit_code == 1 and "no host named 'nope'" in result.output
 
 
-def test_gather_then_apply_in_one_run_is_one_commit(runner, laptop):
+def test_gather_then_apply_in_one_run_is_one_commit(runner, laptop, monkeypatch):
+    # Arch comes with pacman, so the apply has real work now; this test is about the commit, not the host
+    import bastet.cli.run as run_mod
+    from bastet.engine.run import HostRun
+    monkeypatch.setattr(run_mod, "connect", lambda ctx, doc, tmp, yes: (object(), None))
+    monkeypatch.setattr(run_mod, "run_host",lambda runner_, host, batches, **kw: HostRun(host, kw.get("apply", False), []))
     before = int(git(laptop, "rev-list", "--count", "HEAD").strip())
     result = runner.invoke(app, ["run", "-g", "-a", "hp-13", "-y"])
     assert result.exit_code == 0, result.output

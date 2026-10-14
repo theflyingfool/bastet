@@ -296,6 +296,7 @@ repositories:
 | verbose_pkg_lists | bool |  | VerbosePkgLists: old and new versions in a table |
 | check_space | bool |  | CheckSpace: check disk space before installing |
 | use_syslog | bool |  | UseSyslog: log to syslog too |
+| reflector | bool | true | Mirror list upkeep (a stopgap): installs reflector and starts reflector.timer, which refreshes the mirror list on its own schedule. While it is on, etc/pacman.d/mirrorlist is in NoExtract so a pacman-mirrorlist upgrade does not overwrite it. false does neither |
 | repositories | list of object |  | Extra pacman repositories, one marked block each at the end of /etc/pacman.conf, written before packages are installed |
 | repositories[].name | string |  | Repository name, letters, digits and . _ + - |
 | repositories[].servers | list of string |  |  |
