@@ -294,3 +294,36 @@ def test_the_role_page_shows_what_the_role_collects(tmp_path):
     gate = demo_roles(tmp_path)["gate"]
     assert "Collects `proxy` exposures from other hosts' roles into `sites`" in role_page(gate, [])
     assert "into `sites`" in roles_markdown({"gate": gate})
+
+
+def test_a_domain_that_is_not_text_names_the_lab_note(tmp_path):
+    roles = demo_roles(tmp_path)
+    inv = lab(tmp_path, {"public": 5}, HOSTS, {"vps1/gate": {"serves": ["public"]}, "nas1/app": {"proxy": [{"subdomain": "m", "port": 1}]}})
+    with pytest.raises(BastetError, match=r"public.*domain name") as exc:
+        collect_all(inv, TYPES, roles)
+    assert exc.value.file.name == "Homelab.md" and exc.value.key == "domains"
+
+
+def test_a_bad_note_on_one_host_only_fails_that_host(tmp_path):
+    roles = demo_roles(tmp_path)
+    inv = lab(tmp_path, None, {**HOSTS, "pve1": {"ip": "10.1.0.8"}}, {
+        "vps1/gate": {"serves": ["public"]}, "nas1/app": {"proxy": [{"subdomain": "media", "port": 1}]},
+        "pve1/nothing": {"x": 1}})
+    assert names(sites_of(inv, roles, "vps1")) == [("media.example.com", "10.1.0.7:1", "nas1")]
+    assert collect(inv, inv.get("nas1"), TYPES, roles) == {}
+    with pytest.raises(BastetError, match="nothing"):
+        collect(inv, inv.get("pve1"), TYPES, roles)
+    with pytest.raises(BastetError, match="nothing"):
+        collect_all(inv, TYPES, roles)
+
+
+def test_a_same_host_proxy_needs_no_address(tmp_path):
+    roles = demo_roles(tmp_path)
+    hosts = {"vps1": {"ip": "dhcp"}, "lab1": {"ip": "10.1.0.6"}}
+    app = {"proxy": [{"subdomain": "wiki", "port": 3000}]}
+    inv = lab(tmp_path, None, hosts, {"vps1/gate": {"serves": ["public"]}, "vps1/app": app})
+    assert names(sites_of(inv, roles, "vps1")) == [("wiki.example.com", "127.0.0.1:3000", "vps1")]
+    other = lab(tmp_path, None, hosts, {"lab1/gate": {"serves": ["public"]}, "vps1/app": app}, name="other")
+    with pytest.raises(BastetError, match=r"address.*upstream") as exc:
+        collect_all(other, TYPES, roles)
+    assert exc.value.file.name == "app.md"

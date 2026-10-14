@@ -126,7 +126,12 @@ class Collector:
         exposing: list[tuple[Document, dict, Applied, int, dict]] = []
         for doc in self.inv.of_kind("host"):
             data = host_data(self.inv, doc, self.types)
-            for applied in resolve(self.inv, doc, self.types, self.roles):
+            try:
+                resolved = resolve(self.inv, doc, self.types, self.roles)
+            except BastetError as exc:  # concerns that host only: planning it raises its own error
+                scan.errors.append(({doc.name}, exc))
+                continue
+            for applied in resolved:
                 role = applied.role
                 if "proxy" in role.collects:
                     caddies.append(_Caddy(doc.name, applied, role.collects["proxy"], list(applied.values.get("serves") or [])))
@@ -208,7 +213,13 @@ class Collector:
         sub = self._clean(item.get("subdomain"))
         if not sub:
             return fail("needs a subdomain")
-        name = f"{sub}.{self._clean(domains[scope])}"
+        domain = self._clean(domains[scope])
+        if domain is None:
+            scan.errors.append(({doc.name}, BastetError(
+                f"{where}: the lab note's domains: {scope} must be a domain name, not {domains[scope]!r}",
+                file=self.inv.lab.path if self.inv.lab else None, key="domains")))
+            return
+        name = f"{sub}.{domain}"
         if item.get("via") is None:
             chosen = [c for c in caddies if scope in c.serves]
             if not chosen:
@@ -230,7 +241,7 @@ class Collector:
         upstream_given = item.get("upstream")
         if not upstream_given and item.get("port") is None:
             return fail("needs a port or an upstream")
-        if not upstream_given and not address:
+        if not upstream_given and not address and any(c.host != doc.name for c in chosen):
             return fail(f"{doc.name} has no address; set `upstream:` (host:port) for this exposure")
         for caddy in chosen:
             upstream = upstream_given or f"{SELF if caddy.host == doc.name else address}:{item['port']}"
